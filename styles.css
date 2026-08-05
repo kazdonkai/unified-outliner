@@ -1,0 +1,316 @@
+/**
+ * Unified Outliner: Outline Tree View — plugin-owned appearance.
+ *
+ * Background color, text color, and font size are intentionally NOT taken
+ * from Obsidian's own theme variables (--background-primary /
+ * --text-normal / --font-ui-small / etc.). This panel defines its own
+ * colors and font size, with separate built-in defaults for light and
+ * dark mode, so its appearance stays stable across whatever Obsidian
+ * theme the user has installed.
+ *
+ * These same variables are exposed to the Style Settings community plugin
+ * (https://github.com/community-archive/obsidian-style-settings) via the
+ * @settings block below, so users who have Style Settings installed can
+ * override background color, text color, highlighted-node color, muted
+ * text color (all independently per light/dark mode), and font size from
+ * its settings pane — no CSS snippet required. Users without Style
+ * Settings installed still get the light/dark defaults baked in below.
+ */
+
+/* @settings
+
+name: Unified Outliner
+id: unified-outliner
+settings:
+    -
+        id: uo-appearance-heading
+        title: Outline Tree View – Appearance
+        description: Colors and font size for the right-sidebar Outline Tree View panel. Color pickers apply separately to light and dark mode.
+        type: heading
+        level: 1
+        collapsed: false
+    -
+        id: uo-bg-color
+        title: Background Color
+        description: Background of the Outline Tree View panel.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#ffffff'
+        default-dark: '#1e1e22'
+    -
+        id: uo-text-color
+        title: Text Color
+        description: Color of heading labels in the tree.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#2e3338'
+        default-dark: '#dcddde'
+    -
+        id: uo-current-color
+        title: Highlighted Node Color
+        description: Color of the tree node that matches the body editor's current cursor position.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#5b57d1'
+        default-dark: '#a29bfe'
+    -
+        id: uo-muted-text-color
+        title: Muted Text Color
+        description: Color of secondary text, such as the empty-state message shown when no note is active.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#6c7086'
+        default-dark: '#8a8f98'
+    -
+        id: uo-list-text-color
+        title: List Item Text Color
+        description: Color of list item rows in the tree (Show list items in Outline Tree View). Separate from Muted Text Color so long, text-heavy lists stay easy to read even though list rows are still visually secondary to headings.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#454a52'
+        default-dark: '#c2c4c9'
+    -
+        id: uo-selected-bg-color
+        title: Keyboard Selection Background Color
+        description: Background of the row currently selected via keyboard navigation (Up/Down/Left/Right/Enter) while the Outline Tree View panel has focus. Separate from Highlighted Node Color, which tracks the body editor's cursor instead.
+        type: variable-themed-color
+        format: hex
+        opacity: false
+        default-light: '#e3e3f8'
+        default-dark: '#35335c'
+    -
+        id: uo-font-size
+        title: Font Size
+        description: Font size of heading labels in the tree.
+        type: variable-number-slider
+        default: 14
+        min: 10
+        max: 22
+        step: 1
+        format: px
+
+*/
+
+/* Built-in fallback defaults (always active; Style Settings, if present,
+ * overrides these — see note above). Kept separate from the Obsidian
+ * theme's own light/dark variables on purpose. */
+.theme-light {
+  --uo-bg-color: #ffffff;
+  --uo-text-color: #2e3338;
+  --uo-current-color: #5b57d1;
+  --uo-muted-text-color: #6c7086;
+  --uo-list-text-color: #454a52;
+  --uo-selected-bg-color: #e3e3f8;
+}
+
+.theme-dark {
+  --uo-bg-color: #1e1e22;
+  --uo-text-color: #dcddde;
+  --uo-current-color: #a29bfe;
+  --uo-muted-text-color: #8a8f98;
+  --uo-list-text-color: #c2c4c9;
+  --uo-selected-bg-color: #35335c;
+}
+
+.unified-outliner-outline-view {
+  padding: 4px 0;
+  background-color: var(--uo-bg-color);
+  color: var(--uo-text-color);
+  font-size: var(--uo-font-size, 14px);
+}
+
+/* Obsidian's own .tree-item* classes are still used for structure/layout
+ * (spacing, click targets, the collapse chevron) — only color and font
+ * size are overridden here, replacing what those classes would otherwise
+ * inherit from the active Obsidian theme. */
+.unified-outliner-outline-view .tree-item-self {
+  color: var(--uo-text-color);
+}
+
+.unified-outliner-tree-empty {
+  padding: 8px 12px;
+  color: var(--uo-muted-text-color);
+  font-size: 0.9em;
+}
+
+.unified-outliner-collapse-spacer {
+  visibility: hidden;
+}
+
+.unified-outliner-current > .tree-item-inner {
+  font-weight: 600;
+  color: var(--uo-current-color);
+}
+
+/* Keyboard navigation (post-Phase-4D): the row currently selected via
+ * Up/Down/Left/Right in the sidebar itself, distinct from
+ * .unified-outliner-current above (which tracks the BODY EDITOR's cursor).
+ * A background tint — rather than the text color/weight
+ * .unified-outliner-current uses — keeps the two signals visually
+ * distinguishable when both apply to the same row at once (e.g. right
+ * after pressing Enter). Only ever applied while the panel actually has
+ * DOM focus (see OutlineTreeView.ts's hasFocus field), so it never lingers
+ * as a second "current row" marker once focus moves to the body editor or
+ * elsewhere. */
+.unified-outliner-selected {
+  background-color: var(--uo-selected-bg-color);
+  border-radius: 4px;
+}
+
+/* Focus lives on the tree root itself (role="tree", aria-activedescendant
+ * points at the selected row) rather than per-row roving tabindex — see
+ * OutlineTreeView.ts's onOpen comment. The row-level background above is
+ * the visual focus indicator, so the browser's own outline around the
+ * whole panel is suppressed to avoid a second, redundant frame. */
+.unified-outliner-tree-root:focus {
+  outline: none;
+}
+
+/* Phase 3A: drag & drop indicators. Reuse --uo-current-color (already
+ * themeable, see @settings above) rather than introducing a separate
+ * drag-specific color — keeps the "moved to here" visual language
+ * consistent with the cursor-highlight color used elsewhere in the tree. */
+
+.unified-outliner-dragging {
+  opacity: 0.5;
+}
+
+/* before / after: a thin line at the top/bottom edge of the row. */
+.unified-outliner-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--uo-current-color);
+}
+
+.unified-outliner-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--uo-current-color);
+}
+
+/* inside: a tinted row + a left accent bar, visually distinct from the
+ * before/after edge-lines so "becomes a child" reads differently from
+ * "moves next to". Falls back to a plain rgba tint in browsers without
+ * color-mix() support (the second, invalid declaration is simply ignored
+ * and the first stands — standard CSS fallback behavior, not JS-detected). */
+.unified-outliner-drop-inside {
+  background-color: rgba(91, 87, 209, 0.25);
+  background-color: color-mix(in srgb, var(--uo-current-color) 25%, transparent);
+  box-shadow: inset 3px 0 0 0 var(--uo-current-color);
+}
+
+/* Phase 3B: Partial Edit Pane. Same plugin-owned colors/font-size as the
+ * Outline Tree View above (--uo-bg-color / --uo-text-color / --uo-font-size)
+ * — this pane is not exempt from the "don't inherit the Obsidian theme's
+ * own colors" policy just because it's a different view. */
+.unified-outliner-partial-edit-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  background-color: var(--uo-bg-color);
+  color: var(--uo-text-color);
+  font-size: var(--uo-font-size, 14px);
+}
+
+.unified-outliner-partial-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-outliner-partial-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* One-click close (added alongside Apply/Cancel so closing the pane
+ * doesn't require the right-click menu / tab context menu detour — see
+ * PartialEditView.ts's onOpen). Relies on Obsidian's own .clickable-icon
+ * styling (hover background, sizing) rather than plugin-owned colors, for
+ * the same reason the Outline Tree View's collapse chevron does: it's a
+ * small chrome affordance, not reading content, so it doesn't need to stay
+ * stable across Obsidian themes the way the pane's text/background do. */
+.unified-outliner-partial-edit-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.unified-outliner-partial-edit-textarea {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 200px;
+  resize: none;
+  box-sizing: border-box;
+  background-color: var(--uo-bg-color);
+  color: var(--uo-text-color);
+  font-size: var(--uo-font-size, 14px);
+  font-family: var(--font-monospace, monospace);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.unified-outliner-partial-edit-textarea:disabled {
+  opacity: 0.6;
+}
+
+/* Phase 3C: list nodes in the Outline Tree View (opt-in via
+ * settings.showListItemsInOutline). Deliberately understated relative to
+ * section rows — plain weight and slightly smaller font — so headings stay
+ * the visually dominant layer of the tree and list items read as detail
+ * rather than competing with them for attention. Indentation itself comes
+ * from Obsidian's own .tree-item-children nesting (the same mechanism
+ * child sections already use), not from any list-specific CSS here.
+ * Highlighting a list row reuses the existing .unified-outliner-current
+ * rule below unchanged, since that rule already targets any
+ * .tree-item-inner generically, regardless of section vs. list. */
+/* Phase 3C.1: text-overflow (not a fixed character count) keeps long list
+ * labels to one row while adapting automatically to the sidebar's current
+ * width, instead of over- or under-truncating at a fixed width. The full
+ * text is still available via Obsidian's own tooltip (setTooltip() in
+ * OutlineTreeView.ts's renderNode) on hover. */
+/* Phase 3C.2: list rows originally reused --uo-muted-text-color (the same
+ * color as the empty-state message), but real-world use with long,
+ * list-heavy notes showed that color reads as too faint to comfortably
+ * read at length — de-emphasis is appropriate relative to headings, but
+ * not to the point of hurting legibility for content the user actually
+ * wants to read. --uo-list-text-color is a separate, dedicated variable
+ * (still independently themeable via Style Settings, see @settings above)
+ * so it can be tuned for list-row legibility without also having to change
+ * the tone of genuinely secondary UI text like the empty-state message. */
+.unified-outliner-list-text {
+  color: var(--uo-list-text-color);
+  font-weight: 400;
+  font-size: 0.92em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Phase 4B follow-up: Obsidian's tooltip is center-aligned by default,
+ * which reads fine for a single short line but looks disconnected from the
+ * source Markdown once the tooltip spans multiple lines (see
+ * edit/listBodyRange.ts's doc comment for the full rationale, including
+ * why continuation lines are prefixed with an EM SPACE (U+2003) rather
+ * than styled via CSS indent). Scoped via setTooltip's `classes` option
+ * (OutlineTreeView.ts) so this never affects any other tooltip in
+ * Obsidian. */
+.tooltip.unified-outliner-list-tooltip {
+  text-align: left;
+}

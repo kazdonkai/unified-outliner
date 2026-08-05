@@ -1,0 +1,40 @@
+{
+  "name": "unified-outliner",
+  "version": "0.1.0",
+  "description": "Obsidian plugin for moving, reorganizing, and locally editing heading sections and list subtrees.",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kazdonkai/unified-outliner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kazdonkai/unified-outliner/issues"
+  },
+  "homepage": "https://github.com/kazdonkai/unified-outliner#readme",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy:dev": "npm run build && node scripts/deploy-dev.mjs"
+  },
+  "keywords": [
+    "obsidian",
+    "outliner"
+  ],
+  "author": {
+    "name": "kazdonkai",
+    "url": "https://github.com/kazdonkai"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@codemirror/language": "^6.12.4",
+    "@types/node": "^20.19.43",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.5",
+    "obsidian": "^1.13.1",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.1"
+  }
+}

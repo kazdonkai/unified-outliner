@@ -1,0 +1,14 @@
+# Dependencies and generated artifacts
+node_modules/
+main.js
+main.js.map
+*.tsbuildinfo
+coverage/
+.vitest/
+
+# Local and operating-system files
+.DS_Store
+.env
+.env.*
+!.env.example
+scratch_test.txt

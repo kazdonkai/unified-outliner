@@ -1,0 +1,67 @@
+name: Bug report
+description: Report an unexpected result in Unified Outliner
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Unified Outliner. Please remove personal or confidential note content before submitting.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Unified Outliner version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian version
+      placeholder: "1.x.x"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - iOS
+        - Android
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a note containing ...
+        2. Place the cursor on ...
+        3. Run the command ...
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Minimal sample Markdown
+      description: Use anonymized content only.
+      render: markdown
+  - type: textarea
+    id: details
+    attributes:
+      label: Other relevant details
+      description: Include console errors, theme, and other outliner or editor plugins if relevant.
