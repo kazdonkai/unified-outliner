@@ -4,9 +4,9 @@
 
 > Reorganize heading sections and list subtrees in an Obsidian note without losing sight of the surrounding structure.
 
-Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, inspect, and focus on heading sections and list subtrees through the editor, a dedicated Outline Tree View, and a focused Partial Edit Pane.
+Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, inspect, and focus on heading sections and list subtrees through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block.
 
-**Current version:** 0.1.0
+**Current version:** 0.1.2
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -29,28 +29,44 @@ Unified Outliner does not try to replace search, task managers, Dataview-style a
 
 ## Install
 
-### Install from a release
+### From Community Plugins (recommended)
 
-Unified Outliner is distributed through [GitHub Releases](https://github.com/kazdonkai/unified-outliner/releases). To install version 0.1.0 manually:
+1. In Obsidian, open **Settings → Community plugins → Browse**. Turn off Restricted mode if necessary.
+2. Search for **Unified Outliner**, select it, then choose **Install**.
+3. Enable **Unified Outliner** in **Settings → Community plugins**.
 
-1. Download these three files from the release page: `main.js`, `manifest.json`, and `styles.css`.
-2. In your vault, create this folder if it does not already exist:
+You can also open the [Unified Outliner Community Plugins page](https://community.obsidian.md/plugins/unified-outliner) in a browser.
+
+### Beta releases with BRAT
+
+Use [BRAT](https://github.com/TfTHacker/obsidian42-brat) when you want to test beta releases or recent development builds.
+
+1. Install and enable **Obsidian 42 - BRAT** from **Settings → Community plugins → Browse**.
+2. Open the Command Palette and run **BRAT: Add a beta plugin for testing**.
+3. Enter `https://github.com/kazdonkai/unified-outliner` and confirm the installation.
+4. Enable **Unified Outliner** in **Settings → Community plugins** after BRAT finishes.
+
+BRAT checks the repository for updates, so use it only when you are comfortable testing changes before a normal catalog release.
+
+### Direct download from GitHub Releases
+
+To install a specific release manually, download `main.js`, `manifest.json`, and `styles.css` from [GitHub Releases](https://github.com/kazdonkai/unified-outliner/releases).
+
+1. In your vault, create this folder if it does not already exist:
 
    ```text
    <your-vault>/.obsidian/plugins/unified-outliner/
    ```
 
-3. Copy all three downloaded files into that folder.
-4. Open Obsidian and go to **Settings → Community plugins**. Turn off Restricted mode if necessary, then enable **Unified Outliner**.
-5. Reload Obsidian if the plugin does not appear immediately.
-
-A Community Plugins catalog installation will be added after the plugin has completed Obsidian's review process. Until then, use the release-based installation above.
+2. Copy all three downloaded files into that folder.
+3. Open Obsidian and go to **Settings → Community plugins**, then enable **Unified Outliner**.
+4. Reload Obsidian if the plugin does not appear immediately.
 
 ### Update
 
-For a later release, replace the same three files in `<your-vault>/.obsidian/plugins/unified-outliner/`, then reload Obsidian. Keep a backup of your vault as part of your normal update routine.
+Community Plugins and BRAT manage their own updates. For a direct-download installation, replace the same three files in `<your-vault>/.obsidian/plugins/unified-outliner/`, then reload Obsidian. Keep a backup of your vault as part of your normal update routine.
 
-## Start here
+## Example outline note
 
 ![A structured Markdown note open in Obsidian](docs/images/structured-note-overview.png)
 
@@ -75,7 +91,7 @@ The Outline Tree View shows headings and, when enabled, list items beside the so
 
 Right-click a selected node to choose a structural action. The menu exposes block movement, indentation, node-only heading actions, and focused editing from the same place.
 
-### Focus on a selected subtree
+### Focus on and edit a selected block
 
 ![Focused editing pane for a selected outline subtree](docs/images/outline-edit-pane.png)
 
@@ -125,7 +141,7 @@ Use **Open partial edit pane for current section** from the Command Palette, or 
 
 The **Partial Edit Pane** opens the selected section or list subtree in a dedicated editor. Make your changes, then select **Apply** to write them back to the source note. If the source area changed after the pane opened, the pane protects the note by refusing to apply conflicting content. Reload the target and review the change instead of overwriting it.
 
-### Advanced: node-only heading actions
+### Node-only heading actions
 
 The commands **Move heading label up/down** and **Indent/Outdent heading level** change only the current heading line. They deliberately leave that heading's body and child sections where they are. Use them only when that is exactly the structure you intend; for ordinary reorganization, prefer the block commands.
 
@@ -152,7 +168,7 @@ Structural changes alter Markdown text. Keep normal vault backups and review an 
 
 ## Roadmap
 
-The next development focus is a more capable focused-editing workflow: hoist-like views, pop-out windows, breadcrumb navigation, and carefully expanded subtree editing. Callouts and Mermaid blocks will be addressed through explicit parsing and safety rules before structural mutation is enabled.
+The next development focus is a more capable focused-editing workflow: views that focus on part of a block (hoist), pop-out windows, breadcrumb navigation, and carefully expanded subtree editing. Callouts and Mermaid blocks will be addressed through explicit parsing and safety rules before structural mutation is enabled.
 
 See the concise [roadmap](ROADMAP.md) for later directions and deliberate non-goals.
 

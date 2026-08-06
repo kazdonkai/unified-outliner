@@ -4,9 +4,9 @@
 
 > Obsidianのノート内にある見出しセクションとリストの部分木を、周囲の構造を見失わずに再編成するためのプラグインです。
 
-Unified Outliner は、単一のMarkdownノート内で構造を編集するための [Obsidian](https://obsidian.md) プラグインです。見出しセクションとリストの部分木を、本文エディタ、専用の Outline Tree View、集中編集用の Partial Edit Pane から移動・レベル変更・閲覧・編集できます。
+Unified Outliner は、単一のMarkdownノート内で構造を編集するための [Obsidian](https://obsidian.md) プラグインです。見出しセクションとリストの部分木を、本文エディタ、専用の Outline Tree View、ブロックに焦点を当てて編集するための Partial Edit Pane から移動・レベル変更・閲覧・編集できます。
 
-**現行バージョン:** 0.1.0
+**現行バージョン:** 0.1.2
 
 **必要なObsidianのバージョン:** 1.8.7以上
 
@@ -29,28 +29,44 @@ Unified Outliner は、全文検索、タスク管理、Dataview型の集計、A
 
 ## インストール
 
-### Releaseから手動でインストールする
+### Community Plugins からインストールする（推奨）
 
-Unified Outliner は [GitHub Releases](https://github.com/kazdonkai/unified-outliner/releases) で配布しています。バージョン0.1.0を手動で導入する手順は次の通りです。
+1. Obsidianで **設定 → コミュニティプラグイン → 閲覧** を開きます。必要であれば制限モードを解除します。
+2. **Unified Outliner** を検索し、選択して **インストール** します。
+3. **設定 → コミュニティプラグイン** で **Unified Outliner** を有効にします。
 
-1. Releaseページから `main.js`、`manifest.json`、`styles.css` の3ファイルをダウンロードします。
-2. Vault内に次のフォルダがなければ作成します。
+ブラウザからは、[Unified Outliner の Community Plugins ページ](https://community.obsidian.md/plugins/unified-outliner)も開けます。
+
+### ベータ版を BRAT で導入する
+
+ベータ版や最近の開発版を試す場合は、[BRAT](https://github.com/TfTHacker/obsidian42-brat) を利用します。
+
+1. **設定 → コミュニティプラグイン → 閲覧** から **Obsidian 42 - BRAT** をインストールして有効にします。
+2. コマンドパレットで **BRAT: Add a beta plugin for testing** を実行します。
+3. `https://github.com/kazdonkai/unified-outliner` を入力し、導入を確定します。
+4. BRATの処理後、**設定 → コミュニティプラグイン** で **Unified Outliner** を有効にします。
+
+BRATはリポジトリの更新を確認します。通常のカタログ公開前の変更も試したい場合に利用してください。
+
+### GitHub Releases から直接ダウンロードする
+
+特定バージョンを手動で導入する場合は、[GitHub Releases](https://github.com/kazdonkai/unified-outliner/releases) から `main.js`、`manifest.json`、`styles.css` の3ファイルをダウンロードします。
+
+1. Vault内に次のフォルダがなければ作成します。
 
    ```text
    <あなたのVault>/.obsidian/plugins/unified-outliner/
    ```
 
-3. ダウンロードした3ファイルすべてを、そのフォルダにコピーします。
-4. Obsidianで **設定 → コミュニティプラグイン** を開きます。必要であれば制限モードを解除し、**Unified Outliner** を有効にします。
-5. すぐに表示されない場合は、Obsidianを再読み込みしてください。
-
-Obsidian Community Pluginsへの掲載は、審査完了後に追加します。それまでは、上記のReleaseからの導入を利用してください。
+2. ダウンロードした3ファイルすべてを、そのフォルダにコピーします。
+3. Obsidianで **設定 → コミュニティプラグイン** を開き、**Unified Outliner** を有効にします。
+4. すぐに表示されない場合は、Obsidianを再読み込みしてください。
 
 ### 更新する
 
-後続バージョンへ更新する場合は、`<あなたのVault>/.obsidian/plugins/unified-outliner/` にある同じ3ファイルを置き換え、Obsidianを再読み込みします。通常のVaultバックアップは、更新時にも保持してください。
+Community Plugins と BRAT は、それぞれ更新を管理します。直接ダウンロードした場合は、`<あなたのVault>/.obsidian/plugins/unified-outliner/` にある同じ3ファイルを置き換え、Obsidianを再読み込みします。通常のVaultバックアップは、更新時にも保持してください。
 
-## 最初に行うこと
+## アウトラインノートの例
 
 ![Obsidianで開いた構造化Markdownノート](docs/images/structured-note-overview.png)
 
@@ -119,13 +135,13 @@ Apply は、ペインを開いた時点の元の対象範囲が変更されて�
 - ノードを**折りたたむ／展開する**ことで、ツリー独自の表示状態を制御できます。この状態はファイルごとに保存され、開いている Outline Tree View 間で同期します。
 - 右クリックメニューから**文脈依存の操作**を使えます。折りたたまれたセクションは部分木として扱われ、展開されたセクションではノード単位の操作を選べます。
 
-### 一部分だけを集中編集する
+### 選択したブロックに焦点を当てて編集する
 
 コマンドパレットの **Open partial edit pane for current section** を実行するか、Outline Tree Viewの右クリックメニューから対応する項目を選びます。
 
 **Partial Edit Pane** には、選択した見出しセクションまたはリスト部分木だけが専用エディタとして開きます。編集後に **Apply** を選ぶと、元のノートへ反映されます。ペインを開いた後に元ノートの対象領域が変更された場合は、競合保護のため反映を停止します。この場合は対象を読み込み直し、変更内容を確認してから編集してください。
 
-### 上級者向け: 見出し行だけを操作する
+### 見出し行だけを操作する
 
 **Move heading label up/down** と **Indent/Outdent heading level** は、現在の見出し行だけを変更します。その見出しの本文や子セクションは移動しません。通常の再編成には block 系コマンドを使い、意図的に見出し行だけを変更したい場合に限って使用してください。
 
@@ -152,7 +168,7 @@ Outline Tree View の見た目は、[Style Settings](https://github.com/communit
 
 ## ロードマップ
 
-次の開発の中心は、より充実した集中編集の作業フローです。ホイストに相当する表示、ポップアウトウィンドウ、パンくずナビゲーション、部分木内で安全に行える編集範囲の拡張を予定しています。calloutとMermaidブロックについては、構造変更を有効にする前に明示的な解析・安全規則を整備します。
+次の開発の中心は、より充実したブロックに焦点を当てる編集の作業フローです。ブロックの一部にフォーカスする表示（ホイスト）、ポップアウトウィンドウ、パンくずナビゲーション、部分木内で安全に行える編集範囲の拡張を予定しています。calloutとMermaidブロックについては、構造変更を有効にする前に明示的な解析・安全規則を整備します。
 
 後続の方向性と、意図的に対象外とする機能は、簡潔な[ロードマップ](ROADMAP.ja.md)を参照してください。
 
