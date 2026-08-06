@@ -184,7 +184,6 @@ import {
   runTreeBlockCommand,
   TreeBlockCommandOptions,
 } from "../tree/treeBlockCommand";
-import { runTreeNodeOnlyCommand } from "../tree/treeNodeOnlyCommand";
 import { runTreeContextualCommand } from "../tree/treeContextualCommand";
 import { TreeStructureOperation } from "../tree/treeOperation";
 import { canDropOn, DropMode, relocateSection } from "../move/relocateSection";
@@ -214,6 +213,23 @@ export const OUTLINE_TREE_VIEW_TYPE = "unified-outliner-outline-tree";
  * other consumer of the editor state sees.
  */
 const outlineTreeFoldOrigin = Annotation.define<true>();
+
+/**
+ * Reaches into an Obsidian `Editor` to retrieve its underlying CM6
+ * `EditorView`, via the `.cm` property Obsidian's Editor wrapper exposes —
+ * an unofficial but extremely long-stable convention across the plugin
+ * ecosystem, not part of obsidian.d.ts (see scrollLineToTop below for the
+ * full rationale on why this is the sanctioned way to interoperate with
+ * CM6). Centralized here (instead of repeating the cast at each call site)
+ * so there is exactly one `unknown`-mediated cast in this file to review;
+ * every caller still gets `EditorView | undefined` and must handle the
+ * `undefined` case explicitly (the private `.cm` field could in principle
+ * be renamed/removed by a future Obsidian version).
+ */
+function getEditorCmView(editor: Editor): EditorView | undefined {
+  const withCm = editor as unknown as { cm?: EditorView };
+  return withCm.cm;
+}
 
 export class OutlineTreeView extends ItemView {
   private treeRootEl!: HTMLElement;
@@ -542,7 +558,7 @@ export class OutlineTreeView extends ItemView {
     // defensively here too rather than relying on that).
     if (node.range.endLine <= node.range.startLine) return;
 
-    const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+    const cm = getEditorCmView(view.editor);
     if (!cm) return;
 
     // CM6's Text.line() is 1-indexed; this codebase's line numbers (and
@@ -782,11 +798,26 @@ export class OutlineTreeView extends ItemView {
    * trees. Letting the browser's own paint/layout cycle settle first (one
    * rAF tick, imperceptible — well under a frame) avoids that stall
    * without changing the visible behavior at all.
+   *
+   * Scheduled via `this.treeRootEl.win.requestAnimationFrame` rather than
+   * the bare/global `requestAnimationFrame` — Obsidian augments every
+   * HTMLElement with a `.win` property that is the Window that actually
+   * owns that element's document (see obsidian.d.ts; this is the same
+   * distinction the platform's own `activeWindow`/`activeDocument`
+   * globals exist for: "usually the same as `window`, but will be
+   * different when using popout windows"). When this Outline Tree View's
+   * leaf has been moved to a popout window, `this.treeRootEl` lives in
+   * that popout's document — scheduling against the wrong window's paint
+   * cycle would tie this callback to a window that isn't the one actually
+   * being redrawn, which is exactly the popout-compatibility bug this
+   * distinction exists to prevent. Reading `.win` off the element itself
+   * (rather than, say, `activeWindow`) also keeps this correct even if
+   * the popout isn't the currently-focused window when the frame fires.
    */
   private scrollSelectedIntoView(): void {
     const targetId = this.selectedId;
     if (!targetId) return;
-    requestAnimationFrame(() => {
+    this.treeRootEl.win.requestAnimationFrame(() => {
       if (this.selectedId !== targetId) return; // superseded by a newer navigation
       const rowEl = this.treeRootEl.querySelector<HTMLElement>(
         `#unified-outliner-row-${CSS.escape(targetId)}`
@@ -1039,7 +1070,7 @@ export class OutlineTreeView extends ItemView {
    * that private property is renamed/removed in a future Obsidian version.
    */
   private scrollLineToTop(editor: Editor, line: number): void {
-    const cm = (editor as unknown as { cm?: EditorView }).cm;
+    const cm = getEditorCmView(editor);
     if (!cm) {
       const lineLength = editor.getLine(line)?.length ?? 0;
       editor.scrollIntoView(
@@ -1160,7 +1191,12 @@ export class OutlineTreeView extends ItemView {
       item
         .setTitle("Open partial edit pane")
         .setIcon("edit-3")
-        .onClick(() => this.plugin.activatePartialEditView(sectionId))
+        // void: onClick doesn't await its callback's return value, and
+        // activatePartialEditView already catches its own failures
+        // internally (see its doc comment in main.ts) and reports them
+        // via Notice, so this is an intentional non-await, not a
+        // suppressed error path.
+        .onClick(() => void this.plugin.activatePartialEditView(sectionId))
     );
 
     menu.showAtMouseEvent(evt);
@@ -1202,7 +1238,11 @@ export class OutlineTreeView extends ItemView {
         .setIcon(feasible ? "edit-3" : OutlineTreeView.UNAVAILABLE_ICON)
         .setDisabled(!feasible)
         .setWarning(!feasible)
-        .onClick(() => this.plugin.activatePartialEditView(listId))
+        // void: same rationale as the "Open partial edit pane" item
+        // above — onClick doesn't await its callback, and
+        // activatePartialEditView already reports its own failures via
+        // Notice internally.
+        .onClick(() => void this.plugin.activatePartialEditView(listId))
     );
     menu.showAtMouseEvent(evt);
   }
@@ -1506,7 +1546,7 @@ function resolveOwningLeaf(
   for (const leaf of plugin.app.workspace.getLeavesOfType("markdown")) {
     const view = leaf.view;
     if (!(view instanceof MarkdownView)) continue;
-    const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+    const cm = getEditorCmView(view.editor);
     if (cm !== cmView) continue;
     if (!view.file) return null;
     return { leaf, file: view.file };

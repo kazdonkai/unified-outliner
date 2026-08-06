@@ -135,14 +135,27 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       (leaf) => new OutlineTreeView(leaf, this)
     );
 
+    // `void` here (and at the other addCommand callback below, and at
+    // openPartialEditForCursor's call to activatePartialEditView) is a
+    // deliberate marker, not a suppression: Obsidian's addRibbonIcon /
+    // addCommand callback types don't await whatever they return, so
+    // there is no caller to `await` this from — but activateOutlineTreeView
+    // is still `async` (it awaits leaf.setViewState internally), so an
+    // un-marked call here would be a floating Promise whose rejection
+    // (if setViewState ever throws) goes unhandled. activateOutlineTreeView
+    // itself now catches its own failures internally (see its try/catch
+    // below) and reports them via Notice, so this call can never actually
+    // reject in practice; `void` simply documents at the call site that
+    // the returned Promise is intentionally not awaited, for readers and
+    // for lint rules like no-floating-promises.
     this.addRibbonIcon("list-tree", "Open Unified Outliner outline", () => {
-      this.activateOutlineTreeView();
+      void this.activateOutlineTreeView();
     });
 
     this.addCommand({
       id: "open-outline-tree-view",
       name: "Open outline tree view",
-      callback: () => this.activateOutlineTreeView(),
+      callback: () => void this.activateOutlineTreeView(),
     });
 
     // Phase 3B: Partial Edit Pane — a focused, explicit-save editing view
@@ -301,13 +314,30 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * leaf of this view type if one is already open anywhere (per-workspace,
    * not per-window) rather than creating a duplicate. Creates a new leaf
    * in the right sidebar (`getRightLeaf(false)`) only when none exists.
+   *
+   * Both `setViewState` AND `workspace.revealLeaf` (also `Promise<void>`
+   * per Obsidian's type definitions) are awaited inside try/catch, on
+   * both the "reuse an existing leaf" and "create a new leaf" paths, so
+   * this method itself never rejects: its two callers (the ribbon icon
+   * and the "open-outline-tree-view" command, both above) are Obsidian UI
+   * callbacks with nothing to `await` their Promise or catch a rejection
+   * from — leaving either call un-awaited would risk an unhandled
+   * rejection even though the caller never sees it via this method's own
+   * return value. Reporting it via Notice (plus console.error for the
+   * stack trace) matches how the "no right sidebar" case just above is
+   * already surfaced to the user.
    */
   async activateOutlineTreeView(): Promise<void> {
     const { workspace } = this.app;
 
     const existing = workspace.getLeavesOfType(OUTLINE_TREE_VIEW_TYPE);
     if (existing.length > 0) {
-      workspace.revealLeaf(existing[0]);
+      try {
+        await workspace.revealLeaf(existing[0]);
+      } catch (error) {
+        console.error("Unified Outliner: failed to open the outline tree view.", error);
+        new Notice("Unified Outliner: could not open the outline tree view.");
+      }
       return;
     }
 
@@ -316,8 +346,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       new Notice("Unified Outliner: could not open the right sidebar.");
       return;
     }
-    await leaf.setViewState({ type: OUTLINE_TREE_VIEW_TYPE, active: true });
-    workspace.revealLeaf(leaf);
+    try {
+      await leaf.setViewState({ type: OUTLINE_TREE_VIEW_TYPE, active: true });
+      await workspace.revealLeaf(leaf);
+    } catch (error) {
+      console.error("Unified Outliner: failed to open the outline tree view.", error);
+      new Notice("Unified Outliner: could not open the outline tree view.");
+    }
   }
 
   /**
@@ -349,6 +384,16 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    *    sidebar (typically the Outline Tree View), not as another tab in
    *    the same leaf — per explicit feedback that a shared tab made it
    *    impossible to see the tree and the edit pane at the same time.
+   *
+   * Like activateOutlineTreeView above, both `setViewState` (new-leaf path
+   * only) and `workspace.revealLeaf` (also `Promise<void>` per Obsidian's
+   * type definitions, common to both the existing-leaf and new-leaf
+   * paths) are awaited inside try/catch, so this method never rejects:
+   * its callers — openPartialEditForCursor below (an editorCallback) and
+   * OutlineTreeView.ts's context-menu click handlers — don't await or
+   * catch a rejection from it, so leaving either call un-awaited would
+   * risk an unhandled rejection instead of the same user-facing Notice
+   * every other failure path in this method already uses.
    */
   async activatePartialEditView(nodeId: string): Promise<void> {
     const { workspace } = this.app;
@@ -366,10 +411,22 @@ export default class UnifiedOutlinerPlugin extends Plugin {
         return;
       }
       leaf = newLeaf;
-      await leaf.setViewState({ type: PARTIAL_EDIT_VIEW_TYPE, active: true });
+      try {
+        await leaf.setViewState({ type: PARTIAL_EDIT_VIEW_TYPE, active: true });
+      } catch (error) {
+        console.error("Unified Outliner: failed to open the partial edit pane.", error);
+        new Notice("Unified Outliner: could not open the partial edit pane.");
+        return;
+      }
     }
 
-    workspace.revealLeaf(leaf);
+    try {
+      await workspace.revealLeaf(leaf);
+    } catch (error) {
+      console.error("Unified Outliner: failed to open the partial edit pane.", error);
+      new Notice("Unified Outliner: could not open the partial edit pane.");
+      return;
+    }
     if (leaf.view instanceof PartialEditView) {
       leaf.view.loadNode(nodeId);
     }
@@ -400,7 +457,12 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       return;
     }
 
-    this.activatePartialEditView(resolved.node.id);
+    // See activatePartialEditView's doc comment: it now catches its own
+    // failures internally and reports them via Notice, so this floating
+    // call (editorCallback has nothing to await it from) can no longer
+    // produce an unhandled rejection; `void` documents that at the call
+    // site.
+    void this.activatePartialEditView(resolved.node.id);
   }
 
   private moveCurrentBlock(editor: Editor, direction: MoveDirection): void {

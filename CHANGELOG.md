@@ -4,6 +4,20 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-06
+
+### Fixed
+
+- Handled Outline Tree View and Partial Edit Pane activation failures without leaking unhandled promise rejections from UI callbacks.
+- Used the owning window's animation frame scheduler for popout-compatible Outline Tree scrolling.
+
+### Changed
+
+- Declared direct CodeMirror development dependencies and updated the build-only `builtin-modules` dependency.
+- Consolidated the internal CodeMirror view lookup used by Outline Tree scrolling and leaf resolution.
+- Removed an unused Outline Tree import while preserving the contextual command path.
+- Updated the English and Japanese installation guides for Community Plugins, BRAT beta installs, and direct GitHub Release downloads.
+
 ## [0.1.2] - 2026-08-06
 
 ### Fixed
