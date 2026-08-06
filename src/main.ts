@@ -209,17 +209,47 @@ export default class UnifiedOutlinerPlugin extends Plugin {
   }
 
   onunload(): void {
-    this.app.workspace.detachLeavesOfType(OUTLINE_TREE_VIEW_TYPE);
-    this.app.workspace.detachLeavesOfType(PARTIAL_EDIT_VIEW_TYPE);
-
+    // Deliberately NOT calling detachLeavesOfType(OUTLINE_TREE_VIEW_TYPE) /
+    // detachLeavesOfType(PARTIAL_EDIT_VIEW_TYPE) here anymore. Per the
+    // Obsidian Community Plugins review guidance, detaching a plugin's own
+    // leaves in onunload() resets them to their default location the next
+    // time the plugin loads, even if the user had moved that leaf
+    // elsewhere (a different sidebar, a split, a popout window) — because
+    // the leaf itself is destroyed, so there is nothing left for onload()
+    // to reconnect to; activateOutlineTreeView() / activatePartialEditView()
+    // would then have no choice but to create a brand-new leaf in the
+    // default right-sidebar location on next open.
+    //
+    // Leaving the leaves alone is safe: `registerView()` above already
+    // registers its own unregister-on-unload cleanup via the Component
+    // base class's `register()` (see Obsidian's Plugin/Component API —
+    // "Registers a callback to be called when unloading"), so the view
+    // TYPE is still correctly unregistered when this plugin unloads;
+    // nothing here needs to duplicate that. The leaf itself simply keeps
+    // showing whatever it last rendered while the plugin is disabled
+    // (the same "persist like any other sidebar leaf" approach this file
+    // already uses for the Partial Edit Pane — see the onLayoutReady note
+    // above). When the plugin is re-enabled (or Obsidian reloads it), the
+    // same view type is registered again and Obsidian reconstructs a
+    // fresh view for that SAME leaf in its SAME position via the
+    // registered view factory — the leaf was never destroyed, so there is
+    // nothing to duplicate. activateOutlineTreeView() and
+    // activatePartialEditView() also each reuse an existing leaf of their
+    // view type (see their `existing.length > 0` checks) rather than
+    // creating a new one, so re-opening the panel manually after a
+    // disable/enable cycle can't produce a duplicate leaf either.
+    //
     // Phase 4E: best-effort flush of any fold-state mutation still sitting
     // inside the debounce window (e.g. the user toggled a fold right
     // before disabling the plugin / quitting Obsidian). onunload() is
     // synchronous per Obsidian's API, so this can't be awaited here — a
     // fire-and-forget call is the most this hook can do, same caveat as
     // any plugin's onunload persistence. Each OutlineTreeView.onClose()
-    // also flushes (see that class), which covers the more common case of
-    // closing just the tab rather than the whole plugin/app.
+    // also flushes (see that class) for the more common case of closing
+    // just the tab rather than the whole plugin/app; this call is the
+    // only flush attempt left for the plugin-disable path now that this
+    // hook no longer detaches (and therefore no longer closes) those
+    // leaves itself.
     void this.foldStateManager.flush();
   }
 

@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-06
+
+### Fixed
+
+- Preserved user-positioned Outline Tree View and Partial Edit Pane leaves when the plugin unloads, rather than detaching them and resetting their workspace location on the next load.
+
 ## [0.1.1] - 2026-08-06
 
 ### Changed
