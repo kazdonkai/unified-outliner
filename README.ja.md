@@ -71,7 +71,7 @@ Obsidian Community Pluginsへの掲載は、審査完了後に追加します。
 
 Outline Tree View には、見出しと、設定で有効にした場合のリスト項目が、元ノートの横に表示されます。ノードを選ぶと対応する本文位置へ移動し、本文の現在位置もツリーに反映されます。
 
-![選択したツリーノードのコンテキストメニュー](docs/images/outline-context-menu.png)
+<p align="center"><img src="docs/images/outline-context-menu.png" alt="選択したツリーノードのコンテキストメニュー" width="560"></p>
 
 選択したノードを右クリックすると、構造操作を選べます。同じメニューから、block単位の移動、インデント、見出し行だけの操作、集中編集を実行できます。
 

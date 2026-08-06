@@ -71,7 +71,7 @@ Enable **Show list items in Outline Tree View** in the plugin settings when you 
 
 The Outline Tree View shows headings and, when enabled, list items beside the source note. Selecting a node locates its matching text, while the current editor position is reflected in the tree.
 
-![Context menu for a selected tree node](docs/images/outline-context-menu.png)
+<p align="center"><img src="docs/images/outline-context-menu.png" alt="Context menu for a selected tree node" width="560"></p>
 
 Right-click a selected node to choose a structural action. The menu exposes block movement, indentation, node-only heading actions, and focused editing from the same place.
 
