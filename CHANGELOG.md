@@ -4,12 +4,13 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-06
+
 ### Changed
 
-- Added the release compatibility map in `versions.json`.
-- Added repository metadata to `package.json`.
-- Split the README into separate English and Japanese documents, with English as the default entry point.
-- Corrected the documented Phase 4F status, test count, fold-state reference, and development deployment instructions.
+- Updated manifest and package metadata to meet Community Plugins submission requirements.
+- Added English and Japanese user guides, screenshots, and short video walkthroughs.
+- Added `versions.json` and repository metadata for release compatibility and traceability.
 
 ## [0.1.0] - 2026-08-05
 
@@ -24,5 +25,5 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ### Notes
 
-- This is an internal development baseline. It has not been published as a GitHub Release or submitted to the Obsidian Community Plugins directory.
+- This is the initial public release of Unified Outliner.
 - Callout, Mermaid, and table blocks are not supported as structural editing targets at this version.

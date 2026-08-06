@@ -1,7 +1,7 @@
 {
   "name": "unified-outliner",
-  "version": "0.1.0",
-  "description": "Obsidian plugin for moving, reorganizing, and locally editing heading sections and list subtrees.",
+  "version": "0.1.1",
+  "description": "Move, reorganize, and locally edit heading sections and list subtrees.",
   "main": "main.js",
   "repository": {
     "type": "git",

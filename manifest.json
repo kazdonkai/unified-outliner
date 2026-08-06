@@ -1,9 +1,9 @@
 {
   "id": "unified-outliner",
   "name": "Unified Outliner",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.8.7",
-  "description": "Move, reorganize, and locally edit heading sections and list subtrees in Obsidian.",
+  "description": "Move, reorganize, and locally edit heading sections and list subtrees.",
   "author": "kazdonkai",
   "authorUrl": "https://github.com/kazdonkai",
   "isDesktopOnly": false
