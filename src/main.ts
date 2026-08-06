@@ -24,6 +24,7 @@ import {
   UnifiedOutlinerSettings,
   UnifiedOutlinerSettingTab,
 } from "./settings";
+import { mergeSettings } from "./settingsDefaults";
 
 export default class UnifiedOutlinerPlugin extends Plugin {
   settings: UnifiedOutlinerSettings = { ...DEFAULT_SETTINGS };
@@ -608,14 +609,16 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * (flat top-level fields, unchanged shape/location since the MVP — see
    * settings.ts) and the Phase 4E `foldState` key (nested, handed to
    * foldStateManager.load() as-is; that method is responsible for
-   * validating/defaulting it). Splitting `foldState` out BEFORE the
-   * Object.assign into `settings` keeps it from leaking into the
-   * `UnifiedOutlinerSettings`-shaped object as a stray extra property.
+   * validating/defaulting it). Splitting `foldState` out BEFORE merging
+   * into `settings` (via settingsDefaults.ts's mergeSettings, a pure
+   * Object.assign-over-DEFAULT_SETTINGS helper — see its doc comment)
+   * keeps it from leaking into the `UnifiedOutlinerSettings`-shaped
+   * object as a stray extra property.
    */
   async loadSettings(): Promise<void> {
     const raw = ((await this.loadData()) ?? {}) as Record<string, unknown>;
     const { foldState, ...settingsRaw } = raw;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, settingsRaw);
+    this.settings = mergeSettings(settingsRaw);
     this.foldStateManager.load(foldState);
   }
 

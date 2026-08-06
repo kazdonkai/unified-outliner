@@ -53,7 +53,10 @@ export function parseDocument(text: string): ParsedDocument {
   const frontmatterLines = new Array<boolean>(n).fill(false);
   const nodes = new Map<string, BlockNode>();
   const topLevelIds: string[] = [];
-  const lineToOwningNodeId: (string | null)[] = new Array(n).fill(null);
+  const lineToOwningNodeId: (string | null)[] = Array.from(
+    { length: n },
+    () => null
+  );
 
   // ---- frontmatter ----
   if (n > 0 && lines[0] === "---") {

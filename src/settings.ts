@@ -1,44 +1,16 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type UnifiedOutlinerPlugin from "./main";
+import { DEFAULT_SETTINGS, UnifiedOutlinerSettings } from "./settingsDefaults";
 
-export interface UnifiedOutlinerSettings {
-  /** Allow a root list item to hop across a heading boundary. */
-  allowCrossSectionListMove: boolean;
-  /** Normalize ordered markers to "1." after a list move (MVP policy). */
-  normalizeOrderedLists: boolean;
-  /** Show a Notice explaining why a command was a no-op. */
-  showNoopNotices: boolean;
-  /**
-   * Phase 3C: show list items as nodes in the Outline Tree View, alongside
-   * sections. Off by default — the tree has been heading-only since Phase
-   * 2A, and this keeps that the default experience; users who want the
-   * fuller view opt in here.
-   */
-  showListItemsInOutline: boolean;
-  /**
-   * Post-Phase-3D: when moving the Outline Tree View's keyboard selection
-   * with Up/Down (and the "step into child" / "step out to parent"
-   * branches of Right/Left), also preview the newly selected node into the
-   * body editor — same jumpToLine(..., { focusEditor: false }) a row click
-   * already does. On by default, since this is the current, already-
-   * shipped behavior (matches what a mouse click does, and keeps the
-   * selected row and the body editor's position in sync during normal
-   * browsing/editing). Turning this off restores the pre-existing Phase 4D
-   * behavior: arrow keys move only the tree's own selection, and only
-   * Enter jumps into the body — a compatibility mode for users who prefer
-   * to explore the tree structure without disturbing the body editor's
-   * scroll position on every arrow press.
-   */
-  followKeyboardSelectionIntoBody: boolean;
-}
-
-export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
-  allowCrossSectionListMove: true,
-  normalizeOrderedLists: true,
-  showNoopNotices: true,
-  showListItemsInOutline: false,
-  followKeyboardSelectionIntoBody: true,
-};
+// Re-exported unchanged so every existing importer of "./settings" (just
+// main.ts today) keeps working without touching its own import line — see
+// settingsDefaults.ts's doc comment for why the settings shape/defaults
+// had to move to an Obsidian-free module. Split into a value export and a
+// `export type` re-export because this file has `isolatedModules: true`
+// (tsconfig.json) — a plain `export { A, B }` can't tell a type-only name
+// apart from a real one when transpiled file-by-file.
+export { DEFAULT_SETTINGS };
+export type { UnifiedOutlinerSettings };
 
 export class UnifiedOutlinerSettingTab extends PluginSettingTab {
   plugin: UnifiedOutlinerPlugin;
@@ -117,6 +89,20 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.followKeyboardSelectionIntoBody)
           .onChange(async (v) => {
             this.plugin.settings.followKeyboardSelectionIntoBody = v;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Sync Outline Tree folding to editor")
+      .setDesc(
+        "When enabled, folding or unfolding a node in the Outline Tree also folds or unfolds the matching content in the active Markdown editor."
+      )
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.syncOutlineTreeFoldingToEditor)
+          .onChange(async (v) => {
+            this.plugin.settings.syncOutlineTreeFoldingToEditor = v;
             await this.plugin.saveSettings();
           })
       );

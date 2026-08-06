@@ -6,7 +6,7 @@
 
 Unified Outliner は、単一のMarkdownノート内で構造を編集するための [Obsidian](https://obsidian.md) プラグインです。見出しセクションとリストの部分木を、本文エディタ、専用の Outline Tree View、ブロックに焦点を当てて編集するための Partial Edit Pane から移動・レベル変更・閲覧・編集できます。
 
-**現行バージョン:** 0.1.2
+**現行バージョン:** 0.1.4
 
 **必要なObsidianのバージョン:** 1.8.7以上
 

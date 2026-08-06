@@ -4,6 +4,21 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-07
+
+### Added
+
+- Added a setting to control whether Outline Tree fold and unfold actions also affect the active Markdown editor.
+
+### Fixed
+
+- Replaced a parser array-initialization pattern reported by static analysis without changing parsing behavior.
+
+### Changed
+
+- Replaced the build-only `builtin-modules` dependency with Node's built-in module list.
+- Expressed the drag-and-drop color fallback with a CSS feature query while preserving the existing appearance.
+
 ## [0.1.3] - 2026-08-06
 
 ### Fixed

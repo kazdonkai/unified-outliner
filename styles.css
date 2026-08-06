@@ -191,13 +191,24 @@ settings:
 
 /* inside: a tinted row + a left accent bar, visually distinct from the
  * before/after edge-lines so "becomes a child" reads differently from
- * "moves next to". Falls back to a plain rgba tint in browsers without
- * color-mix() support (the second, invalid declaration is simply ignored
- * and the first stands — standard CSS fallback behavior, not JS-detected). */
+ * "moves next to". The plain rgba tint below is the baseline for every
+ * environment; the @supports block just after it swaps in the themeable
+ * color-mix() tint wherever that function is actually supported, without
+ * ever having two background-color declarations in the same rule block
+ * (this used to rely on the older same-selector "second, invalid
+ * declaration is simply ignored" CSS fallback idiom — @supports expresses
+ * the exact same fallback/enhancement relationship as an explicit
+ * feature query instead, with an identical rendered result in both
+ * supporting and non-supporting environments). */
 .unified-outliner-drop-inside {
   background-color: rgba(91, 87, 209, 0.25);
-  background-color: color-mix(in srgb, var(--uo-current-color) 25%, transparent);
   box-shadow: inset 3px 0 0 0 var(--uo-current-color);
+}
+
+@supports (background-color: color-mix(in srgb, red 25%, transparent)) {
+  .unified-outliner-drop-inside {
+    background-color: color-mix(in srgb, var(--uo-current-color) 25%, transparent);
+  }
 }
 
 /* Phase 3B: Partial Edit Pane. Same plugin-owned colors/font-size as the

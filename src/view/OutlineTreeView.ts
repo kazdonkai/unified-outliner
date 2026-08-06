@@ -508,10 +508,18 @@ export class OutlineTreeView extends ItemView {
       this.plugin.refreshOtherOutlineTreeViews(this);
     }
     // Phase 3D (stage 1): one-directional Outline Tree -> CM6 body editor
-    // fold sync. This is the single place setNodeCollapsed is ever called
-    // from (toggleCollapse's chevron click, and the keyboard Left/Right
-    // handlers below), so no other call site needs its own sync call.
-    this.syncFoldToBodyEditor(nodeId, collapsed);
+    // fold sync, gated by the "Sync Outline Tree folding to editor"
+    // setting (settings.ts's syncOutlineTreeFoldingToEditor, default on).
+    // This `if` is the ONLY place that setting is ever checked — this is
+    // the single place setNodeCollapsed is ever called from (toggleCollapse's
+    // chevron click, and the keyboard Left/Right handlers below), so no
+    // other call site needs its own sync call or its own setting check.
+    // Everything above this line (collapsedIds, FoldStateManager
+    // persistence, refreshOtherOutlineTreeViews) always runs regardless of
+    // the setting — only the CM6-facing half of this method is optional.
+    if (this.plugin.settings.syncOutlineTreeFoldingToEditor) {
+      this.syncFoldToBodyEditor(nodeId, collapsed);
+    }
   }
 
   /**
@@ -529,7 +537,20 @@ export class OutlineTreeView extends ItemView {
    *    gutter, or Obsidian's Fold/Unfold heading commands) is NOT reflected
    *    back into this view's collapsedIds — that's Phase 3D stage 2,
    *    pending a live check of how to observe CM6 fold changes (see the
-   *    design report; not implemented here).
+   *    design report; not implemented here). (That reverse direction is
+   *    handled separately by handleCm6FoldEffect near the bottom of this
+   *    file, and is always on — it does not read
+   *    syncOutlineTreeFoldingToEditor at all, since that setting only
+   *    controls THIS direction.)
+   *  - Only called when the user has this behavior enabled — its one
+   *    caller, setNodeCollapsed, wraps this call in an
+   *    `if (this.plugin.settings.syncOutlineTreeFoldingToEditor)` check
+   *    (the only place that setting is read), so this method itself has
+   *    no setting-awareness of its own to keep that single control point
+   *    real. When the setting is off, setNodeCollapsed's other effects
+   *    (collapsedIds, FoldStateManager persistence, refreshing other Tree
+   *    leaves) still run exactly as before; only this CM6-facing half is
+   *    skipped.
    *  - No attempt to re-apply or re-map fold ranges across move/indent/
    *    drag/Partial-Edit-Pane edits. A fold that gets edited out from under
    *    it by one of those operations is simply left to whatever CM6 itself
