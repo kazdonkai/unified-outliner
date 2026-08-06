@@ -63,6 +63,38 @@ Obsidian Community Pluginsへの掲載は、審査完了後に追加します。
 
 リスト項目も見出しとともに表示したい場合は、プラグイン設定で **Show list items in Outline Tree View** を有効にします。
 
+## 視覚ガイド
+
+### Outline Tree View で構造を操作する
+
+![構造化Markdownノートの横に表示された Outline Tree View](docs/images/outline-tree.png)
+
+Outline Tree View には、見出しと、設定で有効にした場合のリスト項目が、元ノートの横に表示されます。ノードを選ぶと対応する本文位置へ移動し、本文の現在位置もツリーに反映されます。
+
+![選択したツリーノードのコンテキストメニュー](docs/images/outline-context-menu.png)
+
+選択したノードを右クリックすると、構造操作を選べます。同じメニューから、block単位の移動、インデント、見出し行だけの操作、集中編集を実行できます。
+
+### 選択した部分木に集中する
+
+![選択したアウトライン部分木を表示する集中編集ペイン](docs/images/outline-edit-pane.png)
+
+Partial Edit Pane では、選択した見出しセクションまたはリスト部分木を表示したまま、周囲のアウトラインも参照できます。
+
+![対象の選択範囲と Apply 操作を表示する Partial Edit Pane](docs/images/partial-edit-pane.png)
+
+Apply は、ペインを開いた時点の元の対象範囲が変更されていないことを確認してから反映します。並行して本文が変更された場合の意図しない上書きを防ぎます。
+
+### 短い操作動画
+
+| 操作 | 動画 |
+| --- | --- |
+| Outline Tree View を開く | [7秒のMP4を再生](docs/media/outline-tree-open.mp4) |
+| ツリーノードを折りたたむ／展開する | [20秒のMP4を再生](docs/media/outline-collapse-expand.mp4) |
+| ツリー内の選択項目を追従する | [21秒のMP4を再生](docs/media/outline-focus.mp4) |
+| リスト部分木を移動する | [14秒のMP4を再生](docs/media/outline-list-move.mp4) |
+| Partial Edit Pane で選択部分木を編集する | [49秒のMP4を再生](docs/media/partial-edit.mp4) |
+
 ## 使い方
 
 ### 構造を移動・レベル変更する

@@ -63,6 +63,38 @@ The screenshot uses `Test/Unified Outliner Test.md` in the Method test vault. It
 
 Enable **Show list items in Outline Tree View** in the plugin settings when you want list items to appear alongside headings.
 
+## Visual guide
+
+### Work from the Outline Tree View
+
+![Outline Tree View beside a structured Markdown note](docs/images/outline-tree.png)
+
+The Outline Tree View shows headings and, when enabled, list items beside the source note. Selecting a node locates its matching text, while the current editor position is reflected in the tree.
+
+![Context menu for a selected tree node](docs/images/outline-context-menu.png)
+
+Right-click a selected node to choose a structural action. The menu exposes block movement, indentation, node-only heading actions, and focused editing from the same place.
+
+### Focus on a selected subtree
+
+![Focused editing pane for a selected outline subtree](docs/images/outline-edit-pane.png)
+
+The Partial Edit Pane keeps the selected section or list subtree visible while preserving the surrounding outline for orientation.
+
+![Partial Edit Pane with the selected target and Apply control](docs/images/partial-edit-pane.png)
+
+Apply writes back only after the pane verifies that its original source range has not changed. This protects the note from an accidental overwrite during a concurrent edit.
+
+### Short video walkthroughs
+
+| Task | Video |
+| --- | --- |
+| Open the Outline Tree View | [Watch the 7-second MP4](docs/media/outline-tree-open.mp4) |
+| Collapse and expand a tree node | [Watch the 20-second MP4](docs/media/outline-collapse-expand.mp4) |
+| Follow a selected item in the tree | [Watch the 21-second MP4](docs/media/outline-focus.mp4) |
+| Move a list subtree | [Watch the 14-second MP4](docs/media/outline-list-move.mp4) |
+| Edit a selected subtree in the Partial Edit Pane | [Watch the 49-second MP4](docs/media/partial-edit.mp4) |
+
 ## How to use it
 
 ### Move and re-level structures
