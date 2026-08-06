@@ -52,6 +52,10 @@ Obsidian Community Pluginsへの掲載は、審査完了後に追加します。
 
 ## 最初に行うこと
 
+![Obsidianで開いた構造化Markdownノート](docs/images/structured-note-overview.png)
+
+この画像では、MethodテストVaultの `Test/Unified Outliner Test.md` を使用しています。Unified Outliner が再編成の対象とする、見出しと入れ子リストの構造を確認できます。
+
 1. 見出しまたはリストを含むMarkdownノートを開きます。
 2. コマンドパレットから **Open outline tree view** を実行するか、リボンのツリーアイコンを選びます。
 3. 右サイドバーに **Outline Tree View** が開きます。ノードをクリックすると本文の該当箇所へカーソルが移動し、本文のカーソル移動は対応するツリーノードに反映されます。

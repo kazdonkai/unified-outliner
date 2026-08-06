@@ -52,6 +52,10 @@ For a later release, replace the same three files in `<your-vault>/.obsidian/plu
 
 ## Start here
 
+![A structured Markdown note open in Obsidian](docs/images/structured-note-overview.png)
+
+The screenshot uses `Test/Unified Outliner Test.md` in the Method test vault. It shows the kind of heading and nested-list structure that Unified Outliner is designed to reorganize.
+
 1. Open a Markdown note that contains headings or lists.
 2. Open the Command Palette and run **Open outline tree view**, or select the plugin's tree icon in the ribbon.
 3. The **Outline Tree View** opens in the right sidebar. Clicking a node moves the cursor to the matching location in the note. Moving the editor cursor highlights the corresponding tree node.
