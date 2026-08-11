@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-11
+
+### Fixed
+
+- Fixed the Partial Edit Pane's sibling "Next" button being pushed all the way to the pane's right edge (`justify-content: space-between`), far from "Previous" and awkward to reach. Both buttons now sit adjacent at the start of the row, matching the breadcrumb and Subtree Navigator rows above/below.
+
 ## [0.3.1] - 2026-08-11
 
 ### Added

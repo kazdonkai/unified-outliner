@@ -335,13 +335,17 @@ settings:
  * the ancestor breadcrumb and the Subtree Navigator, holding two buttons for
  * the loaded node's previous/next sibling (see PartialEditView.ts's onOpen /
  * renderSiblingNav). Unlike the breadcrumb and Subtree Navigator rows, this
- * one stays visible whenever any node is loaded — space-between keeps
- * "previous" pinned left and "next" pinned right even though only one of
- * them may be enabled at a time. */
+ * one stays visible whenever any node is loaded.
+ *
+ * Real-device follow-up: originally `justify-content: space-between`, which
+ * pinned "next" all the way to the pane's right edge — on a wide pane (or a
+ * popped-out window) that put it far from "previous" and made it awkward to
+ * reach. Both buttons now sit adjacent at the start of the row instead,
+ * exactly like the breadcrumb and Subtree Navigator rows above/below it. */
 .unified-outliner-partial-edit-sibling-nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   margin-bottom: 8px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
