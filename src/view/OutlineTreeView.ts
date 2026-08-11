@@ -1105,7 +1105,23 @@ export class OutlineTreeView extends ItemView {
     // share this exact same attribute + handler wiring — only the pure
     // resolve/relocate calls inside handleDragOver/handleDrop/
     // runRelocateCommand below branch on the DRAGGED node's kind.
-    selfEl.setAttribute("draggable", "true");
+    //
+    // `draggable` is desktop-only (2026-08-11 mobile long-press fix): on
+    // iPadOS/mobile Safari, an element with `draggable="true"` responds to
+    // a touch-and-hold with WebKit's OWN native drag-lift gesture (which
+    // can hand the touch off to iPadOS as a system-level drag, e.g. into a
+    // new Split View pane), racing against this row's own pointerdown-
+    // timer-based long-press handling above for the exact same gesture —
+    // confirmed on a real iPad as the cause of the long-press context menu
+    // failing to open and a duplicated/ghosted pane appearing instead.
+    // Reordering by touch drag was never part of the mobile design (mobile
+    // already has Move up/down and Indent/Outdent in the long-press menu as
+    // its equivalent), so simply never marking a row draggable on mobile
+    // removes the competing gesture recognizer entirely, leaving the
+    // pointerdown/pointermove/pointerup timer above uncontested.
+    if (!Platform.isMobile) {
+      selfEl.setAttribute("draggable", "true");
+    }
     selfEl.addEventListener("dragstart", (evt) =>
       this.handleDragStart(evt, node.id, itemEl)
     );

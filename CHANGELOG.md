@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-11
+
+### Fixed
+
+- Fixed the Outline Tree View's long-press context menu on mobile (iPadOS/mobile Safari) sometimes failing to open, with a duplicated or corrupted pane appearing instead. Rows were marked `draggable="true"` even on mobile, where WebKit's native drag-lift gesture for touch-and-hold competed with the plugin's own long-press timer for the same gesture. Rows are now only marked draggable on desktop; mobile reordering was already available via the long-press menu's Move up/down and Indent/Outdent commands.
+
 ## [0.2.0] - 2026-08-11
 
 ### Added
