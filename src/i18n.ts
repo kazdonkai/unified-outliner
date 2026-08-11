@@ -205,6 +205,10 @@ const en = {
   "partialEdit.unsavedChangesTitle": "Unified Outliner: unsaved changes",
   "partialEdit.unsavedChangesBody":
     "This node has unapplied edits. Apply them before switching, discard them, or stay here.",
+  "partialEdit.previousSibling": "Previous",
+  "partialEdit.nextSibling": "Next",
+  "partialEdit.noPreviousSibling": "No previous sibling",
+  "partialEdit.noNextSibling": "No next sibling",
 
   // ---- Insert-section heading-level modal (HeadingLevelModal.ts) --------
   "modal.insertSectionTitle": "Unified Outliner: insert section",
@@ -402,6 +406,10 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.couldNotApplyEdit": "Unified Outliner: この編集を適用できなかった。",
   "partialEdit.listSubtreeUpdated": "Unified Outliner: リストサブツリーを更新した。",
   "partialEdit.sectionUpdated": "Unified Outliner: セクションを更新した。",
+  "partialEdit.previousSibling": "前へ",
+  "partialEdit.nextSibling": "次へ",
+  "partialEdit.noPreviousSibling": "前の兄弟がない",
+  "partialEdit.noNextSibling": "次の兄弟がない",
   "partialEdit.unsavedChangesTitle": "Unified Outliner: 未保存の変更",
   "partialEdit.unsavedChangesBody":
     "このノードには未適用の編集がある。切り替える前に適用するか、破棄するか、このまま留まるかを選んでほしい。",

@@ -77,6 +77,18 @@
  * descending shares the exact same dirty-guard/Apply-Discard-Cancel
  * behavior as breadcrumb and Tree navigation — see requestLoadNode's doc
  * comment, unchanged by this addition.
+ *
+ * Sibling前後移動 (docs/phase5b_sibling-navigation-spec.md): the sideways
+ * counterpart to both of the above. A fourth header row (renderSiblingNav),
+ * between the breadcrumb and the Subtree Navigator, holds two buttons —
+ * previous/next sibling of the loaded node, resolved by
+ * tree/siblingNavigation.ts directly from the node's existing
+ * `prevSiblingId`/`nextSiblingId` (no new sibling-order computation). Both
+ * buttons call requestLoadNode exactly like every other navigation control
+ * on this pane — no new projection path, no new dirty guard. Unlike the
+ * breadcrumb and Subtree Navigator (hidden entirely when empty), this row
+ * stays visible whenever a node is loaded and disables whichever button has
+ * no target, per the spec's §3 UI 仕様.
  */
 import { App, ItemView, Menu, Modal, Notice, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
@@ -85,6 +97,7 @@ import { applySubtreeEdit, extractSubtreeText, SubtreeKind } from "../edit/parti
 import { nodeDisplayLabel } from "../tree/buildOutlineTree";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
 import { DescendantNavigationEntry, findDirectChildren } from "../tree/descendantPath";
+import { SiblingNavigationState, getSiblingNavigationState } from "../tree/siblingNavigation";
 import { applyLineEditOutcome } from "../commands/applyLineEditOutcome";
 import { TranslationKey } from "../i18n";
 
@@ -113,6 +126,8 @@ export class PartialEditView extends ItemView {
   private ancestors: AncestorPathEntry[] = [];
   /** Subtree Navigator: the loaded node's own direct children, computed once at load time alongside `ancestors` — see renderSubtreeNavigator's doc comment. */
   private directChildren: DescendantNavigationEntry[] = [];
+  /** Sibling前後移動: the loaded node's previous/next sibling, computed once at load time alongside `ancestors`/`directChildren` — see renderSiblingNav's doc comment. */
+  private siblingState: SiblingNavigationState = { previous: null, next: null };
 
   /**
    * Phase 5B: how many of the nearest ancestors the breadcrumb shows
@@ -135,6 +150,9 @@ export class PartialEditView extends ItemView {
 
   private titleEl!: HTMLElement;
   private breadcrumbEl!: HTMLElement;
+  private siblingNavEl!: HTMLElement;
+  private siblingPrevEl!: HTMLButtonElement;
+  private siblingNextEl!: HTMLButtonElement;
   private subtreeNavEl!: HTMLElement;
   private textareaEl!: HTMLTextAreaElement;
   private applyButtonEl!: HTMLButtonElement;
@@ -215,6 +233,43 @@ export class PartialEditView extends ItemView {
     // in here.
     this.breadcrumbEl = this.contentEl.createDiv({
       cls: "unified-outliner-partial-edit-breadcrumb",
+    });
+
+    // Sibling前後移動: a row between the ancestor breadcrumb and the Subtree
+    // Navigator, for moving sideways to the loaded node's previous/next
+    // sibling. Its own element (not merged into breadcrumbEl) per the spec's
+    // explicit requirement that breadcrumb's own structure stay untouched —
+    // see renderSiblingNav for what goes in here. Unlike breadcrumbEl and
+    // subtreeNavEl, its two buttons are created once here and only ever
+    // toggled/relabeled by renderSiblingNav afterward, since there are
+    // always exactly two of them (no variable-length list to rebuild).
+    this.siblingNavEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-sibling-nav",
+    });
+    this.siblingPrevEl = this.siblingNavEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-sibling-nav-button unified-outliner-partial-edit-sibling-nav-prev",
+    });
+    setIcon(this.siblingPrevEl, "chevron-left");
+    this.siblingPrevEl.createSpan({ text: this.plugin.t("partialEdit.previousSibling") });
+    // Reads this.siblingState.previous fresh at click time rather than
+    // capturing it in a stale closure — renderSiblingNav updates that field
+    // on every load without ever recreating this button. Same guarded
+    // projection entry point as breadcrumb segments and Subtree Navigator
+    // chips (see requestLoadNode's own doc comment) — never loadNodeInternal
+    // directly.
+    this.siblingPrevEl.addEventListener("click", () => {
+      const target = this.siblingState.previous;
+      if (target) this.requestLoadNode(target.nodeId);
+    });
+
+    this.siblingNextEl = this.siblingNavEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-sibling-nav-button unified-outliner-partial-edit-sibling-nav-next",
+    });
+    this.siblingNextEl.createSpan({ text: this.plugin.t("partialEdit.nextSibling") });
+    setIcon(this.siblingNextEl, "chevron-right");
+    this.siblingNextEl.addEventListener("click", () => {
+      const target = this.siblingState.next;
+      if (target) this.requestLoadNode(target.nodeId);
     });
 
     // Subtree Navigator: a third header row, below the ancestor breadcrumb,
@@ -356,6 +411,7 @@ export class PartialEditView extends ItemView {
     this.label = label;
     this.ancestors = findAncestorPath(doc, nodeId, t);
     this.directChildren = findDirectChildren(doc, nodeId, t);
+    this.siblingState = getSiblingNavigationState(doc, nodeId, t);
     this.renderLoadedState();
   }
 
@@ -368,7 +424,9 @@ export class PartialEditView extends ItemView {
     this.textareaEl.setAttribute("placeholder", this.plugin.t("partialEdit.emptyPlaceholder"));
     this.ancestors = [];
     this.directChildren = [];
+    this.siblingState = { previous: null, next: null };
     this.renderBreadcrumb();
+    this.renderSiblingNav();
     this.renderSubtreeNavigator();
     this.updateDirtyState();
   }
@@ -387,6 +445,7 @@ export class PartialEditView extends ItemView {
     this.cancelButtonEl.disabled = false;
     this.textareaEl.value = this.originalText;
     this.renderBreadcrumb();
+    this.renderSiblingNav();
     this.renderSubtreeNavigator();
     this.updateDirtyState();
   }
@@ -452,6 +511,48 @@ export class PartialEditView extends ItemView {
         });
       }
     });
+  }
+
+  /**
+   * Sibling前後移動 (docs/phase5b_sibling-navigation-spec.md §3/§4): update
+   * the two sibling-nav buttons from `this.siblingState`, computed once by
+   * loadNodeInternal at load time — same "static snapshot until the next
+   * load" policy as renderBreadcrumb/renderSubtreeNavigator's own fields,
+   * for the same reason (a read-only navigation aid derived from the pane's
+   * "before editing" snapshot, not live-recalculated against in-progress
+   * edits).
+   *
+   * Unlike renderBreadcrumb/renderSubtreeNavigator, this never touches the
+   * DOM tree itself (no empty()/createSpan) — the two buttons are created
+   * once in onOpen and always exist; only their `disabled` state and
+   * tooltip change here. The row itself is hidden only when no node is
+   * loaded at all (`!this.nodeId`); once a node IS loaded, the row stays
+   * visible and each button disables itself independently when that
+   * direction has no sibling — deliberately different from the breadcrumb
+   * and Subtree Navigator's "hide the whole row when empty" policy, since a
+   * node with siblings on only one side should still make that one
+   * direction discoverable.
+   */
+  private renderSiblingNav(): void {
+    if (!this.nodeId) {
+      this.siblingNavEl.toggleVisibility(false);
+      return;
+    }
+    this.siblingNavEl.toggleVisibility(true);
+
+    const previous = this.siblingState.previous;
+    this.siblingPrevEl.disabled = !previous;
+    setTooltip(
+      this.siblingPrevEl,
+      previous ? previous.displayLabel : this.plugin.t("partialEdit.noPreviousSibling")
+    );
+
+    const next = this.siblingState.next;
+    this.siblingNextEl.disabled = !next;
+    setTooltip(
+      this.siblingNextEl,
+      next ? next.displayLabel : this.plugin.t("partialEdit.noNextSibling")
+    );
   }
 
   /**

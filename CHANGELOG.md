@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-11
+
+### Added
+
+- Added sibling previous/next navigation to the Partial Edit Pane header (docs/phase5b_sibling-navigation-spec.md), alongside the existing ancestor breadcrumb and Subtree Navigator. Two buttons let you move sideways to the loaded node's previous/next sibling — a section or list item sharing the same parent — without leaving the pane, including in a popped-out window. Each button disables itself when there is no sibling in that direction, and the destination's label is shown on hover. Navigation reuses the pane's existing guarded projection entry point, so unapplied edits are always confirmed (Apply / Discard / Cancel) before switching, exactly like breadcrumb and Subtree Navigator clicks already do.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

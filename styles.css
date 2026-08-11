@@ -331,6 +331,59 @@ settings:
   opacity: 0.6;
 }
 
+/* Sibling前後移動 (docs/phase5b_sibling-navigation-spec.md): a row between
+ * the ancestor breadcrumb and the Subtree Navigator, holding two buttons for
+ * the loaded node's previous/next sibling (see PartialEditView.ts's onOpen /
+ * renderSiblingNav). Unlike the breadcrumb and Subtree Navigator rows, this
+ * one stays visible whenever any node is loaded — space-between keeps
+ * "previous" pinned left and "next" pinned right even though only one of
+ * them may be enabled at a time. */
+.unified-outliner-partial-edit-sibling-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-sibling-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: none;
+  color: var(--uo-text-color);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-sibling-nav-button:hover:not(:disabled) {
+  background-color: rgba(128, 128, 128, 0.12);
+}
+
+/* Long sibling labels never appear in the header itself (kept to a short
+ * "Previous"/"Next" per the spec's §3 UI 仕様) — the destination's own
+ * displayLabel only ever shows in the tooltip (setTooltip in
+ * renderSiblingNav), never inline here. */
+.unified-outliner-partial-edit-sibling-nav-button:focus-visible {
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: 1px;
+}
+
+.unified-outliner-partial-edit-sibling-nav-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.unified-outliner-partial-edit-sibling-nav-button svg {
+  width: 12px;
+  height: 12px;
+}
+
 /* Subtree Navigator: the downward counterpart to the breadcrumb above.
  * Deliberately its own class family (not reused from
  * .unified-outliner-partial-edit-breadcrumb-*) so climbing up (breadcrumb)
