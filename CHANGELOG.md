@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-08-11
+
+### Added
+
+- Added a target-label preview to the Partial Edit Pane's sibling "Previous"/"Next" buttons, showing the destination sibling's own label (e.g. "‹ Previous  Markdown A") so it's clear where each button leads before it's clicked. A long label is truncated with CSS ellipsis; the button's own tooltip still shows the full label. No label is shown for a disabled direction (no sibling). Uses the existing sibling state and `requestLoadNode` transition path — no new navigation API or dirty guard.
+
 ## [0.3.2] - 2026-08-11
 
 ### Fixed

@@ -345,6 +345,7 @@ settings:
 .unified-outliner-partial-edit-sibling-nav {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 8px;
   margin-bottom: 8px;
@@ -369,10 +370,6 @@ settings:
   background-color: rgba(128, 128, 128, 0.12);
 }
 
-/* Long sibling labels never appear in the header itself (kept to a short
- * "Previous"/"Next" per the spec's §3 UI 仕様) — the destination's own
- * displayLabel only ever shows in the tooltip (setTooltip in
- * renderSiblingNav), never inline here. */
 .unified-outliner-partial-edit-sibling-nav-button:focus-visible {
   outline: 2px solid var(--interactive-accent, #7c3aed);
   outline-offset: 1px;
@@ -381,6 +378,28 @@ settings:
 .unified-outliner-partial-edit-sibling-nav-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* The short "Previous"/"Next" word inside each button — kept from shrinking
+ * so the adjacent target-label preview (below) is what truncates first on a
+ * narrow pane. */
+.unified-outliner-partial-edit-sibling-nav-label {
+  flex-shrink: 0;
+}
+
+/* Real-device follow-up: preview of the destination sibling's own
+ * displayLabel (see renderSiblingNav's doc comment) so "Previous"/"Next"
+ * show where they actually go before being clicked. CSS-truncated the same
+ * way renderBreadcrumb's segments and appendSubtreeChip's labels already
+ * are; the button's own tooltip (setTooltip in renderSiblingNav) still
+ * carries the full, untruncated label. Cleared and hidden (not just empty)
+ * when that direction has no sibling — see renderSiblingNav. */
+.unified-outliner-partial-edit-sibling-nav-target {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.7;
 }
 
 .unified-outliner-partial-edit-sibling-nav-button svg {

@@ -152,7 +152,9 @@ export class PartialEditView extends ItemView {
   private breadcrumbEl!: HTMLElement;
   private siblingNavEl!: HTMLElement;
   private siblingPrevEl!: HTMLButtonElement;
+  private siblingPrevTargetEl!: HTMLElement;
   private siblingNextEl!: HTMLButtonElement;
+  private siblingNextTargetEl!: HTMLElement;
   private subtreeNavEl!: HTMLElement;
   private textareaEl!: HTMLTextAreaElement;
   private applyButtonEl!: HTMLButtonElement;
@@ -250,7 +252,21 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-sibling-nav-button unified-outliner-partial-edit-sibling-nav-prev",
     });
     setIcon(this.siblingPrevEl, "chevron-left");
-    this.siblingPrevEl.createSpan({ text: this.plugin.t("partialEdit.previousSibling") });
+    this.siblingPrevEl.createSpan({
+      cls: "unified-outliner-partial-edit-sibling-nav-label",
+      text: this.plugin.t("partialEdit.previousSibling"),
+    });
+    // Preview of the previous sibling's own displayLabel, so the pane shows
+    // where "Previous" actually goes before it's clicked — see
+    // renderSiblingNav for how this span's text/visibility is kept in sync
+    // with this.siblingState.previous. CSS-truncated (styles.css) rather
+    // than JS-truncated, matching how renderBreadcrumb's segments and
+    // appendSubtreeChip's labels already truncate; the button's own tooltip
+    // (set in renderSiblingNav) still carries the untruncated label, same
+    // pattern as those two.
+    this.siblingPrevTargetEl = this.siblingPrevEl.createSpan({
+      cls: "unified-outliner-partial-edit-sibling-nav-target",
+    });
     // Reads this.siblingState.previous fresh at click time rather than
     // capturing it in a stale closure — renderSiblingNav updates that field
     // on every load without ever recreating this button. Same guarded
@@ -265,7 +281,19 @@ export class PartialEditView extends ItemView {
     this.siblingNextEl = this.siblingNavEl.createEl("button", {
       cls: "unified-outliner-partial-edit-sibling-nav-button unified-outliner-partial-edit-sibling-nav-next",
     });
-    this.siblingNextEl.createSpan({ text: this.plugin.t("partialEdit.nextSibling") });
+    // Next sibling's target-label span is created FIRST (before the "Next"
+    // word and its icon), so it sits closest to the row's center — mirrored
+    // against siblingPrevTargetEl, which sits closest to the center on the
+    // other side (right after "Previous", before nothing). Reading order
+    // ends up "‹ Previous  [target]" / "[target]  Next ›", pointing outward
+    // from the loaded node toward each sibling.
+    this.siblingNextTargetEl = this.siblingNextEl.createSpan({
+      cls: "unified-outliner-partial-edit-sibling-nav-target",
+    });
+    this.siblingNextEl.createSpan({
+      cls: "unified-outliner-partial-edit-sibling-nav-label",
+      text: this.plugin.t("partialEdit.nextSibling"),
+    });
     setIcon(this.siblingNextEl, "chevron-right");
     this.siblingNextEl.addEventListener("click", () => {
       const target = this.siblingState.next;
@@ -522,16 +550,27 @@ export class PartialEditView extends ItemView {
    * "before editing" snapshot, not live-recalculated against in-progress
    * edits).
    *
-   * Unlike renderBreadcrumb/renderSubtreeNavigator, this never touches the
-   * DOM tree itself (no empty()/createSpan) — the two buttons are created
-   * once in onOpen and always exist; only their `disabled` state and
-   * tooltip change here. The row itself is hidden only when no node is
-   * loaded at all (`!this.nodeId`); once a node IS loaded, the row stays
+   * Unlike renderBreadcrumb/renderSubtreeNavigator, this never rebuilds the
+   * DOM tree itself (no empty()/createSpan for the buttons) — the two
+   * buttons, and their target-label spans, are created once in onOpen and
+   * always exist; only `disabled` state, tooltip, and the target-label
+   * text/visibility change here. The row itself is hidden only when no node
+   * is loaded at all (`!this.nodeId`); once a node IS loaded, the row stays
    * visible and each button disables itself independently when that
    * direction has no sibling — deliberately different from the breadcrumb
    * and Subtree Navigator's "hide the whole row when empty" policy, since a
    * node with siblings on only one side should still make that one
    * direction discoverable.
+   *
+   * Target-label preview: each button's *TargetEl span shows the
+   * destination sibling's own displayLabel (same field the breadcrumb and
+   * Subtree Navigator already use — see AncestorPathEntry.label /
+   * DescendantNavigationEntry.label), so the pane shows where "Previous" /
+   * "Next" actually lead before either is clicked. CSS truncates a long
+   * label (styles.css); the button's own tooltip below always carries the
+   * full, untruncated label. When a direction has no sibling, its target
+   * span is cleared and hidden rather than showing empty space — no target
+   * label for a disabled button, matching the button's own disabled state.
    */
   private renderSiblingNav(): void {
     if (!this.nodeId) {
@@ -546,6 +585,8 @@ export class PartialEditView extends ItemView {
       this.siblingPrevEl,
       previous ? previous.displayLabel : this.plugin.t("partialEdit.noPreviousSibling")
     );
+    this.siblingPrevTargetEl.setText(previous ? previous.displayLabel : "");
+    this.siblingPrevTargetEl.toggleVisibility(!!previous);
 
     const next = this.siblingState.next;
     this.siblingNextEl.disabled = !next;
@@ -553,6 +594,8 @@ export class PartialEditView extends ItemView {
       this.siblingNextEl,
       next ? next.displayLabel : this.plugin.t("partialEdit.noNextSibling")
     );
+    this.siblingNextTargetEl.setText(next ? next.displayLabel : "");
+    this.siblingNextTargetEl.toggleVisibility(!!next);
   }
 
   /**
