@@ -145,6 +145,52 @@ describe("applyLineEditOutcome: existing move/indent-style behavior is unaffecte
   });
 });
 
+describe("applyLineEditOutcome: true no-op guard (2026-08-11 regression, inline rename)", () => {
+  it("does not touch the document or move the cursor when outcome.lines is byte-identical to oldLines despite changed: true", () => {
+    // renameSection/renameListItem report changed: true unconditionally,
+    // even when the "new" text is exactly the original text (e.g. the
+    // Outline Tree's inline rename box committing on blur — see
+    // OutlineTreeView.ts's rename blur handler — with nothing actually
+    // typed). Without the no-op guard this degenerates into the "pure
+    // append" branch below (the prefix-matching loop consumes every line,
+    // landing on oldLast < first) and inserts a spurious blank line at the
+    // end of the document.
+    const oldLines = ["## List 3", "some unrelated text", "## Markdown B"];
+    const editor = new FakeEditor(oldLines.join("\n"));
+
+    const changed = applyLineEditOutcome(
+      editor as unknown as Editor,
+      { line: 0, ch: 0 },
+      0,
+      oldLines,
+      outcome([...oldLines], 0, oldLines[0].length),
+      () => {}
+    );
+
+    expect(changed).toBe(false);
+    expect(editor.lines).toEqual(oldLines);
+    expect(editor.cursor).toEqual({ line: 0, ch: 0 });
+  });
+
+  it("still applies a real change even when only a single character differs deep in a long unbroken line", () => {
+    const oldLines = ["- " + "3".repeat(80)];
+    const editor = new FakeEditor(oldLines.join("\n"));
+    const newLines = ["- " + "3".repeat(79)];
+
+    const changed = applyLineEditOutcome(
+      editor as unknown as Editor,
+      { line: 0, ch: 0 },
+      0,
+      oldLines,
+      outcome(newLines, 0, newLines[0].length),
+      () => {}
+    );
+
+    expect(changed).toBe(true);
+    expect(editor.lines).toEqual(newLines);
+  });
+});
+
 describe("applyLineEditOutcome: pure deletion down to an empty document", () => {
   it("deleting the entire document does not invert the replaceRange either", () => {
     const oldLines = ["# Only section", "body"];

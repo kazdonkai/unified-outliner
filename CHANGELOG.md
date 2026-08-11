@@ -4,6 +4,13 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-11
+
+### Fixed
+
+- Fixed the Outline Tree View's inline rename discarding an edit without any warning whenever focus left the input by any means other than pressing Enter — including simply clicking a different row to look at it. Moving focus out of the rename box now commits the edit (matching Finder/Explorer/VS Code tree-view conventions) unless the text was left completely unchanged, in which case it still cleanly cancels. Escape continues to always cancel explicitly.
+- Fixed a related latent bug where committing an inline rename with the text left exactly as it started could insert a spurious blank line at the end of the note.
+
 ## [0.2.1] - 2026-08-11
 
 ### Fixed

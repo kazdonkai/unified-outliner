@@ -2223,8 +2223,35 @@ export class OutlineTreeView extends ItemView {
       // element being detached) — and against it firing for a node other
       // than the one THIS input belongs to, in the unlikely event a new
       // rename already started elsewhere by the time this fires.
+      //
+      // Moving focus outside the input COMMITS the edit if the text
+      // actually changed, and otherwise just closes the box like Escape
+      // (2026-08-11 fix): clicking any other row, scrolling the pane,
+      // switching panes, etc. ends the rename the same way pressing Enter
+      // does. An earlier version of this handler unconditionally called
+      // cancelRename() here — on the theory that leaving the input should
+      // default to discarding whatever was typed — but that silently threw
+      // away real edits the moment the user clicked elsewhere in the tree
+      // (confirmed via a screen recording: editing a row's text, then
+      // clicking a different row to look at it, made the edit vanish with
+      // no notice and nothing ever reached the note body). Every other
+      // inline-rename UI a user is likely to have muscle memory for
+      // (Finder, Explorer, VS Code's own tree views) commits on blur, not
+      // cancel. The inputEl.value === initialText check keeps a genuinely
+      // untouched box (opened, then blurred without typing anything) a
+      // clean cancel rather than a same-text "commit" that would otherwise
+      // leave the textarea sitting open-but-unfocused — commitRename()
+      // returning early on a true no-op (see applyLineEditOutcome's own
+      // no-op guard) doesn't itself tear the box down, only a successful
+      // write-back does. Escape (see the keydown handler above) remains
+      // the explicit, always-cancels path regardless of whether the text
+      // changed.
       if (this.renameState && this.renameState.nodeId === nodeId) {
-        this.cancelRename();
+        if (inputEl.value === initialText) {
+          this.cancelRename();
+        } else {
+          this.commitRename();
+        }
       }
     });
     // A click inside the input is text-cursor placement, not a row
@@ -2277,7 +2304,18 @@ export class OutlineTreeView extends ItemView {
    * whatever the user typed, and NOOP_MESSAGES reports why, satisfying
    * "拒否時は原文を変更せず、input を保持したまま notice 等で理由を通知する" with no
    * special-casing beyond what applyLineEditOutcome already does for
-   * every other no-op reason in this view.
+   * every other no-op reason in this view. A true no-op (rawValue equal to
+   * the original text) also comes back as `changed === false` here — via
+   * applyLineEditOutcome's own no-op guard, since renameSection/
+   * renameListItem always report `changed: true` regardless of whether the
+   * text actually differs — but the blur handler above intercepts that
+   * exact case before ever calling commitRename() (comparing inputEl.value
+   * against the initialText it captured at open time) and calls
+   * cancelRename() instead, so the input still gets torn down cleanly for
+   * the common "opened it, didn't touch anything, clicked away" case.
+   * Reaching this function with a true no-op is only possible via Enter
+   * (that path has no such pre-check), and simply leaves the box open with
+   * silently no-op'd text, matching every other rejection above.
    *
    * Undo/Redo ("inline rename の安全復帰措置" requirement): a successful
    * commit makes exactly ONE `editor.replaceRange()` call, inside
@@ -2350,8 +2388,10 @@ export class OutlineTreeView extends ItemView {
    * "inline rename の安全復帰措置" requirement: this function never calls
    * applyLineEditOutcome, editor.replaceRange, or any other body-writing
    * API — whatever the user had typed into the textarea (however long, and
-   * regardless of how the cancel was triggered: Escape, blur, or starting
-   * a rename on a different row) is simply discarded along with the
+   * regardless of how the cancel was triggered: Escape, a no-op blur — see
+   * the blur handler's own comment for why blur only cancels rather than
+   * commits when the text is unchanged — or starting a rename on a
+   * different row) is simply discarded along with the
    * textarea DOM node itself. There is nothing here that could leave a
    * partial edit in the Markdown source, and nothing here that could ever
    * create an Undo history entry — the accident this whole feature exists

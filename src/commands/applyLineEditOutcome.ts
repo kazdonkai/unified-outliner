@@ -125,6 +125,30 @@ export function applyLineEditOutcome(
   }
 
   const newLines = outcome.lines;
+
+  // True no-op guard (2026-08-11 fix): a rename committed with the text
+  // left exactly as it started (e.g. the Outline Tree's inline rename box
+  // now also commits on blur, so simply clicking into a row and then
+  // clicking elsewhere without typing anything reaches this function with
+  // outcome.changed === true and outcome.lines byte-identical to
+  // oldLines — renameSection/renameListItem don't themselves compare
+  // against the original text, unlike move/indent/etc., which already
+  // reject via changed: false before anything with an actual difference
+  // reaches here). Without this guard, the "prefix/suffix trim down to the
+  // differing middle" logic below degenerates when there is no differing
+  // middle at all: the prefix-matching loop consumes every line (`first`
+  // ends at oldLines.length), which then satisfies the `oldLast < first`
+  // "pure insert" branch further down and inserts a spurious blank line at
+  // the end of the document. Bailing out here before any of that keeps a
+  // truly unchanged commit a real no-op, exactly like every other
+  // no-actual-difference outcome in this codebase.
+  if (
+    newLines.length === oldLines.length &&
+    newLines.every((line, i) => line === oldLines[i])
+  ) {
+    return false;
+  }
+
   let first = 0;
   const minLen = Math.min(oldLines.length, newLines.length);
   while (first < minLen && oldLines[first] === newLines[first]) first++;
