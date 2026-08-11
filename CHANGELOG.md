@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-11
+
+### Fixed
+
+- Fixed the Outline Tree View's double-click-to-rename often failing to trigger. The double-click listener lived only on a row's text label, which is only as wide as its own text — double-clicking the empty space elsewhere in the row (common for short labels) missed it entirely. Double-click now starts a rename from anywhere on the row, except the fold/disclosure triangle, which keeps its own toggle-fold behavior.
+
 ## [0.2.2] - 2026-08-11
 
 ### Fixed

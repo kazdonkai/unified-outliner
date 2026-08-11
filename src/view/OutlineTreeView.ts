@@ -867,49 +867,47 @@ export class OutlineTreeView extends ItemView {
       });
     }
 
+    // Inline rename trigger (2026-08-11 fix): lives on selfEl — the row's
+    // FULL width/height, not just the text label's own innerEl — so a
+    // double-click anywhere on the row starts a rename, not only when the
+    // cursor happens to land precisely on the label's own glyphs. Reported
+    // as "rename が中々編集に入れない" (double-click often fails to enter
+    // edit mode): innerEl is only as wide as its own text content (see
+    // styles.css's .tree-item-inner, `flex-grow: 0` outside of an active
+    // rename — the earlier "rename input width" ticket's own fix scopes
+    // `flex: 1 1 auto` to the renaming state specifically, for exactly this
+    // reason), so double-clicking the empty space to the right of a short
+    // label, or anywhere else in the row that isn't the label text itself,
+    // used to land on selfEl/itemEl and never reach innerEl's listener at
+    // all. The `collapseEl.contains(...)` check is the one exclusion this
+    // still needs: without it, double-clicking the disclosure triangle
+    // would both toggle-fold twice (a harmless no-op, click fires per each
+    // of the two clicks) AND open a rename, which double-clicking a fold
+    // arrow has no reason to do.
+    selfEl.addEventListener("dblclick", (evt) => {
+      if (collapseEl.contains(evt.target as Node)) return;
+      evt.stopPropagation();
+      // Re-resolves the row's CURRENT DOM elements fresh by nodeId (see
+      // beginRenameForNode's own doc comment) rather than closing over
+      // selfEl/innerEl from this render pass directly: a dblclick's two
+      // constituent clicks each already run this row's own "click" handler
+      // below (jumpToLine / mobile tap logic), which can itself trigger a
+      // re-render before "dblclick" is dispatched, leaving any closed-over
+      // reference pointing at an already-detached previous render pass.
+      this.beginRenameForNode(node.id);
+    });
+
     if (isOutlineSectionNode(node)) {
       const innerEl = selfEl.createDiv({
         cls: `tree-item-inner unified-outliner-level-${node.headingLevel}`,
       });
       innerEl.setText(node.headingText.length > 0 ? node.headingText : "(Untitled heading)");
-      // Inline rename: the dblclick listener lives on innerEl specifically
-      // (a sibling of collapseEl, not an ancestor), so a dblclick on the
-      // disclosure triangle never reaches it — no target-filtering needed.
-      // See beginRename's own doc comment for the fold/drag/selection
-      // interaction this is designed around.
-      //
-      // Deliberately calls beginRenameForNode(node.id) here rather than
-      // beginRename(node.id, kind, innerEl, selfEl) directly with THIS
-      // closure's own innerEl/selfEl: a dblclick's two constituent clicks
-      // each already run this row's own "click" handler (jumpToLine),
-      // which can itself trigger a re-render (e.g. the first click moving
-      // DOM focus onto treeRootEl for the first time in this session fires
-      // its own focus-triggered renderTree()) before "dblclick" is
-      // dispatched. If that happens, this closure's innerEl/selfEl
-      // references point at an already-detached previous render pass by
-      // the time this handler runs, and building the rename <input> inside
-      // a detached subtree would silently produce a rename that opens but
-      // is never visible/reachable. beginRenameForNode re-resolves the
-      // row's CURRENT DOM elements fresh, by nodeId, exactly like the F2 /
-      // context-menu / auto-rename-after-insert triggers already do —
-      // reusing that same re-resolution instead of duplicating it here.
-      innerEl.addEventListener("dblclick", (evt) => {
-        evt.stopPropagation();
-        this.beginRenameForNode(node.id);
-      });
     } else if (isOutlineListNode(node)) {
       const innerEl = selfEl.createDiv({
         cls: "tree-item-inner unified-outliner-list-text",
       });
       const displayText = node.text.length > 0 ? node.text : "(Empty list item)";
       innerEl.setText(displayText);
-      // See the section-branch dblclick listener above for why this calls
-      // beginRenameForNode(node.id) rather than beginRename(...) with this
-      // closure's own innerEl/selfEl.
-      innerEl.addEventListener("dblclick", (evt) => {
-        evt.stopPropagation();
-        this.beginRenameForNode(node.id);
-      });
       // Phase 3C.1: the label itself is CSS-truncated to one line (see
       // styles.css's unified-outliner-list-text), so long items always fit
       // the sidebar's current width without breaking the tree's
