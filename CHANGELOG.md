@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-08-11
+
+### Fixed
+
+- Fixed the Partial Edit Pane's "Next" sibling button never showing its target-label preview, unlike "Previous" (reported: the two looked inconsistent). Obsidian's `setIcon()` replaces all of its target element's existing children with the icon — harmless for "Previous", whose icon is set before its target/label spans exist, but the "Next" button set its icon last, silently wiping out the target-label span that had just been created. Fixed by giving the icon its own dedicated wrapper span. No other behavior change.
+
 ## [0.3.4] - 2026-08-11
 
 ### Fixed

@@ -294,7 +294,20 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-sibling-nav-label",
       text: this.plugin.t("partialEdit.nextSibling"),
     });
-    setIcon(this.siblingNextEl, "chevron-right");
+    // setIcon(el, ...) replaces ALL of el's existing children with just the
+    // icon svg — harmless for siblingPrevEl above (its icon is set first,
+    // while the button is still empty), but calling it directly on
+    // siblingNextEl here — AFTER the target and label spans above already
+    // exist — silently wiped both of them out, leaving "Next" with no
+    // target-label preview ever rendered (reported: previous shows its
+    // target label, next never does). Fixed by giving the icon its own
+    // empty wrapper span that setIcon can safely clear/populate without
+    // touching its siblings, instead of calling setIcon on siblingNextEl
+    // itself.
+    const siblingNextIconEl = this.siblingNextEl.createSpan({
+      cls: "unified-outliner-partial-edit-sibling-nav-icon",
+    });
+    setIcon(siblingNextIconEl, "chevron-right");
     this.siblingNextEl.addEventListener("click", () => {
       const target = this.siblingState.next;
       if (target) this.requestLoadNode(target.nodeId);
