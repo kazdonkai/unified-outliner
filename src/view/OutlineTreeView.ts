@@ -219,11 +219,8 @@ import {
   SectionRenameSnapshot,
 } from "../edit/renameBlock";
 import { HeadingLevelModal } from "./HeadingLevelModal";
-import {
-  applyLineEditOutcome,
-  LineEditOutcome,
-  NOOP_MESSAGES,
-} from "../commands/applyLineEditOutcome";
+import { applyLineEditOutcome, LineEditOutcome } from "../commands/applyLineEditOutcome";
+import { TranslationKey } from "../i18n";
 
 export const OUTLINE_TREE_VIEW_TYPE = "unified-outliner-outline-tree";
 
@@ -380,7 +377,7 @@ export class OutlineTreeView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Unified Outliner: Outline";
+    return this.plugin.t("tree.viewName");
   }
 
   getIcon(): string {
@@ -402,7 +399,7 @@ export class OutlineTreeView extends ItemView {
     // assistive tech instead — see renderNode's isSelected branch).
     this.treeRootEl.tabIndex = 0;
     this.treeRootEl.setAttribute("role", "tree");
-    this.treeRootEl.setAttribute("aria-label", "Unified Outliner: Outline");
+    this.treeRootEl.setAttribute("aria-label", this.plugin.t("tree.viewName"));
     this.registerDomEvent(this.treeRootEl, "keydown", this.handleTreeKeyDown);
     this.registerDomEvent(this.treeRootEl, "focus", () => {
       // Inline rename guard (see renameState's own doc comment / refresh()'s
@@ -791,8 +788,8 @@ export class OutlineTreeView extends ItemView {
     this.treeRootEl.removeAttribute("aria-activedescendant");
     if (this.currentTree.length === 0) {
       const message = this.plugin.settings.showListItemsInOutline
-        ? "This note has no headings or list items."
-        : "This note has no headings.";
+        ? this.plugin.t("tree.emptyNoHeadingsOrList")
+        : this.plugin.t("tree.emptyNoHeadings");
       this.renderEmptyState(message);
       return;
     }
@@ -901,12 +898,15 @@ export class OutlineTreeView extends ItemView {
       const innerEl = selfEl.createDiv({
         cls: `tree-item-inner unified-outliner-level-${node.headingLevel}`,
       });
-      innerEl.setText(node.headingText.length > 0 ? node.headingText : "(Untitled heading)");
+      innerEl.setText(
+        node.headingText.length > 0 ? node.headingText : this.plugin.t("tree.untitledHeading")
+      );
     } else if (isOutlineListNode(node)) {
       const innerEl = selfEl.createDiv({
         cls: "tree-item-inner unified-outliner-list-text",
       });
-      const displayText = node.text.length > 0 ? node.text : "(Empty list item)";
+      const displayText =
+        node.text.length > 0 ? node.text : this.plugin.t("tree.emptyListItem");
       innerEl.setText(displayText);
       // Phase 3C.1: the label itself is CSS-truncated to one line (see
       // styles.css's unified-outliner-list-text), so long items always fit
@@ -1500,7 +1500,10 @@ export class OutlineTreeView extends ItemView {
    * look identical to an available one.
    */
   private static readonly UNAVAILABLE_ICON = "ban";
-  private static readonly UNAVAILABLE_SUFFIX = " — unavailable";
+  // i18n実装: the " — unavailable" suffix text itself now lives in
+  // src/i18n.ts as "tree.menu.unavailableSuffix" (this.plugin.t(...)), not
+  // as a static English constant here — every call site above reads it via
+  // the plugin's translator so it follows the language setting.
 
   /**
    * Right-click menu offering, top to bottom: the four Phase 2C fold-aware
@@ -1525,7 +1528,9 @@ export class OutlineTreeView extends ItemView {
     };
     const isCollapsed = this.collapsedIds.has(sectionId);
     const contextualMode: "block" | "node-only" = isCollapsed ? "block" : "node-only";
-    const contextualModeLabel = isCollapsed ? "subtree" : "node-only";
+    const contextualModeLabel = this.plugin.t(
+      isCollapsed ? "tree.menu.modeSubtree" : "tree.menu.modeNodeOnly"
+    );
 
     const menu = new Menu();
 
@@ -1536,24 +1541,24 @@ export class OutlineTreeView extends ItemView {
     ) => {
       this.addMenuItem(
         menu,
-        `${title} (contextual: ${contextualModeLabel})`,
+        this.plugin.t("tree.menu.contextual", { title, mode: contextualModeLabel }),
         icon,
         this.canRunInMode(doc, node, operation, contextualMode, options),
         () => this.runContextualCommand(sectionId, operation)
       );
     };
-    addContextualItem("Move up", "arrow-up", "move-up");
-    addContextualItem("Move down", "arrow-down", "move-down");
+    addContextualItem(this.plugin.t("tree.menu.moveUp"), "arrow-up", "move-up");
+    addContextualItem(this.plugin.t("tree.menu.moveDown"), "arrow-down", "move-down");
     menu.addSeparator();
-    addContextualItem("Indent", "indent", "indent");
-    addContextualItem("Outdent", "outdent", "outdent");
+    addContextualItem(this.plugin.t("tree.menu.indent"), "indent", "indent");
+    addContextualItem(this.plugin.t("tree.menu.outdent"), "outdent", "outdent");
     menu.addSeparator();
 
-    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Move subtree up", "arrow-up", "move-up");
-    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Move subtree down", "arrow-down", "move-down");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, this.plugin.t("tree.menu.moveSubtreeUp"), "arrow-up", "move-up");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, this.plugin.t("tree.menu.moveSubtreeDown"), "arrow-down", "move-down");
     menu.addSeparator();
-    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Indent subtree", "indent", "indent");
-    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Outdent subtree", "outdent", "outdent");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, this.plugin.t("tree.menu.indentSubtree"), "indent", "indent");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, this.plugin.t("tree.menu.outdentSubtree"), "outdent", "outdent");
     menu.addSeparator();
 
     // Phase 3B: opens (or reuses, per main.ts's "one pane, not many"
@@ -1563,7 +1568,7 @@ export class OutlineTreeView extends ItemView {
     // section at the bottom of the menu.
     menu.addItem((item) =>
       item
-        .setTitle("Open partial edit pane")
+        .setTitle(this.plugin.t("tree.menu.openPartialEditPane"))
         .setIcon("edit-3")
         // void: onClick doesn't await its callback's return value, and
         // activatePartialEditView already catches its own failures
@@ -1582,7 +1587,7 @@ export class OutlineTreeView extends ItemView {
     // openPopoutLeaf/moveLeafToPopout APIs and reports its own failures.
     menu.addItem((item) =>
       item
-        .setTitle("Open partial edit pane in new window")
+        .setTitle(this.plugin.t("tree.menu.openPartialEditPaneNewWindow"))
         .setIcon("picture-in-picture-2")
         .onClick(() =>
           void this.plugin.activatePartialEditView(sectionId, { openInNewWindow: true })
@@ -1601,13 +1606,13 @@ export class OutlineTreeView extends ItemView {
     menu.addSeparator();
     menu.addItem((item) =>
       item
-        .setTitle("Insert section after")
+        .setTitle(this.plugin.t("tree.menu.insertSectionAfter"))
         .setIcon("plus")
         .onClick(() => this.runInsertSiblingSectionCommand(sectionId))
     );
     menu.addItem((item) =>
       item
-        .setTitle("Delete section subtree")
+        .setTitle(this.plugin.t("tree.menu.deleteSectionSubtree"))
         .setIcon("trash-2")
         .setWarning(true)
         .onClick(() => this.runDeleteCommand(sectionId))
@@ -1616,7 +1621,7 @@ export class OutlineTreeView extends ItemView {
     // primary trigger is a dblclick on the row's own label.
     menu.addItem((item) =>
       item
-        .setTitle("Rename")
+        .setTitle(this.plugin.t("tree.menu.rename"))
         .setIcon("pencil")
         .onClick(() => this.beginRenameForNode(sectionId))
     );
@@ -1680,19 +1685,19 @@ export class OutlineTreeView extends ItemView {
 
     const menu = new Menu();
 
-    this.addExplicitBlockItem(menu, doc, node, listId, options, "Move subtree up", "arrow-up", "move-up");
-    this.addExplicitBlockItem(menu, doc, node, listId, options, "Move subtree down", "arrow-down", "move-down");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, this.plugin.t("tree.menu.moveSubtreeUp"), "arrow-up", "move-up");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, this.plugin.t("tree.menu.moveSubtreeDown"), "arrow-down", "move-down");
     menu.addSeparator();
-    this.addExplicitBlockItem(menu, doc, node, listId, options, "Indent subtree", "indent", "indent");
-    this.addExplicitBlockItem(menu, doc, node, listId, options, "Outdent subtree", "outdent", "outdent");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, this.plugin.t("tree.menu.indentSubtree"), "indent", "indent");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, this.plugin.t("tree.menu.outdentSubtree"), "outdent", "outdent");
     menu.addSeparator();
 
     menu.addItem((item) =>
       item
         .setTitle(
           feasible
-            ? "Edit list subtree in pane"
-            : `Edit list subtree in pane${OutlineTreeView.UNAVAILABLE_SUFFIX}`
+            ? this.plugin.t("tree.menu.editListSubtreeInPane")
+            : `${this.plugin.t("tree.menu.editListSubtreeInPane")}${this.plugin.t("tree.menu.unavailableSuffix")}`
         )
         .setIcon(feasible ? "edit-3" : OutlineTreeView.UNAVAILABLE_ICON)
         .setDisabled(!feasible)
@@ -1713,8 +1718,8 @@ export class OutlineTreeView extends ItemView {
       item
         .setTitle(
           feasible
-            ? "Edit list subtree in new window"
-            : `Edit list subtree in new window${OutlineTreeView.UNAVAILABLE_SUFFIX}`
+            ? this.plugin.t("tree.menu.editListSubtreeInNewWindow")
+            : `${this.plugin.t("tree.menu.editListSubtreeInNewWindow")}${this.plugin.t("tree.menu.unavailableSuffix")}`
         )
         .setIcon(feasible ? "picture-in-picture-2" : OutlineTreeView.UNAVAILABLE_ICON)
         .setDisabled(!feasible)
@@ -1734,20 +1739,20 @@ export class OutlineTreeView extends ItemView {
     menu.addSeparator();
     menu.addItem((item) =>
       item
-        .setTitle("Insert list item after")
+        .setTitle(this.plugin.t("tree.menu.insertListItemAfter"))
         .setIcon("plus")
         .onClick(() => this.runInsertSiblingListItemCommand(listId))
     );
     this.addMenuItem(
       menu,
-      "Insert child list item",
+      this.plugin.t("tree.menu.insertChildListItem"),
       "plus",
       childInsertFeasible,
       () => this.runInsertChildListItemCommand(listId)
     );
     menu.addItem((item) =>
       item
-        .setTitle("Delete list subtree")
+        .setTitle(this.plugin.t("tree.menu.deleteListSubtree"))
         .setIcon("trash-2")
         .setWarning(true)
         .onClick(() => this.runDeleteCommand(listId))
@@ -1756,7 +1761,7 @@ export class OutlineTreeView extends ItemView {
     // primary trigger is a dblclick on the row's own label.
     menu.addItem((item) =>
       item
-        .setTitle("Rename")
+        .setTitle(this.plugin.t("tree.menu.rename"))
         .setIcon("pencil")
         .onClick(() => this.beginRenameForNode(listId))
     );
@@ -1783,7 +1788,9 @@ export class OutlineTreeView extends ItemView {
   ): void {
     menu.addItem((item) =>
       item
-        .setTitle(feasible ? title : `${title}${OutlineTreeView.UNAVAILABLE_SUFFIX}`)
+        .setTitle(
+          feasible ? title : `${title}${this.plugin.t("tree.menu.unavailableSuffix")}`
+        )
         .setIcon(feasible ? icon : OutlineTreeView.UNAVAILABLE_ICON)
         .setDisabled(!feasible)
         .setWarning(!feasible)
@@ -1908,14 +1915,14 @@ export class OutlineTreeView extends ItemView {
     const editor: Editor = view.editor;
 
     if (editor.listSelections().length > 1) {
-      this.notify("Unified Outliner: multiple cursors are not supported.");
+      this.notify(this.plugin.t("notice.multipleCursors"));
       return false;
     }
 
     const doc = parseDocument(editor.getValue());
     const node = doc.nodes.get(sectionId);
     if (!node) {
-      this.notify(NOOP_MESSAGES["resolve-failed"]);
+      this.notify(this.plugin.t("reason.resolve-failed"));
       return false;
     }
 
@@ -1936,7 +1943,7 @@ export class OutlineTreeView extends ItemView {
       node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notify(m)
+      () => this.notify(this.reasonText(outcome.reason))
     );
 
     if (changed) {
@@ -1953,6 +1960,12 @@ export class OutlineTreeView extends ItemView {
 
   private notify(message: string | undefined): void {
     if (this.plugin.settings.showNoopNotices && message) new Notice(message);
+  }
+
+  /** Translate a no-op/rejection reason (see NOOP_MESSAGES's key set in commands/applyLineEditOutcome.ts) into the current locale. */
+  private reasonText(reason: string | undefined): string | undefined {
+    if (!reason) return undefined;
+    return this.plugin.t(("reason." + reason) as TranslationKey);
   }
 
   // ---- Phase 5C-1A/1B: block-level delete/insert ------------------------
@@ -1998,7 +2011,7 @@ export class OutlineTreeView extends ItemView {
    * mutating" requirement without any extra code here.
    */
   private runInsertSiblingSectionCommand(afterSectionId: string): void {
-    new HeadingLevelModal(this.app, (level) => {
+    new HeadingLevelModal(this.app, this.plugin, (level) => {
       if (level === null) return;
       const changed = this.dispatchAndApply(afterSectionId, (doc) =>
         insertSiblingSection(doc, afterSectionId, level)
@@ -2074,17 +2087,17 @@ export class OutlineTreeView extends ItemView {
 
     const view = this.activeMarkdownView.get();
     if (!view) {
-      this.notify(NOOP_MESSAGES["no-active-editor"]);
+      this.notify(this.plugin.t("reason.no-active-editor"));
       return;
     }
     const doc = parseDocument(view.editor.getValue());
     const node = doc.nodes.get(nodeId);
     if (!node) {
-      this.notify(NOOP_MESSAGES["resolve-failed"]);
+      this.notify(this.plugin.t("reason.resolve-failed"));
       return;
     }
     if ((kind === "section") !== isSectionNode(node)) {
-      this.notify(NOOP_MESSAGES["type-changed"]);
+      this.notify(this.plugin.t("reason.type-changed"));
       return;
     }
 
@@ -2341,12 +2354,12 @@ export class OutlineTreeView extends ItemView {
 
     const view = this.activeMarkdownView.get();
     if (!view) {
-      this.notify(NOOP_MESSAGES["no-active-editor"]);
+      this.notify(this.plugin.t("reason.no-active-editor"));
       return;
     }
     const editor = view.editor;
     if (editor.listSelections().length > 1) {
-      this.notify("Unified Outliner: multiple cursors are not supported.");
+      this.notify(this.plugin.t("notice.multipleCursors"));
       return;
     }
 
@@ -2363,7 +2376,7 @@ export class OutlineTreeView extends ItemView {
       0,
       doc.lines,
       outcome,
-      (m) => this.notify(m)
+      () => this.notify(this.reasonText(outcome.reason))
     );
 
     if (!changed) return;

@@ -12,6 +12,7 @@
  * no per-kind branching at all.
  */
 import { BlockNode, ParsedDocument } from "../model/block";
+import { defaultTranslator, Translator } from "../i18n";
 import { nodeDisplayLabel } from "./buildOutlineTree";
 
 export interface AncestorPathEntry {
@@ -35,7 +36,11 @@ export interface AncestorPathEntry {
  * trust that assumption — simply stops walking and returns whatever
  * ancestors were already collected. It never throws.
  */
-export function findAncestorPath(doc: ParsedDocument, nodeId: string): AncestorPathEntry[] {
+export function findAncestorPath(
+  doc: ParsedDocument,
+  nodeId: string,
+  t: Translator = defaultTranslator
+): AncestorPathEntry[] {
   const start = doc.nodes.get(nodeId);
   if (!start) return [];
 
@@ -47,7 +52,11 @@ export function findAncestorPath(doc: ParsedDocument, nodeId: string): AncestorP
     const parent = doc.nodes.get(current.parentId);
     if (!parent || visited.has(parent.id)) break;
     visited.add(parent.id);
-    ancestors.push({ id: parent.id, kind: parent.type, label: nodeDisplayLabel(doc, parent) });
+    ancestors.push({
+      id: parent.id,
+      kind: parent.type,
+      label: nodeDisplayLabel(doc, parent, t),
+    });
     current = parent;
   }
 

@@ -53,6 +53,7 @@ import { ComplexBlockInfo, ComplexBlockKind } from "../model/complexBlock";
 import { scanComplexBlocks } from "../parser/complexBlocks";
 import { isBlankLine } from "../parser/parseDocument";
 import { resolveCurrentBlock } from "../resolver/resolveCurrentBlock";
+import { defaultTranslator, Translator } from "../i18n";
 import { MoveDirection } from "./findMoveTarget";
 import { swapBlocks } from "./moveBlock";
 
@@ -396,41 +397,46 @@ function countListDescendants(doc: ParsedDocument, node: BlockNode): number {
   return count;
 }
 
-const COMPLEX_KIND_LABEL: Record<ComplexBlockKind, string> = {
-  callout: "callout",
-  blockquote: "blockquote",
-  "fenced-code": "code block",
-  table: "table",
-  paragraph: "paragraph",
+const COMPLEX_KIND_KEY: Record<ComplexBlockKind, "unit.callout" | "unit.blockquote" | "unit.codeBlock" | "unit.table" | "unit.paragraph"> = {
+  callout: "unit.callout",
+  blockquote: "unit.blockquote",
+  "fenced-code": "unit.codeBlock",
+  table: "unit.table",
+  paragraph: "unit.paragraph",
 };
 
 /**
- * Human-readable ENGLISH label for the move-result toast (main.ts's
- * announceMoveResult). English, not Japanese, per project policy — see
- * this repo's language policy in docs/統合実装ロードマップ_2026-08-05.md §1:
- * this plugin is universal (not Japan-only), so every user-facing string
- * defaults to English unless a specific ticket explicitly calls for
- * another language for a particular, scoped piece of UI. An earlier
- * revision of this function returned Japanese text per that ticket's own
- * (later corrected) example wording; this was reverted after an explicit
- * follow-up instruction — see that same roadmap section for the full
- * policy statement. Pure and Obsidian-free so it's testable alongside the
- * rest of this module.
+ * Human-readable label for the move-result toast (main.ts's
+ * announceMoveResult). i18n実装 (2026-08-11): `t` is now an OPTIONAL
+ * Translator (src/i18n.ts), defaulting to `defaultTranslator` (English) so
+ * every pre-existing caller/test that doesn't pass one keeps this
+ * function's original English-by-default behavior byte-for-byte — see
+ * tests/resolveMoveTarget.test.ts, which calls this with 2 args and still
+ * expects exact English strings. Production callers (main.ts) pass the
+ * plugin's own live translator so this toast follows the language setting.
+ * Pure and Obsidian-free either way (Translator is just a plain function),
+ * so this stays testable alongside the rest of this module.
  */
-export function describeMoveUnit(doc: ParsedDocument, unit: ResolvedMoveUnit): string {
+export function describeMoveUnit(
+  doc: ParsedDocument,
+  unit: ResolvedMoveUnit,
+  t: Translator = defaultTranslator
+): string {
   if (unit.kind === "section") {
     const node = unit.nodeId ? doc.nodes.get(unit.nodeId) : null;
     const heading =
       node && isSectionNode(node) && node.headingText.length > 0
         ? node.headingText
-        : "(untitled heading)";
-    return `section "${heading}"`;
+        : t("unit.untitledHeading");
+    return t("unit.sectionNamed", { heading });
   }
   if (unit.kind === "list") {
     const node = unit.nodeId ? doc.nodes.get(unit.nodeId) : null;
     const count = node ? countListDescendants(doc, node) : 0;
-    if (count === 0) return "list item";
-    return `list item (with ${count} nested item${count === 1 ? "" : "s"})`;
+    if (count === 0) return t("unit.listItem");
+    return t(count === 1 ? "unit.listItemWithNestedOne" : "unit.listItemWithNestedMany", {
+      count,
+    });
   }
-  return COMPLEX_KIND_LABEL[unit.kind];
+  return t(COMPLEX_KIND_KEY[unit.kind]);
 }

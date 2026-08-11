@@ -31,6 +31,7 @@ import {
   ParsedDocument,
   SectionBlockNode,
 } from "../model/block";
+import { defaultTranslator, Translator } from "../i18n";
 
 export interface OutlineTreeSectionNode {
   kind: "section";
@@ -96,23 +97,37 @@ export function listItemDisplayText(doc: ParsedDocument, item: ListBlockNode): s
  * Phase 5B: shared display label for a section or list node — the exact
  * same text view/PartialEditView.ts's pane title has used since Phase 4C
  * ("(Untitled heading)" / "(Empty list item)" fallbacks for an empty
- * heading/item — English fallback text per UI review, see git history for
- * the original Japanese strings), now extracted here so
- * tree/ancestorPath.ts's breadcrumb labels and PartialEditView's title can
- * both call one function instead of keeping two copies of the same
- * fallback rule in sync by hand. Lives alongside listItemDisplayText
- * (which it delegates to for the list case) rather than in
- * edit/partialEdit.ts or PartialEditView.ts, since both of this function's
- * callers are themselves tree-shaped: the Outline Tree's own node labels
- * and the breadcrumb's ancestor labels are the same concept.
+ * heading/item), now extracted here so tree/ancestorPath.ts's breadcrumb
+ * labels and PartialEditView's title can both call one function instead of
+ * keeping two copies of the same fallback rule in sync by hand. Lives
+ * alongside listItemDisplayText (which it delegates to for the list case)
+ * rather than in edit/partialEdit.ts or PartialEditView.ts, since both of
+ * this function's callers are themselves tree-shaped: the Outline Tree's
+ * own node labels and the breadcrumb's ancestor labels are the same
+ * concept.
+ *
+ * i18n実装 (2026-08-11): `t` is an OPTIONAL Translator (src/i18n.ts),
+ * defaulting to `defaultTranslator` (English) so every pre-existing
+ * caller/test that doesn't pass one keeps this function's original
+ * English-by-default fallback text byte-for-byte — see
+ * tests/buildOutlineTree.test.ts and tests/descendantPath.test.ts, both of
+ * which call this (directly or via descendantPath.ts) with the
+ * pre-existing 2-arg shape and still expect exact English fallback text.
+ * Production callers (OutlineTreeView.ts, PartialEditView.ts,
+ * ancestorPath.ts, descendantPath.ts) pass the plugin's own live
+ * translator so these fallback labels follow the language setting too.
  */
-export function nodeDisplayLabel(doc: ParsedDocument, node: BlockNode): string {
+export function nodeDisplayLabel(
+  doc: ParsedDocument,
+  node: BlockNode,
+  t: Translator = defaultTranslator
+): string {
   if (isSectionNode(node)) {
-    return node.headingText.length > 0 ? node.headingText : "(Untitled heading)";
+    return node.headingText.length > 0 ? node.headingText : t("tree.untitledHeading");
   }
   if (isListNode(node)) {
     const text = listItemDisplayText(doc, node);
-    return text.length > 0 ? text : "(Empty list item)";
+    return text.length > 0 ? text : t("tree.emptyListItem");
   }
   return "";
 }

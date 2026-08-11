@@ -32,20 +32,86 @@ import { PARTIAL_EDIT_VIEW_TYPE, PartialEditView } from "./view/PartialEditView"
 import { HeadingLevelModal } from "./view/HeadingLevelModal";
 import { ActiveMarkdownViewTracker } from "./view/activeMarkdownViewTracker";
 import { FoldStateManager } from "./persistence/foldStateManager";
-import {
-  applyLineEditOutcome,
-  LineEditOutcome,
-  NOOP_MESSAGES,
-} from "./commands/applyLineEditOutcome";
+import { applyLineEditOutcome, LineEditOutcome } from "./commands/applyLineEditOutcome";
 import {
   DEFAULT_SETTINGS,
   UnifiedOutlinerSettings,
   UnifiedOutlinerSettingTab,
 } from "./settings";
 import { mergeSettings } from "./settingsDefaults";
+import {
+  createTranslator,
+  SupportedLocale,
+  resolveLocale,
+  TranslationKey,
+  TranslationVars,
+  Translator,
+} from "./i18n";
+
+/**
+ * Best-effort read of Obsidian's own UI language for `language: "auto"`
+ * resolution. Obsidian's typed API has no official accessor for this, but
+ * its language picker (Settings → General → Language) persists the choice
+ * under this exact localStorage key — a technique already used by several
+ * community plugins for the same purpose. Wrapped in try/catch and returns
+ * null on any failure (headless test environment, storage disabled, key
+ * absent because the user never changed the default, ...), which
+ * resolveLocale() already treats as "no hint, fall back to en".
+ */
+function detectObsidianLocale(): string | null {
+  try {
+    return window.localStorage.getItem("language");
+  } catch {
+    return null;
+  }
+}
 
 export default class UnifiedOutlinerPlugin extends Plugin {
   settings: UnifiedOutlinerSettings = { ...DEFAULT_SETTINGS };
+
+  /** Concrete locale `this.settings.language` currently resolves to — see refreshLocale(). */
+  locale: SupportedLocale = "en";
+  private translator: Translator = createTranslator("en");
+
+  /** Translate a UI string owned by this plugin. See src/i18n.ts. */
+  t(key: TranslationKey, vars?: TranslationVars): string {
+    return this.translator(key, vars);
+  }
+
+  /**
+   * Resolves this.settings.language into a concrete locale and rebuilds the
+   * translator. Called once from onload() (right after loadSettings(),
+   * before any addCommand/addSettingTab — Obsidian reads a command's `name`
+   * once at registration time, so it has to already be in the right
+   * language) and again from the settings tab whenever the language setting
+   * itself changes. Never re-registers/removes commands — see the settings
+   * tab's change handler for the one-time Notice that explains why already-
+   * visible Command Palette names only update after a reload.
+   */
+  refreshLocale(): void {
+    this.locale = resolveLocale(this.settings.language, detectObsidianLocale());
+    this.translator = createTranslator(this.locale);
+  }
+
+  /** Translate a no-op/rejection reason (see NOOP_MESSAGES's key set) into the current locale. */
+  private reasonText(reason: string | undefined): string | undefined {
+    if (!reason) return undefined;
+    return this.t(("reason." + reason) as TranslationKey);
+  }
+
+  /**
+   * One-time notice shown by the settings tab (settings.ts) after the
+   * language setting actually changes value — never gated by
+   * showNoopNotices (this is not a no-op notice), and never shown for a
+   * re-selection of the same value. Explains that Command Palette entries
+   * already registered under the old language need a reload to update,
+   * since Obsidian reads a command's `name` once at addCommand() time and
+   * this plugin deliberately never re-registers commands on a language
+   * change (see refreshLocale()'s doc comment).
+   */
+  notifyLanguageChanged(): void {
+    new Notice(this.t("notice.languageChanged"));
+  }
 
   /**
    * Single, plugin-owned ActiveMarkdownViewTracker shared by every view
@@ -76,6 +142,9 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    // i18n実装: locale must be resolved before any addCommand/addSettingTab
+    // call below — see refreshLocale()'s own doc comment.
+    this.refreshLocale();
 
     // CHANGELOG (2026-08-11, "Move block の対象を最小安全ブロックへ"): this
     // command's MEANING changed. Before this ticket, cursor position
@@ -93,13 +162,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // up/down instead.
     this.addCommand({
       id: "move-block-up",
-      name: "Move block up (minimal safe unit at cursor)",
+      name: this.t("command.moveBlockUp"),
       editorCallback: (editor) => this.moveCurrentBlock(editor, "up"),
     });
 
     this.addCommand({
       id: "move-block-down",
-      name: "Move block down (minimal safe unit at cursor)",
+      name: this.t("command.moveBlockDown"),
       editorCallback: (editor) => this.moveCurrentBlock(editor, "down"),
     });
 
@@ -112,13 +181,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // choice rather than being cursor-position-dependent.
     this.addCommand({
       id: "move-section-up",
-      name: "Move section up (whole enclosing section)",
+      name: this.t("command.moveSectionUp"),
       editorCallback: (editor) => this.moveCurrentSection(editor, "up"),
     });
 
     this.addCommand({
       id: "move-section-down",
-      name: "Move section down (whole enclosing section)",
+      name: this.t("command.moveSectionDown"),
       editorCallback: (editor) => this.moveCurrentSection(editor, "down"),
     });
 
@@ -129,13 +198,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // node-only vs block-scoped move note (advanced operation).
     this.addCommand({
       id: "move-node-only-up",
-      name: "Move heading label up (current line only)",
+      name: this.t("command.moveNodeOnlyUp"),
       editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "up"),
     });
 
     this.addCommand({
       id: "move-node-only-down",
-      name: "Move heading label down (current line only)",
+      name: this.t("command.moveNodeOnlyDown"),
       editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "down"),
     });
 
@@ -145,13 +214,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // indent, etc.). See docs/別ペイン実装計画と当面の実装指示.md §6.2.
     this.addCommand({
       id: "indent-block",
-      name: "Indent block (list subtree / safe-scope heading)",
+      name: this.t("command.indentBlock"),
       editorCallback: (editor) => this.indentCurrentBlock(editor, "indent"),
     });
 
     this.addCommand({
       id: "outdent-block",
-      name: "Outdent block (list subtree / safe-scope heading)",
+      name: this.t("command.outdentBlock"),
       editorCallback: (editor) => this.indentCurrentBlock(editor, "outdent"),
     });
 
@@ -161,13 +230,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // outdent-block ids and any hotkeys bound to them are unaffected.
     this.addCommand({
       id: "indent-node-only",
-      name: "Indent heading level (current line only)",
+      name: this.t("command.indentNodeOnly"),
       editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "indent"),
     });
 
     this.addCommand({
       id: "outdent-node-only",
-      name: "Outdent heading level (current line only)",
+      name: this.t("command.outdentNodeOnly"),
       editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "outdent"),
     });
 
@@ -177,19 +246,19 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // way every other body-editor command does (resolveCurrentBlock).
     this.addCommand({
       id: "delete-block",
-      name: "Delete block (section / list subtree)",
+      name: this.t("command.deleteBlock"),
       editorCallback: (editor) => this.deleteCurrentBlock(editor),
     });
 
     this.addCommand({
       id: "insert-sibling-block",
-      name: "Insert sibling after current block",
+      name: this.t("command.insertSiblingBlock"),
       editorCallback: (editor) => this.insertSiblingAfterCurrentBlock(editor),
     });
 
     this.addCommand({
       id: "insert-child-list-item",
-      name: "Insert child list item",
+      name: this.t("command.insertChildListItem"),
       editorCallback: (editor) => this.insertChildListItemForCursor(editor),
     });
 
@@ -215,13 +284,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // reject in practice; `void` simply documents at the call site that
     // the returned Promise is intentionally not awaited, for readers and
     // for lint rules like no-floating-promises.
-    this.addRibbonIcon("list-tree", "Open Unified Outliner outline", () => {
+    this.addRibbonIcon("list-tree", this.t("command.ribbonTooltip"), () => {
       void this.activateOutlineTreeView();
     });
 
     this.addCommand({
       id: "open-outline-tree-view",
-      name: "Open outline tree view",
+      name: this.t("command.openOutlineTreeView"),
       callback: () => void this.activateOutlineTreeView(),
     });
 
@@ -251,7 +320,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // is both simpler and more consistent with standard Obsidian behavior.
     this.addCommand({
       id: "open-partial-edit-pane",
-      name: "Open partial edit pane for current section",
+      name: this.t("command.openPartialEditPane"),
       editorCallback: (editor) => this.openPartialEditForCursor(editor),
     });
 
@@ -403,14 +472,14 @@ export default class UnifiedOutlinerPlugin extends Plugin {
         await workspace.revealLeaf(existing[0]);
       } catch (error) {
         console.error("Unified Outliner: failed to open the outline tree view.", error);
-        new Notice("Unified Outliner: could not open the outline tree view.");
+        new Notice(this.t("notice.couldNotOpenOutlineTreeView"));
       }
       return;
     }
 
     const leaf: WorkspaceLeaf | null = workspace.getRightLeaf(false);
     if (!leaf) {
-      new Notice("Unified Outliner: could not open the right sidebar.");
+      new Notice(this.t("notice.couldNotOpenRightSidebar"));
       return;
     }
     try {
@@ -418,7 +487,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       await workspace.revealLeaf(leaf);
     } catch (error) {
       console.error("Unified Outliner: failed to open the outline tree view.", error);
-      new Notice("Unified Outliner: could not open the outline tree view.");
+      new Notice(this.t("notice.couldNotOpenOutlineTreeView"));
     }
   }
 
@@ -503,7 +572,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
           "Unified Outliner: failed to open the partial edit pane in a new window.",
           error
         );
-        new Notice("Unified Outliner: could not open the partial edit pane in a new window.");
+        new Notice(this.t("notice.couldNotOpenPartialEditPaneNewWindow"));
         return;
       }
     } else if (existing.length > 0) {
@@ -511,7 +580,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     } else {
       const newLeaf = workspace.getRightLeaf(true);
       if (!newLeaf) {
-        new Notice("Unified Outliner: could not open the right sidebar.");
+        new Notice(this.t("notice.couldNotOpenRightSidebar"));
         return;
       }
       leaf = newLeaf;
@@ -519,7 +588,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
         await leaf.setViewState({ type: PARTIAL_EDIT_VIEW_TYPE, active: true });
       } catch (error) {
         console.error("Unified Outliner: failed to open the partial edit pane.", error);
-        new Notice("Unified Outliner: could not open the partial edit pane.");
+        new Notice(this.t("notice.couldNotOpenPartialEditPane"));
         return;
       }
     }
@@ -528,7 +597,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       await workspace.revealLeaf(leaf);
     } catch (error) {
       console.error("Unified Outliner: failed to open the partial edit pane.", error);
-      new Notice("Unified Outliner: could not open the partial edit pane.");
+      new Notice(this.t("notice.couldNotOpenPartialEditPane"));
       return;
     }
     if (leaf.view instanceof PartialEditView) {
@@ -552,18 +621,18 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private openPartialEditForCursor(editor: Editor): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
     const doc = parseDocument(editor.getValue());
     const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
     if (resolved.node.type !== "section") {
-      this.notice(NOOP_MESSAGES["not-a-heading"]);
+      this.notice(this.t("reason.not-a-heading"));
       return;
     }
 
@@ -588,7 +657,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private moveCurrentBlock(editor: Editor, direction: MoveDirection): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
@@ -597,7 +666,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
     const resolved = resolveMoveUnit(doc, cursor.line);
     if (!resolved.unit) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
     const unit = resolved.unit;
@@ -638,7 +707,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       unit.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -650,7 +719,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private moveCurrentSection(editor: Editor, direction: MoveDirection): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
@@ -659,12 +728,12 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
     const resolved = resolveEnclosingSectionId(doc, cursor.line);
     if (!resolved.sectionId) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
     const sectionNode = doc.nodes.get(resolved.sectionId);
     if (!sectionNode) {
-      this.notice(NOOP_MESSAGES["resolve-failed"]);
+      this.notice(this.t("reason.resolve-failed"));
       return;
     }
 
@@ -696,7 +765,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       sectionNode.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -721,7 +790,10 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     direction: MoveDirection
   ): void {
     if (!this.settings.treeKindHighlight.showMoveResultToast) return;
-    new Notice(`Unified Outliner: moved ${describeMoveUnit(doc, unit)} ${direction}.`);
+    const unitLabel = describeMoveUnit(doc, unit, (key, vars) => this.t(key, vars));
+    const directionLabel =
+      direction === "up" ? this.t("notice.directionUp") : this.t("notice.directionDown");
+    new Notice(this.t("notice.moved", { unit: unitLabel, direction: directionLabel }));
   }
 
   /**
@@ -772,7 +844,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private moveCurrentNodeOnly(editor: Editor, direction: MoveDirection): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
@@ -781,7 +853,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
     const resolved = resolveCurrentBlock(doc, cursor.line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
 
@@ -793,13 +865,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
   private indentCurrentBlock(editor: Editor, direction: IndentDirection): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
@@ -808,7 +880,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
     const resolved = resolveCurrentBlock(doc, cursor.line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
 
@@ -822,7 +894,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -839,7 +911,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private changeNodeOnlyLevel(editor: Editor, direction: IndentDirection): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
@@ -848,7 +920,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
     const resolved = resolveCurrentBlock(doc, cursor.line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
 
@@ -860,7 +932,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -875,14 +947,14 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private deleteCurrentBlock(editor: Editor): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
     const doc = parseDocument(editor.getValue());
     const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
 
@@ -894,7 +966,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -910,25 +982,25 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private insertSiblingAfterCurrentBlock(editor: Editor): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
     const doc = parseDocument(editor.getValue());
     const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
 
     if (resolved.node.type === "section") {
       const sectionId = resolved.node.id;
-      new HeadingLevelModal(this.app, (level) => {
+      new HeadingLevelModal(this.app, this, (level) => {
         if (level === null) return;
         const freshDoc = parseDocument(editor.getValue());
         const target = freshDoc.nodes.get(sectionId);
         if (!target) {
-          this.notice(NOOP_MESSAGES["resolve-failed"]);
+          this.notice(this.t("reason.resolve-failed"));
           return;
         }
         const outcome = insertSiblingSection(freshDoc, sectionId, level);
@@ -938,7 +1010,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
           target.range.startLine,
           freshDoc.lines,
           outcome,
-          (m) => this.notice(m)
+          () => this.notice(this.reasonText(outcome.reason))
         );
       }).open();
       return;
@@ -954,7 +1026,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 
@@ -967,18 +1039,18 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   private insertChildListItemForCursor(editor: Editor): void {
     if (editor.listSelections().length > 1) {
-      this.notice("Unified Outliner: multiple cursors are not supported.");
+      this.notice(this.t("notice.multipleCursors"));
       return;
     }
 
     const doc = parseDocument(editor.getValue());
     const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
     if (!resolved.node) {
-      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      this.notice(this.reasonText(resolved.reason ?? "no-block"));
       return;
     }
     if (resolved.node.type !== "list") {
-      this.notice(NOOP_MESSAGES["not-a-list-item"]);
+      this.notice(this.t("reason.not-a-list-item"));
       return;
     }
 
@@ -992,7 +1064,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       resolved.node.range.startLine,
       doc.lines,
       outcome,
-      (m) => this.notice(m)
+      () => this.notice(this.reasonText(outcome.reason))
     );
   }
 

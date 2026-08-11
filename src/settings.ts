@@ -5,6 +5,7 @@ import {
   TreeKindHighlightSettings,
   UnifiedOutlinerSettings,
 } from "./settingsDefaults";
+import { isValidPluginLanguage, PluginLanguage } from "./i18n";
 
 // Re-exported unchanged so every existing importer of "./settings" (just
 // main.ts today) keeps working without touching its own import line — see
@@ -28,11 +29,45 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    // i18n実装 (2026-08-11): language switch, deliberately the FIRST control
+    // in this tab (per the ticket's "分かりやすい位置（原則として先頭）"
+    // requirement) — every OTHER setting's own label/description below is
+    // itself translated via this.plugin.t(), so this is also the control
+    // that determines how the rest of this very page reads.
+    //
+    // onChange ordering (ticket §4, exact sequence): 1) validate the raw
+    // dropdown value, 2) update settings.language, 3) await saveSettings(),
+    // 4) refresh the plugin's locale/translator, 5) re-render this tab via
+    // display() so every label below reflects the new language immediately,
+    // 6) show a one-time Notice — but ONLY when the value actually changed
+    // (re-selecting the same option is a no-op, not a fresh "changed"
+    // event), explaining that already-registered Command Palette names need
+    // a reload to update (command ids/hotkeys themselves never change).
     new Setting(containerEl)
-      .setName("Allow list moves across sections")
-      .setDesc(
-        "When a root list item has no sibling in the move direction, let it hop across the adjacent heading into the neighboring section."
-      )
+      .setName(this.plugin.t("settings.language.name"))
+      .setDesc(this.plugin.t("settings.language.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("auto", this.plugin.t("settings.language.optionAuto"))
+          .addOption("ja", this.plugin.t("settings.language.optionJa"))
+          .addOption("en", this.plugin.t("settings.language.optionEn"))
+          .setValue(this.plugin.settings.language)
+          .onChange(async (v) => {
+            const next: PluginLanguage = isValidPluginLanguage(v) ? v : "auto";
+            const previous = this.plugin.settings.language;
+            this.plugin.settings.language = next;
+            await this.plugin.saveSettings();
+            this.plugin.refreshLocale();
+            this.display();
+            if (next !== previous) {
+              this.plugin.notifyLanguageChanged();
+            }
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.allowCrossSectionListMove.name"))
+      .setDesc(this.plugin.t("settings.allowCrossSectionListMove.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.allowCrossSectionListMove)
@@ -43,10 +78,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Normalize ordered list markers to \"1.\"")
-      .setDesc(
-        "After moving a list block, rewrite ordered markers in the affected range to \"1.\" (renderers auto-number). Sequential renumbering is planned."
-      )
+      .setName(this.plugin.t("settings.normalizeOrderedLists.name"))
+      .setDesc(this.plugin.t("settings.normalizeOrderedLists.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.normalizeOrderedLists)
@@ -57,8 +90,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Show no-op notices")
-      .setDesc("Show a small notice when a move command does nothing and why.")
+      .setName(this.plugin.t("settings.showNoopNotices.name"))
+      .setDesc(this.plugin.t("settings.showNoopNotices.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.showNoopNotices)
@@ -69,10 +102,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Show list items in Outline Tree View")
-      .setDesc(
-        "Show list items as nodes in the right-sidebar Outline Tree View, alongside headings. Off by default (headings only, as in earlier versions of this plugin)."
-      )
+      .setName(this.plugin.t("settings.showListItemsInOutline.name"))
+      .setDesc(this.plugin.t("settings.showListItemsInOutline.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.showListItemsInOutline)
@@ -84,10 +115,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Follow keyboard selection into body editor")
-      .setDesc(
-        "When navigating the Outline Tree with arrow keys, also move the body editor's cursor and scroll position, the same way clicking a row does. Turn off to keep arrow-key navigation confined to the tree panel (Enter still jumps to the body)."
-      )
+      .setName(this.plugin.t("settings.followKeyboardSelectionIntoBody.name"))
+      .setDesc(this.plugin.t("settings.followKeyboardSelectionIntoBody.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.followKeyboardSelectionIntoBody)
@@ -98,10 +127,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Sync Outline Tree folding to editor")
-      .setDesc(
-        "When enabled, folding or unfolding a node in the Outline Tree also folds or unfolds the matching content in the active Markdown editor."
-      )
+      .setName(this.plugin.t("settings.syncOutlineTreeFoldingToEditor.name"))
+      .setDesc(this.plugin.t("settings.syncOutlineTreeFoldingToEditor.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.syncOutlineTreeFoldingToEditor)
@@ -111,18 +138,16 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl).setName("Move & Outline Tree kind highlight").setHeading();
+    new Setting(containerEl).setName(this.plugin.t("settings.moveHighlightHeading")).setHeading();
 
     new Setting(containerEl)
-      .setName("Section background style in Outline Tree")
-      .setDesc(
-        "Always-on visual aid so section rows are easy to tell apart from list rows at a glance. Purely cosmetic — never changes what Move block / Move section actually operate on."
-      )
+      .setName(this.plugin.t("settings.sectionBackgroundStyle.name"))
+      .setDesc(this.plugin.t("settings.sectionBackgroundStyle.desc"))
       .addDropdown((d) =>
         d
-          .addOption("subtle", "Subtle background")
-          .addOption("stripe", "Left edge stripe")
-          .addOption("off", "Off")
+          .addOption("subtle", this.plugin.t("settings.sectionBackgroundStyle.optionSubtle"))
+          .addOption("stripe", this.plugin.t("settings.sectionBackgroundStyle.optionStripe"))
+          .addOption("off", this.plugin.t("settings.sectionBackgroundStyle.optionOff"))
           .setValue(this.plugin.settings.treeKindHighlight.sectionMode)
           .onChange(async (v) => {
             this.plugin.settings.treeKindHighlight.sectionMode =
@@ -133,15 +158,13 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("List row highlight style in Outline Tree")
-      .setDesc(
-        "Deliberately weaker than the section style above (hover-only by default), so the tree doesn't get visually noisy when list items are shown."
-      )
+      .setName(this.plugin.t("settings.listHighlightStyle.name"))
+      .setDesc(this.plugin.t("settings.listHighlightStyle.desc"))
       .addDropdown((d) =>
         d
-          .addOption("hover", "Highlight on hover/selection only")
-          .addOption("subtle", "Always-on subtle background")
-          .addOption("off", "Off")
+          .addOption("hover", this.plugin.t("settings.listHighlightStyle.optionHover"))
+          .addOption("subtle", this.plugin.t("settings.listHighlightStyle.optionSubtle"))
+          .addOption("off", this.plugin.t("settings.listHighlightStyle.optionOff"))
           .setValue(this.plugin.settings.treeKindHighlight.listMode)
           .onChange(async (v) => {
             this.plugin.settings.treeKindHighlight.listMode =
@@ -152,10 +175,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Preview move target in Outline Tree")
-      .setDesc(
-        "Briefly flash-highlight, in the Outline Tree, the block that Move block / Move section actually operated on."
-      )
+      .setName(this.plugin.t("settings.previewMoveTarget.name"))
+      .setDesc(this.plugin.t("settings.previewMoveTarget.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.treeKindHighlight.showMoveTargetPreview)
@@ -166,10 +187,8 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Show move result toast")
-      .setDesc(
-        "Show a short notice naming what was moved (paragraph / list item / section) after Move block or Move section."
-      )
+      .setName(this.plugin.t("settings.showMoveResultToast.name"))
+      .setDesc(this.plugin.t("settings.showMoveResultToast.desc"))
       .addToggle((t) =>
         t
           .setValue(this.plugin.settings.treeKindHighlight.showMoveResultToast)

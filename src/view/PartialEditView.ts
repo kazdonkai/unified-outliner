@@ -85,7 +85,8 @@ import { applySubtreeEdit, extractSubtreeText, SubtreeKind } from "../edit/parti
 import { nodeDisplayLabel } from "../tree/buildOutlineTree";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
 import { DescendantNavigationEntry, findDirectChildren } from "../tree/descendantPath";
-import { applyLineEditOutcome, NOOP_MESSAGES } from "../commands/applyLineEditOutcome";
+import { applyLineEditOutcome } from "../commands/applyLineEditOutcome";
+import { TranslationKey } from "../i18n";
 
 export const PARTIAL_EDIT_VIEW_TYPE = "unified-outliner-partial-edit";
 
@@ -149,7 +150,7 @@ export class PartialEditView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Unified Outliner: Partial Edit";
+    return this.plugin.t("partialEdit.viewName");
   }
 
   getIcon(): string {
@@ -187,9 +188,12 @@ export class PartialEditView extends ItemView {
     this.titleEl = headerEl.createDiv({ cls: "unified-outliner-partial-edit-title" });
 
     const actionsEl = headerEl.createDiv({ cls: "unified-outliner-partial-edit-actions" });
-    this.applyButtonEl = actionsEl.createEl("button", { text: "Apply", cls: "mod-cta" });
+    this.applyButtonEl = actionsEl.createEl("button", {
+      text: this.plugin.t("common.apply"),
+      cls: "mod-cta",
+    });
     this.applyButtonEl.addEventListener("click", () => this.applyEdit());
-    this.cancelButtonEl = actionsEl.createEl("button", { text: "Cancel" });
+    this.cancelButtonEl = actionsEl.createEl("button", { text: this.plugin.t("common.cancel") });
     this.cancelButtonEl.addEventListener("click", () => this.cancelEdit());
     // One-click close, in addition to Obsidian's own tab-close affordances
     // (native tab × / right-click "Close tab"). Deliberately NOT gated by
@@ -201,7 +205,7 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-close clickable-icon",
     });
     setIcon(this.closeButtonEl, "x");
-    setTooltip(this.closeButtonEl, "Close");
+    setTooltip(this.closeButtonEl, this.plugin.t("partialEdit.close"));
     this.closeButtonEl.addEventListener("click", () => this.leaf.detach());
 
     // Phase 5B: a second row below the title+actions header, dedicated to
@@ -289,7 +293,7 @@ export class PartialEditView extends ItemView {
       this.loadNodeInternal(nodeId);
       return;
     }
-    new DiscardChangesModal(this.app, (choice) => {
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
       if (choice === "cancel") return;
       if (choice === "discard") {
         this.loadNodeInternal(nodeId);
@@ -330,42 +334,38 @@ export class PartialEditView extends ItemView {
   private loadNodeInternal(nodeId: string): void {
     const view = this.activeMarkdownView.get();
     if (!view) {
-      new Notice("Unified Outliner: no active note to load a node from.");
+      new Notice(this.plugin.t("partialEdit.noActiveNote"));
       return;
     }
 
     const doc = parseDocument(view.editor.getValue());
     const extracted = extractSubtreeText(doc, nodeId);
     if (!extracted.ok || !extracted.kind) {
-      new Notice(
-        NOOP_MESSAGES[extracted.reason ?? "resolve-failed"] ??
-          "Unified Outliner: could not load that node."
-      );
+      const reasonKey = ("reason." + (extracted.reason ?? "resolve-failed")) as TranslationKey;
+      new Notice(this.plugin.t(reasonKey));
       return;
     }
 
     const node = doc.nodes.get(nodeId);
-    const label = node ? nodeDisplayLabel(doc, node) : "";
+    const t = this.plugin.t.bind(this.plugin);
+    const label = node ? nodeDisplayLabel(doc, node, t) : "";
 
     this.nodeId = nodeId;
     this.nodeKind = extracted.kind;
     this.originalText = extracted.text;
     this.label = label;
-    this.ancestors = findAncestorPath(doc, nodeId);
-    this.directChildren = findDirectChildren(doc, nodeId);
+    this.ancestors = findAncestorPath(doc, nodeId, t);
+    this.directChildren = findDirectChildren(doc, nodeId, t);
     this.renderLoadedState();
   }
 
   private renderEmptyState(): void {
-    this.titleEl.setText("Unified Outliner: Partial Edit");
+    this.titleEl.setText(this.plugin.t("partialEdit.viewName"));
     this.textareaEl.value = "";
     this.textareaEl.disabled = true;
     this.applyButtonEl.disabled = true;
     this.cancelButtonEl.disabled = true;
-    this.textareaEl.setAttribute(
-      "placeholder",
-      "Right-click a node in the Outline Tree View and choose “Open partial edit pane” / “Edit list subtree in pane” to load something here."
-    );
+    this.textareaEl.setAttribute("placeholder", this.plugin.t("partialEdit.emptyPlaceholder"));
     this.ancestors = [];
     this.directChildren = [];
     this.renderBreadcrumb();
@@ -379,8 +379,9 @@ export class PartialEditView extends ItemView {
    * otherwise treating the two kinds differently — see class doc comment.
    */
   private renderLoadedState(): void {
-    const kindLabel = this.nodeKind === "list" ? "List" : "Section";
-    this.titleEl.setText(`Editing (${kindLabel}): ${this.label}`);
+    const kindLabel =
+      this.nodeKind === "list" ? this.plugin.t("partialEdit.kindList") : this.plugin.t("partialEdit.kindSection");
+    this.titleEl.setText(this.plugin.t("partialEdit.editingTitle", { kind: kindLabel, label: this.label }));
     this.textareaEl.disabled = false;
     this.applyButtonEl.disabled = false;
     this.cancelButtonEl.disabled = false;
@@ -480,7 +481,7 @@ export class PartialEditView extends ItemView {
 
     this.subtreeNavEl.createSpan({
       cls: "unified-outliner-partial-edit-subtree-nav-label",
-      text: "Subtree:",
+      text: this.plugin.t("partialEdit.subtreeLabel"),
     });
 
     const visibleCount = PartialEditView.SUBTREE_VISIBLE_CHILDREN;
@@ -499,11 +500,11 @@ export class PartialEditView extends ItemView {
     if (hidden.length > 0) {
       const moreEl = this.subtreeNavEl.createSpan({
         cls: "unified-outliner-partial-edit-subtree-nav-chip unified-outliner-partial-edit-subtree-nav-more",
-        text: `More… (${hidden.length})`,
+        text: this.plugin.t("partialEdit.moreChip", { count: hidden.length }),
       });
       moreEl.tabIndex = 0;
       moreEl.setAttribute("role", "button");
-      setTooltip(moreEl, `${hidden.length} more`);
+      setTooltip(moreEl, this.plugin.t("partialEdit.moreCount", { count: hidden.length }));
 
       const openOverflowMenu = (anchor: HTMLElement, mouseEvt?: MouseEvent) => {
         const menu = new Menu();
@@ -620,17 +621,17 @@ export class PartialEditView extends ItemView {
    */
   private applyEdit(): boolean {
     if (!this.nodeId) {
-      new Notice("Unified Outliner: no node loaded in this pane.");
+      new Notice(this.plugin.t("partialEdit.noNodeLoaded"));
       return false;
     }
     const view = this.activeMarkdownView.get();
     if (!view) {
-      new Notice("Unified Outliner: no active note to apply to.");
+      new Notice(this.plugin.t("partialEdit.noActiveNoteToApply"));
       return false;
     }
     const editor = view.editor;
     if (editor.listSelections().length > 1) {
-      new Notice("Unified Outliner: multiple cursors are not supported.");
+      new Notice(this.plugin.t("notice.multipleCursors"));
       return false;
     }
 
@@ -640,10 +641,8 @@ export class PartialEditView extends ItemView {
     const startLine = node ? node.range.startLine : 0;
 
     if (!outcome.changed) {
-      new Notice(
-        NOOP_MESSAGES[outcome.reason ?? "resolve-failed"] ??
-          "Unified Outliner: could not apply this edit."
-      );
+      const reasonKey = ("reason." + (outcome.reason ?? "resolve-failed")) as TranslationKey;
+      new Notice(this.plugin.t(reasonKey));
       return false;
     }
 
@@ -669,7 +668,9 @@ export class PartialEditView extends ItemView {
     );
 
     new Notice(
-      this.nodeKind === "list" ? "Unified Outliner: list subtree updated." : "Unified Outliner: section updated."
+      this.nodeKind === "list"
+        ? this.plugin.t("partialEdit.listSubtreeUpdated")
+        : this.plugin.t("partialEdit.sectionUpdated")
     );
     return true;
   }
@@ -747,25 +748,31 @@ type DiscardChangesChoice = "apply" | "discard" | "cancel";
 class DiscardChangesModal extends Modal {
   private resolved = false;
 
-  constructor(app: App, private readonly onChoice: (choice: DiscardChangesChoice) => void) {
+  constructor(
+    app: App,
+    private readonly plugin: UnifiedOutlinerPlugin,
+    private readonly onChoice: (choice: DiscardChangesChoice) => void
+  ) {
     super(app);
   }
 
   onOpen(): void {
-    this.titleEl.setText("Unified Outliner: unsaved changes");
+    this.titleEl.setText(this.plugin.t("partialEdit.unsavedChangesTitle"));
     this.contentEl.createEl("p", {
-      text:
-        "This node has unapplied edits. Apply them before switching, discard them, or stay here.",
+      text: this.plugin.t("partialEdit.unsavedChangesBody"),
     });
 
     const buttonsEl = this.contentEl.createDiv({
       cls: "unified-outliner-partial-edit-modal-buttons",
     });
-    const applyEl = buttonsEl.createEl("button", { text: "Apply", cls: "mod-cta" });
+    const applyEl = buttonsEl.createEl("button", {
+      text: this.plugin.t("common.apply"),
+      cls: "mod-cta",
+    });
     applyEl.addEventListener("click", () => this.choose("apply"));
-    const discardEl = buttonsEl.createEl("button", { text: "Discard" });
+    const discardEl = buttonsEl.createEl("button", { text: this.plugin.t("common.discard") });
     discardEl.addEventListener("click", () => this.choose("discard"));
-    const cancelEl = buttonsEl.createEl("button", { text: "Cancel" });
+    const cancelEl = buttonsEl.createEl("button", { text: this.plugin.t("common.cancel") });
     cancelEl.addEventListener("click", () => this.choose("cancel"));
   }
 

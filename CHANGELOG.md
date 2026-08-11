@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-11
+
+### Added
+
+- Added a Japanese/English display language switch for this plugin's own UI (settings tab, command names, notices, modals, context menus, and the Outline Tree / Partial Edit Pane's own text). New `Language` setting at the top of the settings tab: `Auto` (follows Obsidian's own language setting), `Japanese`, or `English` — defaults to `Auto`. Editing behavior, command ids, hotkeys, and settings persistence are unaffected; only how this plugin's own text is displayed changes. Command names already shown in the Command Palette only update after reloading the plugin (or Obsidian) — a notice explains this each time the language setting changes.
+
 ## [0.2.3] - 2026-08-11
 
 ### Fixed

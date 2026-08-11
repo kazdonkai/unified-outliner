@@ -11,18 +11,23 @@
  * level rather than a "Insert section ▸ H1..H6" submenu item.
  */
 import { App, Modal } from "obsidian";
+import type UnifiedOutlinerPlugin from "../main";
 
 export class HeadingLevelModal extends Modal {
   private resolved = false;
 
-  constructor(app: App, private readonly onChoice: (level: number | null) => void) {
+  constructor(
+    app: App,
+    private readonly plugin: UnifiedOutlinerPlugin,
+    private readonly onChoice: (level: number | null) => void
+  ) {
     super(app);
   }
 
   onOpen(): void {
-    this.titleEl.setText("Unified Outliner: insert section");
+    this.titleEl.setText(this.plugin.t("modal.insertSectionTitle"));
     this.contentEl.createEl("p", {
-      text: "Choose the heading level for the new section.",
+      text: this.plugin.t("modal.chooseHeadingLevel"),
     });
 
     const buttonsEl = this.contentEl.createDiv({
@@ -33,7 +38,7 @@ export class HeadingLevelModal extends Modal {
       btn.addEventListener("click", () => this.choose(level));
     }
     const cancelEl = this.contentEl.createEl("button", {
-      text: "Cancel",
+      text: this.plugin.t("common.cancel"),
       cls: "unified-outliner-heading-level-modal-cancel",
     });
     cancelEl.addEventListener("click", () => this.choose(null));

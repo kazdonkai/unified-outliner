@@ -131,3 +131,38 @@ describe("settingsDefaults: treeKindHighlight (nested settings object)", () => {
     expect(DEFAULT_TREE_KIND_HIGHLIGHT).toEqual(before);
   });
 });
+
+/**
+ * i18n実装 (2026-08-11 ticket, "Unified Outliner：日本語／英語 UI 切替の実装指示"):
+ * the `language` field is a top-level SCALAR (unlike treeKindHighlight
+ * above), so mergeSettings's shallow Object.assign alone would pass an
+ * invalid raw.language value straight through instead of falling back to a
+ * default the way the nested-object merge does structurally — these tests
+ * cover the explicit isValidPluginLanguage() re-validation step that closes
+ * that gap, per the ticket's own "不明な値は安全に auto へフォールバックする"
+ * requirement.
+ */
+describe("settingsDefaults: language (i18n)", () => {
+  it("defaults to \"auto\"", () => {
+    expect(DEFAULT_SETTINGS.language).toBe("auto");
+  });
+
+  it("mergeSettings resolves to \"auto\" when raw omits language entirely (pre-existing, pre-i18n data.json)", () => {
+    const merged = mergeSettings({ allowCrossSectionListMove: false });
+    expect(merged.language).toBe("auto");
+  });
+
+  it("mergeSettings preserves an explicit \"ja\"", () => {
+    expect(mergeSettings({ language: "ja" }).language).toBe("ja");
+  });
+
+  it("mergeSettings preserves an explicit \"en\"", () => {
+    expect(mergeSettings({ language: "en" }).language).toBe("en");
+  });
+
+  it("mergeSettings falls back to \"auto\" for an invalid/corrupted language value", () => {
+    expect(mergeSettings({ language: "fr" }).language).toBe("auto");
+    expect(mergeSettings({ language: 123 }).language).toBe("auto");
+    expect(mergeSettings({ language: null }).language).toBe("auto");
+  });
+});

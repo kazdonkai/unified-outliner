@@ -16,7 +16,19 @@
  * settings.ts re-exports both of these unchanged, so nothing outside this
  * file and settings.ts needs to know the split exists.
  */
+import { isValidPluginLanguage, PluginLanguage } from "./i18n";
+
 export interface UnifiedOutlinerSettings {
+  /**
+   * i18n実装 (2026-08-11): display language for every Unified-Outliner-owned
+   * user-facing string (settings tab, command names, Notices, modals). See
+   * src/i18n.ts's doc comment for the full "auto"/"ja"/"en" resolution
+   * policy. Defaults to "auto" so existing installs (pre-i18n data.json,
+   * where this key is simply absent) keep behaving exactly as before —
+   * "auto" without a recognizable Japanese hint resolves to "en", this
+   * plugin's pre-existing default language.
+   */
+  language: PluginLanguage;
   /** Allow a root list item to hop across a heading boundary. */
   allowCrossSectionListMove: boolean;
   /** Normalize ordered markers to "1." after a list move (MVP policy). */
@@ -98,6 +110,7 @@ export const DEFAULT_TREE_KIND_HIGHLIGHT: TreeKindHighlightSettings = {
 };
 
 export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
+  language: "auto",
   allowCrossSectionListMove: true,
   normalizeOrderedLists: true,
   showNoopNotices: true,
@@ -136,5 +149,14 @@ export function mergeSettings(
     DEFAULT_TREE_KIND_HIGHLIGHT,
     rawTreeKindHighlight ?? {}
   );
+  // language is a top-level SCALAR field (unlike treeKindHighlight above),
+  // so the shallow Object.assign already carries over whatever raw.language
+  // was — including a value that is not "auto"/"ja"/"en" at all (a
+  // corrupted/hand-edited data.json, or a value from some future plugin
+  // version this one doesn't know). Explicitly re-validate it here and fall
+  // back to the default ("auto") rather than let an invalid value reach
+  // resolveLocale()/createTranslator(), per this ticket's own explicit
+  // "不明な値は安全に auto へフォールバックする" requirement.
+  merged.language = isValidPluginLanguage(raw.language) ? raw.language : DEFAULT_SETTINGS.language;
   return merged;
 }

@@ -26,6 +26,7 @@
  * without changing its fields.
  */
 import { BlockNode, ParsedDocument } from "../model/block";
+import { defaultTranslator, Translator } from "../i18n";
 import { nodeDisplayLabel } from "./buildOutlineTree";
 
 export interface DescendantNavigationEntry {
@@ -62,7 +63,8 @@ export interface DescendantNavigationEntry {
  */
 export function findDirectChildren(
   doc: ParsedDocument,
-  nodeId: string
+  nodeId: string,
+  t: Translator = defaultTranslator
 ): DescendantNavigationEntry[] {
   const node = doc.nodes.get(nodeId);
   if (!node) return [];
@@ -79,7 +81,7 @@ export function findDirectChildren(
       entry: {
         id: child.id,
         kind: child.type,
-        label: nodeDisplayLabel(doc, child),
+        label: nodeDisplayLabel(doc, child, t),
         depth: 1,
         hasChildren: child.childIds.length > 0,
       },
