@@ -55,14 +55,101 @@ describe("indentBlock: list items", () => {
     expect(outcome.reason).toBe("already-root");
   });
 
-  it("outdent is a no-op for a non-last child (MVP scope limit)", () => {
-    const doc = parseDocument(
-      ["- parent", "  - child-1", "  - child-2"].join("\n")
-    );
-    const child1 = ownerAt(doc, 1);
-    const outcome = indentBlock(doc, child1.id, "outdent");
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("not-last-child");
+  it("outdents a non-last child, adopting its trailing siblings as children (reported scenario)", () => {
+    // Reported example: "List 2" is not List 1's last child ("List 3"
+    // follows it). Outdenting "List 2" must promote it to List 1's sibling
+    // while "List 3" becomes List 2's child — no line reordering, no
+    // explicit re-parenting code path, just an indent-column shrink of
+    // List 2's own (childless) range. See findIndentTarget.ts's design
+    // note for why this is sufficient.
+    const text = ["- List 1", "  - List 2", "  - List 3"].join("\n");
+    const doc = parseDocument(text);
+    const list2 = ownerAt(doc, 1);
+    const outcome = indentBlock(doc, list2.id, "outdent");
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["- List 1", "- List 2", "  - List 3"]);
+
+    const redoc = parseDocument(outcome.lines.join("\n"));
+    const list1Re = ownerAt(redoc, 0);
+    const list2Re = ownerAt(redoc, 1);
+    const list3Re = ownerAt(redoc, 2);
+    // List 1 and List 2 are now siblings (both root list items).
+    expect(list2Re.parentId).toBe(list1Re.parentId);
+    expect(list1Re.nextSiblingId).toBe(list2Re.id);
+    // List 3 is now List 2's child.
+    expect(list3Re.parentId).toBe(list2Re.id);
+  });
+
+  it("outdents a middle child of four, preserving document order (P/A/B/C/D)", () => {
+    // Outdenting B (2nd of P's four children A,B,C,D) must produce:
+    // P > A ; B(sibling of P) > C, D — with B, C, D's *trailing* order
+    // (document order) unchanged and A left alone as P's remaining child.
+    const text = [
+      "- P",
+      "  - A",
+      "  - B",
+      "  - C",
+      "  - D",
+    ].join("\n");
+    const doc = parseDocument(text);
+    const b = ownerAt(doc, 2);
+    const outcome = indentBlock(doc, b.id, "outdent");
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "- P",
+      "  - A",
+      "- B",
+      "  - C",
+      "  - D",
+    ]);
+
+    const redoc = parseDocument(outcome.lines.join("\n"));
+    const pRe = ownerAt(redoc, 0);
+    const aRe = ownerAt(redoc, 1);
+    const bRe = ownerAt(redoc, 2);
+    const cRe = ownerAt(redoc, 3);
+    const dRe = ownerAt(redoc, 4);
+    expect(pRe.childIds).toEqual([aRe.id]);
+    expect(pRe.nextSiblingId).toBe(bRe.id);
+    expect(bRe.childIds).toEqual([cRe.id, dRe.id]);
+    // Document line order is untouched: P, A, B, C, D top-to-bottom.
+    expect([pRe, aRe, bRe, cRe, dRe].map((n) => n.range.startLine)).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
+  });
+
+  it("outdents a middle child that already has its own children: pre-existing children stay first, adopted trailing siblings follow, in document order", () => {
+    const text = [
+      "- P",
+      "  - A",
+      "  - B",
+      "    - B1",
+      "  - C",
+      "  - D",
+    ].join("\n");
+    const doc = parseDocument(text);
+    const b = ownerAt(doc, 2);
+    const outcome = indentBlock(doc, b.id, "outdent");
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "- P",
+      "  - A",
+      "- B",
+      "  - B1",
+      "  - C",
+      "  - D",
+    ]);
+
+    const redoc = parseDocument(outcome.lines.join("\n"));
+    const bRe = ownerAt(redoc, 2);
+    const b1Re = ownerAt(redoc, 3);
+    const cRe = ownerAt(redoc, 4);
+    const dRe = ownerAt(redoc, 5);
+    // B1 (B's own pre-existing child) comes first, then the two adopted
+    // former trailing siblings C and D, all in document order.
+    expect(bRe.childIds).toEqual([b1Re.id, cRe.id, dRe.id]);
+    expect(b1Re.nextSiblingId).toBe(cRe.id);
+    expect(cRe.nextSiblingId).toBe(dRe.id);
   });
 
   it("normalizes ordered markers in the affected region after indent", () => {

@@ -3,12 +3,15 @@
  * dependency — mirrors moveBlock.ts's style (operate on a ParsedDocument,
  * return a new lines[] + outcome).
  *
- * Unlike moveBlock, indent/outdent never needs a cut + re-insert: both
- * supported cases (list-indent onto the previous sibling, list-outdent of
- * a parent's last child, heading level change) leave the block's line
- * range exactly where it is and only rewrite leading whitespace or the
- * heading's `#` run in place. See findIndentTarget.ts for why the MVP
- * scope guarantees this.
+ * Unlike moveBlock, indent/outdent never needs a cut + re-insert: every
+ * supported case (list-indent onto the previous sibling, list-outdent of a
+ * child at any position among its parent's children, heading level change)
+ * leaves the block's line range exactly where it is and only rewrites
+ * leading whitespace or the heading's `#` run in place. List-outdent of a
+ * non-last child re-parents its trailing siblings under it *implicitly*:
+ * shrinking only the outdented item's own range is enough, because
+ * parseDocument.ts derives nesting purely from indent columns — see
+ * findIndentTarget.ts's design note for the full reasoning.
  */
 
 import {

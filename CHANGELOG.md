@@ -4,6 +4,28 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-11
+
+### Added
+
+- Added `Move section up` / `Move section down` commands that always move the whole enclosing heading section, regardless of where the cursor sits inside it.
+- Redefined `Move block up` / `Move block down` to operate on the minimal safe unit at the cursor: a heading section, a list subtree, a plain paragraph, or — when the cursor is inside one — a whole callout, blockquote, fenced code block, or table. Ambiguous or unrecognized boundaries are rejected without editing the note.
+- Added `Delete block (section / list subtree)`, `Insert sibling after current block`, and `Insert child list item` commands, wired into the Outline Tree View's context menu.
+- Added inline rename for section headings and list items directly in the Outline Tree View: double-click a row (or press F2, or choose Rename from its context menu) to edit its text in place, with commit on Enter and cancel on Escape. Renaming is IME-safe, writes back through the plugin's normal safe edit path, and commits as a single Undo/Redo step. A newly inserted block is renamed automatically.
+- Added mobile tap and long-press support in the Outline Tree View: a single tap selects a row, tapping an already-selected row starts inline rename, and a long-press opens the context menu.
+- Added optional visual aids to the Outline Tree View: a subtle always-on background or left-edge stripe to distinguish section rows from list rows, a brief flash highlight on the row a `Move block` / `Move section` command just moved, and a short notice naming what was moved. All configurable under the new "Move & Outline Tree kind highlight" settings group (`Section background style in Outline Tree`, `List row highlight style in Outline Tree`, `Preview move target in Outline Tree`, `Show move result toast`).
+- Added ancestor breadcrumb navigation and a Subtree Navigator to the Partial Edit Pane, for moving up to a parent or into a child block without leaving the pane.
+- Added pop-out window support for the Partial Edit Pane, reachable from the Outline Tree View's node context menu.
+
+### Changed
+
+- User-facing text assembled by the plugin (notices, the move-result toast, and the Outline Tree View / Partial Edit Pane empty-state messages) now defaults to English, since the plugin is not limited to a specific language. This affects wording only, not behavior.
+- The Partial Edit Pane now shows its Apply/Cancel controls only while there are unsaved changes, and its close button behaves consistently with that dirty state.
+
+### Fixed
+
+- Fixed the inline rename input in the Outline Tree View collapsing to a narrow width instead of filling the row.
+
 ## [0.1.4] - 2026-08-07
 
 ### Added

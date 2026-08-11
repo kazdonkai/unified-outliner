@@ -1,22 +1,40 @@
 import { Editor, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { parseDocument } from "./parser/parseDocument";
 import { resolveCurrentBlock } from "./resolver/resolveCurrentBlock";
+import { ParsedDocument } from "./model/block";
 import { MoveDirection } from "./move/findMoveTarget";
 import { moveBlock } from "./move/moveBlock";
 import { moveNodeOnly } from "./move/moveNodeOnly";
 import { indentBlock } from "./move/indentBlock";
+import {
+  MoveComplexBlockOutcome,
+  ResolvedMoveUnit,
+  describeMoveUnit,
+  findEnclosingSectionId,
+  moveComplexBlock,
+  resolveEnclosingSectionId,
+  resolveMoveUnit,
+} from "./move/resolveMoveTarget";
 import { IndentDirection } from "./level/direction";
 import { setNodeOnlyLevel } from "./level/setNodeOnlyLevel";
+import { deleteBlock } from "./edit/deleteBlock";
+import {
+  insertChildListItem,
+  insertSiblingListItem,
+  insertSiblingSection,
+} from "./edit/insertBlock";
 import {
   createCm6FoldSyncExtension,
   OUTLINE_TREE_VIEW_TYPE,
   OutlineTreeView,
 } from "./view/OutlineTreeView";
 import { PARTIAL_EDIT_VIEW_TYPE, PartialEditView } from "./view/PartialEditView";
+import { HeadingLevelModal } from "./view/HeadingLevelModal";
 import { ActiveMarkdownViewTracker } from "./view/activeMarkdownViewTracker";
 import { FoldStateManager } from "./persistence/foldStateManager";
 import {
   applyLineEditOutcome,
+  LineEditOutcome,
   NOOP_MESSAGES,
 } from "./commands/applyLineEditOutcome";
 import {
@@ -59,23 +77,49 @@ export default class UnifiedOutlinerPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Block-scoped: for a heading, moves the whole section subtree (heading
-    // + body + child sections + lists) past the adjacent sibling section.
-    // For a list item, moves its subtree past the adjacent sibling (with
-    // the existing cross-section hop for root items — section-subtree movement, unchanged
-    // by this task). Command ids are unchanged from the original MVP
-    // move-block-up/down, so existing hotkeys keep working; see README for
-    // the node-only vs block-scoped naming note.
+    // CHANGELOG (2026-08-11, "Move block の対象を最小安全ブロックへ"): this
+    // command's MEANING changed. Before this ticket, cursor position
+    // anywhere inside a section (including a plain body paragraph) resolved
+    // to "the whole section" — the same behavior "Move section up/down"
+    // (added below) now owns explicitly. As of this ticket, Move block
+    // instead resolves to the smallest Markdown-safe unit at the cursor: a
+    // heading line -> the section; a list item -> its subtree; inside a
+    // callout/blockquote/fenced-code/table -> that whole block; an ordinary
+    // paragraph -> just that paragraph. See move/resolveMoveTarget.ts's top
+    // doc comment for the full rationale. Command ids and any existing
+    // hotkeys are UNCHANGED (still move-block-up/down) — only the resolved
+    // target differs. Users who relied on the old "moves the enclosing
+    // section from anywhere inside it" behavior should bind Move section
+    // up/down instead.
     this.addCommand({
       id: "move-block-up",
-      name: "Move block up (section / list subtree)",
+      name: "Move block up (minimal safe unit at cursor)",
       editorCallback: (editor) => this.moveCurrentBlock(editor, "up"),
     });
 
     this.addCommand({
       id: "move-block-down",
-      name: "Move block down (section / list subtree)",
+      name: "Move block down (minimal safe unit at cursor)",
       editorCallback: (editor) => this.moveCurrentBlock(editor, "down"),
+    });
+
+    // New, explicit counterpart (2026-08-11 ticket) to the narrowed Move
+    // block above: always moves the WHOLE enclosing section subtree
+    // (heading + body + child sections + lists), no matter where inside it
+    // the cursor is — heading line, own body paragraph, or any depth of
+    // nested list item/subsection. This is exactly Move block's pre-ticket
+    // behavior, now under its own name so it stays available as an explicit
+    // choice rather than being cursor-position-dependent.
+    this.addCommand({
+      id: "move-section-up",
+      name: "Move section up (whole enclosing section)",
+      editorCallback: (editor) => this.moveCurrentSection(editor, "up"),
+    });
+
+    this.addCommand({
+      id: "move-section-down",
+      name: "Move section down (whole enclosing section)",
+      editorCallback: (editor) => this.moveCurrentSection(editor, "down"),
     });
 
     // Node-only: swaps just the current heading LINE's text with the
@@ -125,6 +169,28 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       id: "outdent-node-only",
       name: "Outdent heading level (current line only)",
       editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "outdent"),
+    });
+
+    // Phase 5C-1A/1B: block-level delete/insert common foundation
+    // (section/list only — see edit/deleteBlock.ts, edit/insertBlock.ts).
+    // Body-editor-side entry points, resolving "current block" the same
+    // way every other body-editor command does (resolveCurrentBlock).
+    this.addCommand({
+      id: "delete-block",
+      name: "Delete block (section / list subtree)",
+      editorCallback: (editor) => this.deleteCurrentBlock(editor),
+    });
+
+    this.addCommand({
+      id: "insert-sibling-block",
+      name: "Insert sibling after current block",
+      editorCallback: (editor) => this.insertSiblingAfterCurrentBlock(editor),
+    });
+
+    this.addCommand({
+      id: "insert-child-list-item",
+      name: "Insert child list item",
+      editorCallback: (editor) => this.insertChildListItemForCursor(editor),
     });
 
     // Phase 2A: Outline Tree View — a right-sidebar panel that visualizes
@@ -363,7 +429,8 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * requirement: "毎回新しい pane を量産しないでください"), then load
    * `nodeId` into it. `nodeId` may be a section OR (Phase 4C) a list item
    * id — activatePartialEditView itself doesn't care which, since
-   * PartialEditView.loadNode resolves that generically. Called from
+   * PartialEditView.requestLoadNode (Phase 5B's guarded entry point)
+   * resolves that generically. Called from
    * OutlineTreeView's "Open partial edit pane" / "Edit list subtree in
    * pane" menu items, and from openPartialEditForCursor below (section
    * only, via resolveCurrentBlock's body-editor resolution).
@@ -395,15 +462,51 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * catch a rejection from it, so leaving either call un-awaited would
    * risk an unhandled rejection instead of the same user-facing Notice
    * every other failure path in this method already uses.
+   *
+   * Phase 5A follow-up: `options.openInNewWindow` collapses the previously
+   * two-step "open the pane, then right-click its tab and choose 標準の
+   * Move to new window" flow into one action, using the same official
+   * `Workspace.openPopoutLeaf()` / `moveLeafToPopout()` APIs a user would
+   * reach via that standard tab menu — no custom window manager is
+   * introduced. If a Partial Edit Pane leaf already exists (docked or
+   * already popped out), it is migrated via `moveLeafToPopout` rather than
+   * creating a second leaf, preserving the existing "reuse, don't
+   * multiply" policy used by the non-popout path below. Both popout APIs
+   * throw on platforms without popout window support (mobile, or an old
+   * Electron version) — caught here and surfaced via the same
+   * console.error + Notice pattern as every other failure path in this
+   * method, never left to escape as an unhandled exception from a UI
+   * callback.
    */
-  async activatePartialEditView(nodeId: string): Promise<void> {
+  async activatePartialEditView(
+    nodeId: string,
+    options?: { openInNewWindow?: boolean }
+  ): Promise<void> {
     const { workspace } = this.app;
 
     this.activeMarkdownView.get();
 
     const existing = workspace.getLeavesOfType(PARTIAL_EDIT_VIEW_TYPE);
     let leaf: WorkspaceLeaf;
-    if (existing.length > 0) {
+
+    if (options?.openInNewWindow) {
+      try {
+        if (existing.length > 0) {
+          leaf = existing[0];
+          workspace.moveLeafToPopout(leaf);
+        } else {
+          leaf = workspace.openPopoutLeaf();
+          await leaf.setViewState({ type: PARTIAL_EDIT_VIEW_TYPE, active: true });
+        }
+      } catch (error) {
+        console.error(
+          "Unified Outliner: failed to open the partial edit pane in a new window.",
+          error
+        );
+        new Notice("Unified Outliner: could not open the partial edit pane in a new window.");
+        return;
+      }
+    } else if (existing.length > 0) {
       leaf = existing[0];
     } else {
       const newLeaf = workspace.getRightLeaf(true);
@@ -429,7 +532,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       return;
     }
     if (leaf.view instanceof PartialEditView) {
-      leaf.view.loadNode(nodeId);
+      // Phase 5B: requestLoadNode (not loadNode/loadNodeInternal) is the
+      // single sanctioned entry point for switching which node the pane
+      // shows — it guards against silently discarding an unapplied edit
+      // (Apply/Discard/Cancel prompt), the same guard the pane's own
+      // breadcrumb segment clicks go through. See PartialEditView.ts's
+      // requestLoadNode doc comment.
+      leaf.view.requestLoadNode(nodeId);
     }
   }
 
@@ -466,6 +575,17 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     void this.activatePartialEditView(resolved.node.id);
   }
 
+  /**
+   * Resolves the cursor to the minimal safe unit (move/resolveMoveTarget.ts)
+   * and moves exactly that — see the CHANGELOG comment on this command's
+   * registration above for the behavior change this ticket introduced.
+   * Section/list units are applied via the existing, unchanged
+   * move/moveBlock.ts path; paragraph/callout/blockquote/fenced-code/table
+   * units go through the new move/resolveMoveTarget.ts#moveComplexBlock
+   * sibling-swap path. Both paths funnel through the same
+   * applyLineEditOutcome, so undo/redo, cursor placement, and the no-op
+   * Notice plumbing are identical regardless of which kind was resolved.
+   */
   private moveCurrentBlock(editor: Editor, direction: MoveDirection): void {
     if (editor.listSelections().length > 1) {
       this.notice("Unified Outliner: multiple cursors are not supported.");
@@ -475,25 +595,169 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     const cursor = editor.getCursor();
     const doc = parseDocument(editor.getValue());
 
-    const resolved = resolveCurrentBlock(doc, cursor.line);
-    if (!resolved.node) {
+    const resolved = resolveMoveUnit(doc, cursor.line);
+    if (!resolved.unit) {
       this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
       return;
     }
+    const unit = resolved.unit;
 
-    const outcome = moveBlock(doc, resolved.node.id, direction, {
-      allowCrossSectionListMove: this.settings.allowCrossSectionListMove,
-      normalizeOrderedLists: this.settings.normalizeOrderedLists,
-    });
+    const outcome: LineEditOutcome | MoveComplexBlockOutcome =
+      unit.kind === "section" || unit.kind === "list"
+        ? moveBlock(doc, unit.nodeId as string, direction, {
+            allowCrossSectionListMove: this.settings.allowCrossSectionListMove,
+            normalizeOrderedLists: this.settings.normalizeOrderedLists,
+          })
+        : moveComplexBlock(doc, unit, direction);
+
+    // Queue the toast/flash BEFORE applyLineEditOutcome, not after — see
+    // this method's own note below (mirrored in moveCurrentSection) on why
+    // ordering matters here: applyLineEditOutcome's editor.replaceRange()
+    // call is what fires Obsidian's "editor-change" workspace event, which
+    // OutlineTreeView listens to via a LEADING-edge debounce (refresh()
+    // fires synchronously on the first change after a quiet period — see
+    // OutlineTreeView.ts's scheduleRefresh). If queueOutlineTreeMoveFlash
+    // ran AFTER applyLineEditOutcome, that synchronous refresh could
+    // already have happened and re-rendered the tree before
+    // pendingMoveFlash was ever set, silently dropping the one-shot flash
+    // (found via real-device testing — a scripted DevTools console check
+    // showed queueMoveFlash's target was set but never consumed). outcome.changed
+    // is known immediately (computed above, before any editor mutation) and is
+    // exactly the same condition applyLineEditOutcome's own return value
+    // (`applied`, used below) reduces to — see that function's own "if
+    // (!outcome.changed) { ...; return false }" — so gating on it here
+    // instead is equivalent, just correctly ordered.
+    if (outcome.changed) {
+      this.announceMoveResult(doc, unit, direction);
+      this.queueOutlineTreeMoveFlash(doc, unit, outcome);
+    }
 
     applyLineEditOutcome(
       editor,
       cursor,
-      resolved.node.range.startLine,
+      unit.range.startLine,
       doc.lines,
       outcome,
       (m) => this.notice(m)
     );
+  }
+
+  /**
+   * Always moves the WHOLE enclosing section, regardless of where inside it
+   * the cursor is — see move-section-up/down's registration comment. Reuses
+   * the exact same move/moveBlock.ts path section units already used before
+   * this ticket (unchanged).
+   */
+  private moveCurrentSection(editor: Editor, direction: MoveDirection): void {
+    if (editor.listSelections().length > 1) {
+      this.notice("Unified Outliner: multiple cursors are not supported.");
+      return;
+    }
+
+    const cursor = editor.getCursor();
+    const doc = parseDocument(editor.getValue());
+
+    const resolved = resolveEnclosingSectionId(doc, cursor.line);
+    if (!resolved.sectionId) {
+      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      return;
+    }
+    const sectionNode = doc.nodes.get(resolved.sectionId);
+    if (!sectionNode) {
+      this.notice(NOOP_MESSAGES["resolve-failed"]);
+      return;
+    }
+
+    const outcome = moveBlock(doc, sectionNode.id, direction, {
+      allowCrossSectionListMove: this.settings.allowCrossSectionListMove,
+      normalizeOrderedLists: this.settings.normalizeOrderedLists,
+    });
+
+    const unit: ResolvedMoveUnit = {
+      kind: "section",
+      range: sectionNode.range,
+      parentId: sectionNode.parentId,
+      nodeId: sectionNode.id,
+    };
+
+    // Ordering note: see moveCurrentBlock's matching comment — queue the
+    // toast/flash BEFORE applyLineEditOutcome mutates the editor, since
+    // that mutation can synchronously trigger OutlineTreeView's
+    // leading-edge-debounced refresh() and consume this.pendingMoveFlash
+    // before it would otherwise be set.
+    if (outcome.changed) {
+      this.announceMoveResult(doc, unit, direction);
+      this.queueOutlineTreeMoveFlash(doc, unit, outcome);
+    }
+
+    applyLineEditOutcome(
+      editor,
+      cursor,
+      sectionNode.range.startLine,
+      doc.lines,
+      outcome,
+      (m) => this.notice(m)
+    );
+  }
+
+  /**
+   * Move-result toast (2026-08-11 ticket §5B): names what was actually
+   * moved — e.g. "Unified Outliner: moved paragraph up.", "Unified
+   * Outliner: moved list item (with 3 nested items) down.", "Unified
+   * Outliner: moved section "Overview" up.". English, matching every
+   * OTHER Notice in this plugin (NOOP_MESSAGES above) — an earlier
+   * revision of this method used Japanese text per the ticket's own
+   * (later corrected) example wording; that was reverted following an
+   * explicit follow-up instruction establishing English as this plugin's
+   * default user-facing language (this is a universal plugin, not
+   * Japan-only) — see docs/統合実装ロードマップ_2026-08-05.md §1 for the
+   * policy statement this applies going forward. Gated by its own setting
+   * (showMoveResultToast), independent of showNoopNotices/this.notice,
+   * since a successful move is not a no-op.
+   */
+  private announceMoveResult(
+    doc: ParsedDocument,
+    unit: ResolvedMoveUnit,
+    direction: MoveDirection
+  ): void {
+    if (!this.settings.treeKindHighlight.showMoveResultToast) return;
+    new Notice(`Unified Outliner: moved ${describeMoveUnit(doc, unit)} ${direction}.`);
+  }
+
+  /**
+   * Move target preview (2026-08-11 ticket §5B): queues a one-shot flash
+   * highlight on every open Outline Tree View leaf for the row that now
+   * represents the just-moved block. Section/list units have their own
+   * Tree row, addressed by the outcome's newStartLine (node ids shift
+   * across a re-parse — see model/complexBlock.ts's id-stability note —
+   * so matching by line, not id, is what stays correct after the move).
+   * Paragraph/complex-block units have no Tree row of their own (see
+   * resolveMoveTarget.ts's top doc comment on why paragraph stays a
+   * non-Tree-node concept) — the enclosing section's row is flashed
+   * instead, resolved from the PRE-move doc (the section's own heading line
+   * never moves when only content within it is swapped).
+   */
+  private queueOutlineTreeMoveFlash(
+    doc: ParsedDocument,
+    unit: ResolvedMoveUnit,
+    outcome: LineEditOutcome | MoveComplexBlockOutcome
+  ): void {
+    if (!this.settings.treeKindHighlight.showMoveTargetPreview) return;
+    if (!outcome.changed) return;
+
+    let target: { line?: number; nodeIdHint?: string } | null = null;
+    if (unit.kind === "section" || unit.kind === "list") {
+      target = { line: outcome.newStartLine };
+    } else {
+      const ownerNode = unit.parentId ? doc.nodes.get(unit.parentId) : null;
+      const sectionId = ownerNode ? findEnclosingSectionId(doc, ownerNode) : null;
+      if (sectionId) target = { nodeIdHint: sectionId };
+    }
+    if (!target) return;
+
+    for (const leaf of this.app.workspace.getLeavesOfType(OUTLINE_TREE_VIEW_TYPE)) {
+      if (leaf.view instanceof OutlineTreeView) leaf.view.queueMoveFlash(target);
+    }
   }
 
   /**
@@ -593,6 +857,138 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     applyLineEditOutcome(
       editor,
       cursor,
+      resolved.node.range.startLine,
+      doc.lines,
+      outcome,
+      (m) => this.notice(m)
+    );
+  }
+
+  /**
+   * Phase 5C-1A: delete the section/list subtree at the cursor. Resolution
+   * follows the same resolveCurrentBlock pattern as every other body-editor
+   * command. deleteBlock's outcome always sets newCursorCh (see that
+   * module's doc comment), so the {startLine, ch:0} passed here as
+   * `cursor`/`resolvedNodeStartLine` is only a placeholder to satisfy
+   * applyLineEditOutcome's signature — the real placement it computes
+   * ignores them once newCursorCh is present.
+   */
+  private deleteCurrentBlock(editor: Editor): void {
+    if (editor.listSelections().length > 1) {
+      this.notice("Unified Outliner: multiple cursors are not supported.");
+      return;
+    }
+
+    const doc = parseDocument(editor.getValue());
+    const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
+    if (!resolved.node) {
+      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      return;
+    }
+
+    const outcome = deleteBlock(doc, resolved.node.id);
+
+    applyLineEditOutcome(
+      editor,
+      { line: resolved.node.range.startLine, ch: 0 },
+      resolved.node.range.startLine,
+      doc.lines,
+      outcome,
+      (m) => this.notice(m)
+    );
+  }
+
+  /**
+   * Phase 5C-1B: insert a new sibling immediately after the block at the
+   * cursor — a new SECTION (heading level chosen via HeadingLevelModal,
+   * never inferred) when the resolved block is a section, or a new LIST
+   * ITEM (marker/indentation matched to the resolved item) when it's a
+   * list. The modal path re-parses the editor fresh when its callback
+   * fires (not the `doc` captured before the modal opened), so the target
+   * is re-verified against live document state at the moment of
+   * insertion — the editor may have changed while the modal was open.
+   */
+  private insertSiblingAfterCurrentBlock(editor: Editor): void {
+    if (editor.listSelections().length > 1) {
+      this.notice("Unified Outliner: multiple cursors are not supported.");
+      return;
+    }
+
+    const doc = parseDocument(editor.getValue());
+    const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
+    if (!resolved.node) {
+      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      return;
+    }
+
+    if (resolved.node.type === "section") {
+      const sectionId = resolved.node.id;
+      new HeadingLevelModal(this.app, (level) => {
+        if (level === null) return;
+        const freshDoc = parseDocument(editor.getValue());
+        const target = freshDoc.nodes.get(sectionId);
+        if (!target) {
+          this.notice(NOOP_MESSAGES["resolve-failed"]);
+          return;
+        }
+        const outcome = insertSiblingSection(freshDoc, sectionId, level);
+        applyLineEditOutcome(
+          editor,
+          { line: target.range.startLine, ch: 0 },
+          target.range.startLine,
+          freshDoc.lines,
+          outcome,
+          (m) => this.notice(m)
+        );
+      }).open();
+      return;
+    }
+
+    const outcome = insertSiblingListItem(doc, resolved.node.id, {
+      normalizeOrderedLists: this.settings.normalizeOrderedLists,
+    });
+
+    applyLineEditOutcome(
+      editor,
+      { line: resolved.node.range.startLine, ch: 0 },
+      resolved.node.range.startLine,
+      doc.lines,
+      outcome,
+      (m) => this.notice(m)
+    );
+  }
+
+  /**
+   * Phase 5C-1B: insert a new child list item under the list item at the
+   * cursor. Refuses (via insertChildListItem's own "not-a-list-item"/
+   * "unsafe-indent" reasons, surfaced through the shared NOOP_MESSAGES) when
+   * the cursor isn't in a list item or the parent's indentation can't
+   * safely be interpreted — see edit/insertBlock.ts's doc comment.
+   */
+  private insertChildListItemForCursor(editor: Editor): void {
+    if (editor.listSelections().length > 1) {
+      this.notice("Unified Outliner: multiple cursors are not supported.");
+      return;
+    }
+
+    const doc = parseDocument(editor.getValue());
+    const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
+    if (!resolved.node) {
+      this.notice(NOOP_MESSAGES[resolved.reason ?? "no-block"]);
+      return;
+    }
+    if (resolved.node.type !== "list") {
+      this.notice(NOOP_MESSAGES["not-a-list-item"]);
+      return;
+    }
+
+    const outcome = insertChildListItem(doc, resolved.node.id, {
+      normalizeOrderedLists: this.settings.normalizeOrderedLists,
+    });
+
+    applyLineEditOutcome(
+      editor,
+      { line: resolved.node.range.startLine, ch: 0 },
       resolved.node.range.startLine,
       doc.lines,
       outcome,

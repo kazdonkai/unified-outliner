@@ -22,12 +22,27 @@
  *   (descendants are always deeper, so the section's own level is always
  *   the subtree's shallowest and thus the binding constraint for outdent).
  * - List indent nests the item under its previous sibling (any position,
- *   not just an edge). List outdent is scoped to the *last* child of its
- *   parent for this MVP: because the item already sits at the end of its
- *   parent's range, reducing its indentation in place is sufficient and no
- *   sibling re-parenting or line repositioning is required. A non-last
- *   child returns "not-last-child"; absorbing trailing siblings as
- *   children of the outdented item is TODO.
+ *   not just an edge). List outdent works for a child at *any* position
+ *   among its parent's children, not only the last: when the item being
+ *   outdented has trailing siblings (same parent, later in document
+ *   order), those trailing siblings become the outdented item's own
+ *   children — but this needs no line repositioning or explicit
+ *   re-parenting bookkeeping. Every list item's `range` (computed by
+ *   parser/parseDocument.ts) already spans exactly that item plus its own
+ *   descendants, stopping at the next line whose indent is >= the item's
+ *   own indent — i.e. stopping exactly where a following sibling begins.
+ *   So shrinking only the outdented item's own range (its pre-existing
+ *   subtree) by one level, and leaving every trailing sibling's lines
+ *   completely untouched, is already sufficient: a trailing sibling's
+ *   absolute indent column does not change, but because the outdented
+ *   item's own column just decreased by one level, that same unchanged
+ *   column now reads as one level *deeper than the outdented item*, so
+ *   parseDocument.ts's indent-based nesting reinterprets it as the
+ *   outdented item's child on the next parse — with zero line movement,
+ *   trivially preserving document order for every affected block. This is
+ *   why indentBlock.ts needs no change beyond the removal of the
+ *   last-child restriction: the existing shrinkIndent-over-node.range call
+ *   already does the right thing.
  * - This is the direct extension point for the `nested-edge` reason that
  *   findMoveTarget already returns when move-block-up/down has nowhere to
  *   go for a nested item at the edge of its parent: indent/outdent is the
@@ -54,7 +69,6 @@ import type { IndentDirection } from "../level/direction";
 export type NoIndentReason =
   | "no-previous-sibling"
   | "already-root"
-  | "not-last-child"
   | "max-heading-level"
   | "min-heading-level"
   | "unsafe-indent";
@@ -104,7 +118,8 @@ export function findIndentTarget(
 
     // outdent
     if (node.depth === 0) return { kind: "none", reason: "already-root" };
-    if (node.nextSiblingId) return { kind: "none", reason: "not-last-child" };
+    // Any position among the parent's children is allowed — see the design
+    // note above for why trailing siblings need no explicit handling here.
     const parent = node.parentId ? doc.nodes.get(node.parentId) : null;
     if (!parent || !isListNode(parent)) {
       return { kind: "none", reason: "already-root" };

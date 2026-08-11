@@ -4,13 +4,11 @@ Unified Outliner focuses on safe structural editing inside a single Markdown not
 
 ## Current Release
 
-Version 0.1.0 provides structural move and level commands, Outline Tree View navigation and editing, a Partial Edit Pane for section and list subtrees, mixed-structure boundaries, and file-scoped fold-state persistence with conflict resolution.
+Version 0.2.0 provides structural move and level commands (including whole-section moves and minimal-safe-block moves that reach into paragraphs, callouts, blockquotes, fenced code blocks, and tables), delete/insert commands, Outline Tree View navigation, inline rename, and mobile tap/long-press support, a Partial Edit Pane for section and list subtrees with breadcrumb navigation, a Subtree Navigator, and pop-out window support, mixed-structure boundaries, and file-scoped fold-state persistence with conflict resolution.
 
 ## Next Focus: Phase 5
 
 - **Hoist-like editing**: Open a selected section or list subtree as a focused editing context.
-- **Pop-out workflow**: Support Obsidian pop-out windows for a focused editing view, while keeping navigation state synchronized.
-- **Breadcrumb navigation**: Show the ancestor path in the focused editing view and let users navigate back to an ancestor.
 - **Expanded safe editing**: Evaluate additions, deletions, and reordering inside focused subtree editing without weakening conflict protection.
 - **Special Markdown blocks**: Define explicit parsing and editing boundaries for callouts and Mermaid code blocks before allowing structural operations to modify them.
 

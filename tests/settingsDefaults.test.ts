@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
+  DEFAULT_TREE_KIND_HIGHLIGHT,
   mergeSettings,
 } from "../src/settingsDefaults";
 
@@ -73,5 +74,60 @@ describe("settingsDefaults: syncOutlineTreeFoldingToEditor", () => {
 
   it("mergeSettings on a completely empty raw object (fresh install, no data.json yet) returns every default unchanged", () => {
     expect(mergeSettings({})).toEqual(DEFAULT_SETTINGS);
+  });
+});
+
+/**
+ * 2026-08-11 ticket ("Move block の対象を最小安全ブロックへ"): treeKindHighlight
+ * is a NESTED settings object (unlike every other field above), added
+ * specifically to verify mergeSettings's one-level-deeper merge — a naive
+ * Object.assign({}, DEFAULT_SETTINGS, raw) would replace the whole nested
+ * object wholesale with whatever raw.treeKindHighlight contains (or is
+ * entirely missing, for a pre-existing data.json from before this ticket),
+ * silently dropping any of ITS OWN sub-keys instead of falling back to
+ * their individual defaults.
+ */
+describe("settingsDefaults: treeKindHighlight (nested settings object)", () => {
+  it("defaults match the ticket's own recommended defaults", () => {
+    expect(DEFAULT_SETTINGS.treeKindHighlight).toEqual({
+      sectionMode: "subtle",
+      listMode: "hover",
+      showMoveTargetPreview: true,
+      showMoveResultToast: true,
+    });
+  });
+
+  it("mergeSettings resolves every sub-key to its default when raw omits treeKindHighlight entirely (pre-existing data.json)", () => {
+    const merged = mergeSettings({ allowCrossSectionListMove: false });
+    expect(merged.treeKindHighlight).toEqual(DEFAULT_TREE_KIND_HIGHLIGHT);
+  });
+
+  it("mergeSettings preserves a PARTIAL raw.treeKindHighlight, falling back to defaults for the missing sub-keys only", () => {
+    const merged = mergeSettings({
+      treeKindHighlight: { sectionMode: "off" },
+    });
+    expect(merged.treeKindHighlight).toEqual({
+      sectionMode: "off",
+      listMode: "hover",
+      showMoveTargetPreview: true,
+      showMoveResultToast: true,
+    });
+  });
+
+  it("mergeSettings preserves a FULL raw.treeKindHighlight unchanged", () => {
+    const custom = {
+      sectionMode: "stripe" as const,
+      listMode: "off" as const,
+      showMoveTargetPreview: false,
+      showMoveResultToast: false,
+    };
+    const merged = mergeSettings({ treeKindHighlight: custom });
+    expect(merged.treeKindHighlight).toEqual(custom);
+  });
+
+  it("mergeSettings never mutates the shared DEFAULT_TREE_KIND_HIGHLIGHT object", () => {
+    const before = { ...DEFAULT_TREE_KIND_HIGHLIGHT };
+    mergeSettings({ treeKindHighlight: { sectionMode: "off" } });
+    expect(DEFAULT_TREE_KIND_HIGHLIGHT).toEqual(before);
   });
 });

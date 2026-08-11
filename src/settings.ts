@@ -1,6 +1,10 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type UnifiedOutlinerPlugin from "./main";
-import { DEFAULT_SETTINGS, UnifiedOutlinerSettings } from "./settingsDefaults";
+import {
+  DEFAULT_SETTINGS,
+  TreeKindHighlightSettings,
+  UnifiedOutlinerSettings,
+} from "./settingsDefaults";
 
 // Re-exported unchanged so every existing importer of "./settings" (just
 // main.ts today) keeps working without touching its own import line — see
@@ -103,6 +107,74 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.syncOutlineTreeFoldingToEditor)
           .onChange(async (v) => {
             this.plugin.settings.syncOutlineTreeFoldingToEditor = v;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl).setName("Move & Outline Tree kind highlight").setHeading();
+
+    new Setting(containerEl)
+      .setName("Section background style in Outline Tree")
+      .setDesc(
+        "Always-on visual aid so section rows are easy to tell apart from list rows at a glance. Purely cosmetic — never changes what Move block / Move section actually operate on."
+      )
+      .addDropdown((d) =>
+        d
+          .addOption("subtle", "Subtle background")
+          .addOption("stripe", "Left edge stripe")
+          .addOption("off", "Off")
+          .setValue(this.plugin.settings.treeKindHighlight.sectionMode)
+          .onChange(async (v) => {
+            this.plugin.settings.treeKindHighlight.sectionMode =
+              v as TreeKindHighlightSettings["sectionMode"];
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("List row highlight style in Outline Tree")
+      .setDesc(
+        "Deliberately weaker than the section style above (hover-only by default), so the tree doesn't get visually noisy when list items are shown."
+      )
+      .addDropdown((d) =>
+        d
+          .addOption("hover", "Highlight on hover/selection only")
+          .addOption("subtle", "Always-on subtle background")
+          .addOption("off", "Off")
+          .setValue(this.plugin.settings.treeKindHighlight.listMode)
+          .onChange(async (v) => {
+            this.plugin.settings.treeKindHighlight.listMode =
+              v as TreeKindHighlightSettings["listMode"];
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Preview move target in Outline Tree")
+      .setDesc(
+        "Briefly flash-highlight, in the Outline Tree, the block that Move block / Move section actually operated on."
+      )
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.treeKindHighlight.showMoveTargetPreview)
+          .onChange(async (v) => {
+            this.plugin.settings.treeKindHighlight.showMoveTargetPreview = v;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Show move result toast")
+      .setDesc(
+        "Show a short notice naming what was moved (paragraph / list item / section) after Move block or Move section."
+      )
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.treeKindHighlight.showMoveResultToast)
+          .onChange(async (v) => {
+            this.plugin.settings.treeKindHighlight.showMoveResultToast = v;
             await this.plugin.saveSettings();
           })
       );

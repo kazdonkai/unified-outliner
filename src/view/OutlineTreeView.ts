@@ -101,6 +101,9 @@
  * Phase 4B. A list item with unsafeIndent (mixed tab/space indentation)
  * shows this one menu item disabled, mirroring showStructureCommandMenu's
  * own feasibility-check-then-flag pattern for infeasible operations.
+ * (Post-Phase-5A follow-up: showListCommandMenu later gained the
+ * block-scoped Move/Indent/Outdent subset of that larger menu too — see
+ * that method's own doc comment.)
  *
  * Keyboard navigation (post-Phase-4D) makes the tree itself operable
  * without a mouse: when this view's own root element has focus, Up/Down
@@ -148,6 +151,7 @@ import {
   Menu,
   MarkdownView,
   Notice,
+  Platform,
   TFile,
   WorkspaceLeaf,
   debounce,
@@ -159,11 +163,19 @@ import { foldEffect, unfoldEffect } from "@codemirror/language";
 import { Annotation, Extension } from "@codemirror/state";
 import type UnifiedOutlinerPlugin from "../main";
 import { parseDocument } from "../parser/parseDocument";
-import { BlockNode, isListNode, ParsedDocument } from "../model/block";
+import {
+  BlockNode,
+  isListNode,
+  isSectionNode,
+  ListBlockNode,
+  ParsedDocument,
+  SectionBlockNode,
+} from "../model/block";
 import {
   buildOutlineTree,
   isOutlineListNode,
   isOutlineSectionNode,
+  listItemDisplayText,
   OutlineTreeNode,
 } from "../tree/buildOutlineTree";
 import { resolveHighlightedNodeId } from "../tree/resolveHighlightedSectionId";
@@ -176,6 +188,10 @@ import {
   shouldFollowKeyboardSelectionIntoBody,
 } from "../tree/outlineNavigation";
 import { buildNodeIdentityMap, findNodeIdAtStartLine } from "../tree/foldIdentity";
+import {
+  exceedsLongPressMoveThreshold,
+  LONG_PRESS_DURATION_MS,
+} from "../tree/longPressGesture";
 import { findMoveTarget } from "../move/findMoveTarget";
 import { findIndentTarget } from "../move/findIndentTarget";
 import { findNodeOnlyMoveTarget } from "../move/findNodeOnlyMoveTarget";
@@ -189,6 +205,20 @@ import { TreeStructureOperation } from "../tree/treeOperation";
 import { canDropOn, DropMode, relocateSection } from "../move/relocateSection";
 import { canDropListOn, relocateListSubtree } from "../move/relocateListSubtree";
 import { extractListItemBodyText } from "../edit/listBodyRange";
+import { deleteBlock } from "../edit/deleteBlock";
+import {
+  contentColumnOf,
+  insertChildListItem,
+  insertSiblingListItem,
+  insertSiblingSection,
+} from "../edit/insertBlock";
+import {
+  ListRenameSnapshot,
+  renameListItem,
+  renameSection,
+  SectionRenameSnapshot,
+} from "../edit/renameBlock";
+import { HeadingLevelModal } from "./HeadingLevelModal";
 import {
   applyLineEditOutcome,
   LineEditOutcome,
@@ -283,6 +313,18 @@ export class OutlineTreeView extends ItemView {
   // somewhere else entirely (the body editor, another pane, etc.).
   private hasFocus = false;
 
+  // Mobile gesture state (tap/long-press/menu — see renderNode's "Mobile
+  // gesture" block for the full design). Set right before a long-press
+  // timer opens the context menu, so the synthetic "click" event mobile
+  // browsers dispatch on touch release (after the long-press's own
+  // pointerup) is swallowed by the row's click handler instead of being
+  // misread as a second tap on an already-selected row (which would
+  // otherwise start an inline rename the user never asked for). Consumed
+  // — reset back to false — the moment that one click handler runs, so it
+  // never suppresses any click beyond the one immediately following a
+  // long press.
+  private suppressNextTapClick = false;
+
   // Phase 3A drag & drop state. All UI-only — the pure decision of where
   // a drop is even legal lives in move/relocateSection.ts's canDropOn, not
   // here; this view only tracks which element is mid-drag and which
@@ -291,6 +333,37 @@ export class OutlineTreeView extends ItemView {
   private dragSourceId: string | null = null;
   private draggingItemEl: HTMLElement | null = null;
   private dropIndicatorEl: HTMLElement | null = null;
+
+  /**
+   * Inline rename state (section/list only — see edit/renameBlock.ts).
+   * Non-null exactly while a row's label is replaced with a <textarea>.
+   * `snapshot` is whichever of SectionRenameSnapshot/ListRenameSnapshot
+   * matches `kind`, captured fresh when the rename began — never the
+   * possibly-stale this.currentDoc — and re-verified against a FRESH
+   * re-parse at commit time (see commitRename). While this is set,
+   * refresh() bails out immediately (see its own guard) so an unrelated
+   * debounced editor-change/active-leaf-change/keyup/mouseup refresh never
+   * tears down the input mid-edit; only this view's own commitRename /
+   * cancelRename ever clear it and re-render.
+   */
+  private renameState: {
+    nodeId: string;
+    kind: "section" | "list";
+    inputEl: HTMLTextAreaElement;
+    rowSelfEl: HTMLElement;
+    snapshot: SectionRenameSnapshot | ListRenameSnapshot;
+  } | null = null;
+
+  /**
+   * Move target preview (2026-08-11 ticket §5B). Queued by main.ts's
+   * queueOutlineTreeMoveFlash right after a successful Move block/Move
+   * section, consumed (and cleared) the NEXT time refresh() re-renders —
+   * see applyPendingMoveFlash's own doc comment for why matching happens by
+   * line/id hint rather than by a node id captured before the move (ids
+   * shift across a re-parse whenever document order changes, which a
+   * successful move always does for the swapped pair).
+   */
+  private pendingMoveFlash: { line?: number; nodeIdHint?: string } | null = null;
 
   private readonly scheduleRefresh = debounce(
     () => this.refresh(),
@@ -332,11 +405,29 @@ export class OutlineTreeView extends ItemView {
     this.treeRootEl.setAttribute("aria-label", "Unified Outliner: Outline");
     this.registerDomEvent(this.treeRootEl, "keydown", this.handleTreeKeyDown);
     this.registerDomEvent(this.treeRootEl, "focus", () => {
+      // Inline rename guard (see renameState's own doc comment / refresh()'s
+      // matching guard): focusing the rename <input> itself never fires
+      // this handler (focus is non-bubbling and targets the input, not
+      // treeRootEl), but skip defensively anyway for symmetry with blur
+      // below rather than relying on that asymmetry.
+      if (this.renameState) return;
       this.hasFocus = true;
       this.ensureSelection();
       this.renderTree();
     });
     this.registerDomEvent(this.treeRootEl, "blur", () => {
+      // Inline rename guard: beginRename's inputEl.focus() call moves DOM
+      // focus from treeRootEl to the rename <input> it just created — that
+      // <input> is a DESCENDANT of treeRootEl, but "blur" (unlike
+      // "focusout") still fires on treeRootEl itself whenever it loses
+      // focus, regardless of where focus lands. Without this guard, that
+      // synchronous blur would call renderTree() and tear down the
+      // just-created <input> before the user ever sees it — renderTree()
+      // does not go through refresh()'s own renameState guard. Skipping
+      // here is safe: cancelRename()/commitRename() are the only paths
+      // that end a rename, and they already call renderTree()/refresh()
+      // themselves once renameState is cleared.
+      if (this.renameState) return;
       this.hasFocus = false;
       this.renderTree();
     });
@@ -378,6 +469,13 @@ export class OutlineTreeView extends ItemView {
    * this view's own internal refresh entry point.
    */
   refresh(): void {
+    // Inline rename in progress: never tear down the row's <input> out
+    // from under the user for an unrelated refresh trigger (debounced
+    // editor-change, active-leaf-change, keyup/mouseup elsewhere). Only
+    // commitRename()/cancelRename() clear renameState and explicitly
+    // re-render afterward — see that field's own doc comment.
+    if (this.renameState) return;
+
     const view = this.activeMarkdownView.get();
     if (!view) {
       this.currentDoc = null;
@@ -389,7 +487,7 @@ export class OutlineTreeView extends ItemView {
       this.currentFilePath = null;
       this.nodeIdentityById = new Map();
       this.collapsedIds = new Set();
-      this.renderEmptyState("アクティブな Markdown ノートがありません。");
+      this.renderEmptyState("No active Markdown note.");
       return;
     }
 
@@ -421,7 +519,79 @@ export class OutlineTreeView extends ItemView {
     // reset the user's place in the tree.
     this.ensureSelection();
 
+    this.applyTreeKindHighlightSettings();
     this.renderTree();
+    this.applyPendingMoveFlash();
+  }
+
+  /**
+   * Reflects settings.treeKindHighlight.sectionMode/listMode onto
+   * .unified-outliner-tree-root as data attributes, read by styles.css's
+   * [data-section-highlight]/[data-list-highlight] selectors (combined with
+   * each row's own data-kind — see renderNode). Attribute-driven rather
+   * than a per-row class toggle so one settings change re-styles the whole
+   * tree via CSS alone, with no extra re-render — called on every refresh()
+   * (cheap: two attribute writes) rather than only once in onOpen(), so a
+   * settings change applied while this view is already open (see
+   * settings.ts's onChange handlers, which call
+   * plugin.refreshOutlineTreeViews()) takes effect immediately. No color
+   * values are set here or anywhere else in this file — see styles.css's
+   * own doc comment for the themeable CSS variables this feeds into.
+   */
+  private applyTreeKindHighlightSettings(): void {
+    const cfg = this.plugin.settings.treeKindHighlight;
+    this.treeRootEl.setAttribute("data-section-highlight", cfg.sectionMode);
+    this.treeRootEl.setAttribute("data-list-highlight", cfg.listMode);
+  }
+
+  /**
+   * Consumes this.pendingMoveFlash (queued by main.ts's
+   * queueOutlineTreeMoveFlash) against the tree that renderTree() JUST
+   * rebuilt, and — if a match is found — adds a transient CSS class to that
+   * row's DOM element for ~900ms (styles.css's
+   * .unified-outliner-move-flash / @keyframes). Matching by `line` (not by
+   * a node id captured before the move) is deliberate: section/list ids are
+   * only stable within a single parseDocument() pass (see
+   * parser/parseDocument.ts's `sec-N`/`li-N` counters), and a successful
+   * move always changes document order for the swapped pair, so an id
+   * captured pre-move would not exist in the post-move tree at all.
+   * `nodeIdHint` (used for paragraph/complex-block moves, whose enclosing
+   * section's own heading line does not move) is a plain id lookup instead,
+   * since that id's identity IS stable across the move.
+   */
+  private applyPendingMoveFlash(): void {
+    const pending = this.pendingMoveFlash;
+    this.pendingMoveFlash = null;
+    if (!pending) return;
+
+    const visible = flattenVisibleOutlineTree(this.currentTree, this.collapsedIds);
+    const match =
+      pending.line !== undefined
+        ? visible.find((n) => n.line === pending.line)
+        : pending.nodeIdHint !== undefined
+          ? visible.find((n) => n.id === pending.nodeIdHint)
+          : undefined;
+    if (!match) return;
+
+    const matchId = match.id;
+    this.treeRootEl.win.requestAnimationFrame(() => {
+      const rowEl = this.treeRootEl.querySelector<HTMLElement>(
+        `#unified-outliner-row-${CSS.escape(matchId)}`
+      );
+      if (!rowEl) return;
+      rowEl.addClass("unified-outliner-move-flash");
+      window.setTimeout(() => rowEl.removeClass("unified-outliner-move-flash"), 900);
+    });
+  }
+
+  /**
+   * Public so main.ts's queueOutlineTreeMoveFlash can reach every open
+   * Outline Tree View leaf right after a successful Move block/Move
+   * section — see this.pendingMoveFlash's own doc comment for the
+   * queue/consume lifecycle.
+   */
+  queueMoveFlash(target: { line?: number; nodeIdHint?: string }): void {
+    this.pendingMoveFlash = target;
   }
 
   /**
@@ -621,8 +791,8 @@ export class OutlineTreeView extends ItemView {
     this.treeRootEl.removeAttribute("aria-activedescendant");
     if (this.currentTree.length === 0) {
       const message = this.plugin.settings.showListItemsInOutline
-        ? "このノートには見出しも list 項目もありません。"
-        : "このノートには見出しがありません。";
+        ? "This note has no headings or list items."
+        : "This note has no headings.";
       this.renderEmptyState(message);
       return;
     }
@@ -666,6 +836,14 @@ export class OutlineTreeView extends ItemView {
     // aria-activedescendant from the focus-holding treeRootEl (a roving
     // tabindex per row was considered and rejected — see onOpen's comment).
     selfEl.id = `unified-outliner-row-${node.id}`;
+    // 2026-08-11 ticket §5A: a stable, CSS-only hook for the section/list
+    // always-on visual aids — see styles.css's
+    // [data-section-highlight]/[data-list-highlight] rules on
+    // .unified-outliner-tree-root, which key off this attribute combined
+    // with the settings-driven mode attributes applyTreeKindHighlightSettings
+    // sets on the root. No color values live in this file — see that
+    // method's own doc comment for why.
+    selfEl.setAttribute("data-kind", isSection ? "section" : "list");
     selfEl.setAttribute("role", "treeitem");
     selfEl.setAttribute("aria-selected", isSelected ? "true" : "false");
     if (hasChildren) {
@@ -693,13 +871,45 @@ export class OutlineTreeView extends ItemView {
       const innerEl = selfEl.createDiv({
         cls: `tree-item-inner unified-outliner-level-${node.headingLevel}`,
       });
-      innerEl.setText(node.headingText.length > 0 ? node.headingText : "(無題の見出し)");
+      innerEl.setText(node.headingText.length > 0 ? node.headingText : "(Untitled heading)");
+      // Inline rename: the dblclick listener lives on innerEl specifically
+      // (a sibling of collapseEl, not an ancestor), so a dblclick on the
+      // disclosure triangle never reaches it — no target-filtering needed.
+      // See beginRename's own doc comment for the fold/drag/selection
+      // interaction this is designed around.
+      //
+      // Deliberately calls beginRenameForNode(node.id) here rather than
+      // beginRename(node.id, kind, innerEl, selfEl) directly with THIS
+      // closure's own innerEl/selfEl: a dblclick's two constituent clicks
+      // each already run this row's own "click" handler (jumpToLine),
+      // which can itself trigger a re-render (e.g. the first click moving
+      // DOM focus onto treeRootEl for the first time in this session fires
+      // its own focus-triggered renderTree()) before "dblclick" is
+      // dispatched. If that happens, this closure's innerEl/selfEl
+      // references point at an already-detached previous render pass by
+      // the time this handler runs, and building the rename <input> inside
+      // a detached subtree would silently produce a rename that opens but
+      // is never visible/reachable. beginRenameForNode re-resolves the
+      // row's CURRENT DOM elements fresh, by nodeId, exactly like the F2 /
+      // context-menu / auto-rename-after-insert triggers already do —
+      // reusing that same re-resolution instead of duplicating it here.
+      innerEl.addEventListener("dblclick", (evt) => {
+        evt.stopPropagation();
+        this.beginRenameForNode(node.id);
+      });
     } else if (isOutlineListNode(node)) {
       const innerEl = selfEl.createDiv({
         cls: "tree-item-inner unified-outliner-list-text",
       });
-      const displayText = node.text.length > 0 ? node.text : "(空の list 項目)";
+      const displayText = node.text.length > 0 ? node.text : "(Empty list item)";
       innerEl.setText(displayText);
+      // See the section-branch dblclick listener above for why this calls
+      // beginRenameForNode(node.id) rather than beginRename(...) with this
+      // closure's own innerEl/selfEl.
+      innerEl.addEventListener("dblclick", (evt) => {
+        evt.stopPropagation();
+        this.beginRenameForNode(node.id);
+      });
       // Phase 3C.1: the label itself is CSS-truncated to one line (see
       // styles.css's unified-outliner-list-text), so long items always fit
       // the sidebar's current width without breaking the tree's
@@ -728,6 +938,39 @@ export class OutlineTreeView extends ItemView {
     }
 
     selfEl.addEventListener("click", () => {
+      // Mobile gesture layer, tier 1/3 of 3 (see the "Mobile gesture" block
+      // below for tiers 2 and 3): swallow the one click a long press's own
+      // touch-release synthesizes — see suppressNextTapClick's own doc
+      // comment for why this must be checked, and reset, before anything
+      // else in this handler runs.
+      if (this.suppressNextTapClick) {
+        this.suppressNextTapClick = false;
+        return;
+      }
+      // Mobile gesture layer, tier 3 of 3: a tap landing on the row that's
+      // ALREADY selected AND focused starts inline rename instead of
+      // re-selecting it (a no-op selection change) — the same
+      // `this.hasFocus && node.id === this.selectedId` pair renderNode's
+      // own isSelected already uses to decide whether THIS row currently
+      // renders with the "selected" highlight, so "already selected" here
+      // means exactly what it visually looks like to the user, and both of
+      // the spec's "解除条件" fall out of it for free: selecting a
+      // DIFFERENT node changes selectedId away from this node's id, and
+      // tapping outside the tree blurs treeRootEl (hasFocus → false) — see
+      // onOpen's blur listener. Desktop is unaffected: double-click (an
+      // entirely separate dblclick listener on innerEl, see below) remains
+      // desktop's own primary rename trigger; this branch requires
+      // Platform.isMobile on top of the already-selected check, so a
+      // desktop click on an already-selected row keeps doing exactly what
+      // it always did (re-preview into the body, harmless no-op selection
+      // change).
+      if (Platform.isMobile && this.hasFocus && node.id === this.selectedId) {
+        this.beginRenameForNode(node.id);
+        return;
+      }
+      // Mobile gesture layer, tier 1 of 3 / desktop's own click behavior,
+      // unchanged: select + preview only, never edit or a menu.
+      //
       // A mouse click is also a valid way to move the keyboard selection —
       // otherwise pressing an arrow key right after a click would jump
       // from whatever selectedId was left over from an earlier session
@@ -759,6 +1002,103 @@ export class OutlineTreeView extends ItemView {
         evt.preventDefault();
         this.showListCommandMenu(evt, node.id);
       });
+    }
+
+    // ---- Mobile gesture layer (tier 2 of 3: long press → context menu) --
+    //
+    // Mobile has no right-click, so a long press stands in for it — opening
+    // the EXACT SAME showStructureCommandMenu/showListCommandMenu used by
+    // the desktop "contextmenu" listener just above (both already contain
+    // a "Rename" item wired to beginRenameForNode, i.e. this ticket's
+    // "編集" menu entry — no new menu items needed). Building this on
+    // pointerdown/pointermove/pointerup rather than a "contextmenu" or
+    // "touchstart" listener is deliberate: pointer events are the one
+    // event family that fires uniformly for mouse, touch, and pen, so the
+    // exact same timer/threshold logic below works whether Obsidian is
+    // running as the desktop app (mouse) or the mobile app (touch) — the
+    // `Platform.isMobile` guard is what actually keeps this mobile-only,
+    // not the event family choice.
+    //
+    // Entirely additive: every listener here runs ALONGSIDE the click/
+    // contextmenu listeners above, never replacing them, so nothing about
+    // desktop's mouse-driven click/dblclick/contextmenu behavior changes.
+    if (Platform.isMobile) {
+      let longPressTimerId: number | null = null;
+      let longPressStart: { x: number; y: number } | null = null;
+
+      const clearLongPressTimer = (): void => {
+        if (longPressTimerId !== null) {
+          window.clearTimeout(longPressTimerId);
+          longPressTimerId = null;
+        }
+        longPressStart = null;
+      };
+
+      selfEl.addEventListener("pointerdown", (evt) => {
+        // Only the primary contact starts a long press — a second
+        // simultaneous touch (e.g. the start of a pinch-zoom gesture)
+        // shouldn't also arm a menu timer.
+        if (!evt.isPrimary) return;
+        clearLongPressTimer();
+        longPressStart = { x: evt.clientX, y: evt.clientY };
+        // Capture evt.clientX/evt.clientY now, in local consts, rather than
+        // reading evt.* again once the timer fires: by then the original
+        // PointerEvent object may already reflect a LATER pointer position
+        // (browsers reuse/mutate some event objects), and we specifically
+        // want the position where the press STARTED, not wherever the
+        // finger happens to be 450ms later.
+        const menuX = evt.clientX;
+        const menuY = evt.clientY;
+        longPressTimerId = window.setTimeout(() => {
+          longPressTimerId = null;
+          longPressStart = null;
+          // Consumed once by the click handler above — see
+          // suppressNextTapClick's own doc comment for why this is needed
+          // (mobile browsers synthesize a "click" from the touch release
+          // that follows, even though the long press already handled this
+          // gesture).
+          this.suppressNextTapClick = true;
+          // Menu.showAtMouseEvent only ever reads clientX/clientY off its
+          // argument, so a plain {clientX, clientY} object satisfies it
+          // exactly as well as a real MouseEvent would, without having to
+          // fabricate one just to match the parameter type. `unknown` as an
+          // intermediate cast is required (rather than a direct `as
+          // MouseEvent`) purely because TypeScript's structural-overlap
+          // check rejects casting between two object types this different
+          // in shape, even though the only property either call site
+          // actually reads is present here.
+          const menuEvt = { clientX: menuX, clientY: menuY } as unknown as MouseEvent;
+          if (isOutlineSectionNode(node)) {
+            this.showStructureCommandMenu(menuEvt, node.id);
+          } else if (isOutlineListNode(node)) {
+            this.showListCommandMenu(menuEvt, node.id);
+          }
+        }, LONG_PRESS_DURATION_MS);
+      });
+
+      // Movement past the threshold means "scroll/drag attempt, not a long
+      // press" — cancel the pending timer so the menu doesn't pop open
+      // underneath a finger that's mid-scroll.
+      selfEl.addEventListener("pointermove", (evt) => {
+        if (longPressTimerId === null || !longPressStart) return;
+        if (
+          exceedsLongPressMoveThreshold(
+            longPressStart.x,
+            longPressStart.y,
+            evt.clientX,
+            evt.clientY
+          )
+        ) {
+          clearLongPressTimer();
+        }
+      });
+
+      // Released, or the gesture was interrupted (an incoming call,
+      // switching apps, the OS taking over for its own gesture, etc.)
+      // before the duration threshold — either way, no menu should open.
+      selfEl.addEventListener("pointerup", clearLongPressTimer);
+      selfEl.addEventListener("pointercancel", clearLongPressTimer);
+      selfEl.addEventListener("pointerleave", clearLongPressTimer);
     }
 
     // Phase 3A (section) / Phase 4A (list): drag & drop. Both node kinds
@@ -1019,6 +1359,15 @@ export class OutlineTreeView extends ItemView {
         evt.stopPropagation();
         this.activateSelection();
         break;
+      case "F2":
+        // Auxiliary rename trigger (see "---- Inline rename" section) — the
+        // primary trigger is a row's own dblclick; F2 operates on whatever
+        // is currently selected, matching standard tree/list-widget rename
+        // conventions (Explorer, VS Code, etc.).
+        evt.preventDefault();
+        evt.stopPropagation();
+        if (this.selectedId) this.beginRenameForNode(this.selectedId);
+        break;
     }
   };
 
@@ -1048,6 +1397,23 @@ export class OutlineTreeView extends ItemView {
     line: number,
     options: { focusEditor: boolean } = { focusEditor: true }
   ): void {
+    // Inline rename guard: a single click's whole job is "selection + body
+    // sync + navigation" (see this method's own callers) — it must never
+    // interact with an in-progress rename. In the ordinary case, clicking
+    // elsewhere already blurs the rename <input> first (native focus
+    // semantics fire that blur synchronously, before this "click" handler
+    // even runs), and that blur's own guard already calls cancelRename()
+    // and re-renders — so by the time control reaches here renameState is
+    // already null and this bails out for the ordinary reason of "nothing
+    // to guard". This check exists for the same defensive reason as
+    // refresh()'s and the focus/blur handlers' own renameState guards: it
+    // costs nothing and closes any remaining path (rapid/synthetic click
+    // sequences, a click landing on the currently-renaming row's own
+    // non-input area) where this method's unconditional renderTree() below
+    // could otherwise tear down an open rename <input> without going
+    // through cancelRename()/commitRename().
+    if (this.renameState) return;
+
     const view = this.activeMarkdownView.get();
     if (!view) return;
     const editor = view.editor;
@@ -1149,28 +1515,13 @@ export class OutlineTreeView extends ItemView {
 
     const menu = new Menu();
 
-    const addMenuItem = (
-      title: string,
-      icon: string,
-      feasible: boolean,
-      onClick: () => void
-    ) => {
-      menu.addItem((item) =>
-        item
-          .setTitle(feasible ? title : `${title}${OutlineTreeView.UNAVAILABLE_SUFFIX}`)
-          .setIcon(feasible ? icon : OutlineTreeView.UNAVAILABLE_ICON)
-          .setDisabled(!feasible)
-          .setWarning(!feasible)
-          .onClick(onClick)
-      );
-    };
-
     const addContextualItem = (
       title: string,
       icon: string,
       operation: TreeStructureOperation
     ) => {
-      addMenuItem(
+      this.addMenuItem(
+        menu,
         `${title} (contextual: ${contextualModeLabel})`,
         icon,
         this.canRunInMode(doc, node, operation, contextualMode, options),
@@ -1184,23 +1535,11 @@ export class OutlineTreeView extends ItemView {
     addContextualItem("Outdent", "outdent", "outdent");
     menu.addSeparator();
 
-    const addExplicitBlockItem = (
-      title: string,
-      icon: string,
-      operation: TreeStructureOperation
-    ) => {
-      addMenuItem(
-        title,
-        icon,
-        this.canRunInMode(doc, node, operation, "block", options),
-        () => this.runBlockCommand(sectionId, operation)
-      );
-    };
-    addExplicitBlockItem("Move subtree up", "arrow-up", "move-up");
-    addExplicitBlockItem("Move subtree down", "arrow-down", "move-down");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Move subtree up", "arrow-up", "move-up");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Move subtree down", "arrow-down", "move-down");
     menu.addSeparator();
-    addExplicitBlockItem("Indent subtree", "indent", "indent");
-    addExplicitBlockItem("Outdent subtree", "outdent", "outdent");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Indent subtree", "indent", "indent");
+    this.addExplicitBlockItem(menu, doc, node, sectionId, options, "Outdent subtree", "outdent", "outdent");
     menu.addSeparator();
 
     // Phase 3B: opens (or reuses, per main.ts's "one pane, not many"
@@ -1220,17 +1559,66 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => void this.plugin.activatePartialEditView(sectionId))
     );
 
+    // Phase 5A follow-up: collapses the previously two-step "open the
+    // pane, then right-click its tab and choose the standard Move to new
+    // window" flow into one click. Goes through the exact same
+    // activatePartialEditView entry point (same load/Apply/Cancel/Close
+    // plumbing) with { openInNewWindow: true } — see that method's doc
+    // comment in main.ts for how it uses the official
+    // openPopoutLeaf/moveLeafToPopout APIs and reports its own failures.
+    menu.addItem((item) =>
+      item
+        .setTitle("Open partial edit pane in new window")
+        .setIcon("picture-in-picture-2")
+        .onClick(() =>
+          void this.plugin.activatePartialEditView(sectionId, { openInNewWindow: true })
+        )
+    );
+
+    // Phase 5C-1A/1B: block-level delete/insert common foundation. Insert
+    // always asks for an explicit heading level via HeadingLevelModal (see
+    // that class's doc comment for why a Modal, not a Menu submenu) —
+    // dispatchAndApply's own fresh reparse inside the modal's callback is
+    // what re-verifies sectionId still resolves after the modal closes, so
+    // no extra re-check is needed here. Delete has no confirmation step,
+    // consistent with this menu's existing move/indent/outdent items —
+    // it's a normal editor.replaceRange edit, fully undoable via Obsidian's
+    // own undo stack.
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle("Insert section after")
+        .setIcon("plus")
+        .onClick(() => this.runInsertSiblingSectionCommand(sectionId))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle("Delete section subtree")
+        .setIcon("trash-2")
+        .setWarning(true)
+        .onClick(() => this.runDeleteCommand(sectionId))
+    );
+    // Auxiliary rename trigger (see "---- Inline rename" section) — the
+    // primary trigger is a dblclick on the row's own label.
+    menu.addItem((item) =>
+      item
+        .setTitle("Rename")
+        .setIcon("pencil")
+        .onClick(() => this.beginRenameForNode(sectionId))
+    );
+
     menu.showAtMouseEvent(evt);
   }
 
   /**
-   * Phase 4C: list nodes' own, minimal right-click menu — just the
+   * Phase 4C: list nodes' own right-click menu — originally just the
    * Partial Edit Pane entry point, reusing the exact same
    * activatePartialEditView plumbing section nodes already use via
    * showStructureCommandMenu (it doesn't care about node kind — see
-   * main.ts). Deliberately NOT the full move/indent/outdent/contextual
-   * menu sections get; that stays section-only (see the contextmenu
-   * wiring comment in renderNode above).
+   * main.ts). Originally deliberately NOT the full move/indent/outdent/
+   * contextual menu sections get — see the "Post-Phase-5A follow-up" note
+   * below for why the block-scoped subset of that was added later, and why
+   * the contextual (node-only) half is still intentionally absent.
    *
    * Mirrors showStructureCommandMenu's own "check feasibility, then flag
    * an infeasible item rather than letting it silently no-op after the
@@ -1240,15 +1628,51 @@ export class OutlineTreeView extends ItemView {
    * front — same UNAVAILABLE_ICON / UNAVAILABLE_SUFFIX / setWarning
    * treatment as every other infeasible item in this view — tells the
    * user why before they click, rather than after.
+   *
+   * Post-Phase-5A follow-up (UI-only, not a Phase 5B item): the
+   * block-scoped Move up/down/Indent/Outdent this menu was missing —
+   * findIndentTarget.ts/indentBlock.ts/findMoveTarget.ts/moveBlock.ts have
+   * always been kind-agnostic (list items nest under their previous
+   * sibling and outdent when they're their parent's last child, exactly
+   * like a section subtree changes heading level), only the Outline Tree
+   * View's own menu never exposed them here. This reuses the identical
+   * addExplicitBlockItem/canRunInMode/runBlockCommand path
+   * showStructureCommandMenu's "Move subtree up/down"/"Indent/Outdent
+   * subtree" items already use — no list-specific feasibility or dispatch
+   * logic was written for this. Deliberately still NOT the contextual
+   * (node-only) variants: findNodeOnlyLevelTarget/findNodeOnlyMoveTarget
+   * are heading-only by design (see their own doc comments), so a
+   * node-only item here would just always render disabled.
    */
   private showListCommandMenu(evt: MouseEvent, listId: string): void {
     const doc = this.currentDoc;
     const node = doc?.nodes.get(listId);
     if (!doc || !node) return;
 
+    const options: TreeBlockCommandOptions = {
+      allowCrossSectionListMove: this.plugin.settings.allowCrossSectionListMove,
+      normalizeOrderedLists: this.plugin.settings.normalizeOrderedLists,
+    };
     const feasible = !(isListNode(node) && node.unsafeIndent);
+    // Precise feasibility for "Insert child list item" (edit/insertBlock.ts's
+    // insertChildListItem): unlike Partial Edit / the block-scoped Move/
+    // Indent items above, unsafeIndent only actually blocks the "parent has
+    // no children yet" branch (deriving a fresh contentColumn requires
+    // column math) — when the parent already has children, the new item
+    // mirrors the last child's own leading whitespace verbatim, which is
+    // safe regardless of the parent's own unsafeIndent-ness.
+    const childInsertFeasible =
+      isListNode(node) && (node.childIds.length > 0 || !node.unsafeIndent);
 
     const menu = new Menu();
+
+    this.addExplicitBlockItem(menu, doc, node, listId, options, "Move subtree up", "arrow-up", "move-up");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, "Move subtree down", "arrow-down", "move-down");
+    menu.addSeparator();
+    this.addExplicitBlockItem(menu, doc, node, listId, options, "Indent subtree", "indent", "indent");
+    this.addExplicitBlockItem(menu, doc, node, listId, options, "Outdent subtree", "outdent", "outdent");
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle(
@@ -1265,7 +1689,124 @@ export class OutlineTreeView extends ItemView {
         // Notice internally.
         .onClick(() => void this.plugin.activatePartialEditView(listId))
     );
+
+    // Phase 5A follow-up: same one-click popout shortcut as the section
+    // menu's "Open partial edit pane in new window" — see the comment
+    // there and activatePartialEditView's doc comment in main.ts. Subject
+    // to the same feasibility check (unsafeIndent) as the docked variant
+    // above, since it resolves to the exact same load/Apply path.
+    menu.addItem((item) =>
+      item
+        .setTitle(
+          feasible
+            ? "Edit list subtree in new window"
+            : `Edit list subtree in new window${OutlineTreeView.UNAVAILABLE_SUFFIX}`
+        )
+        .setIcon(feasible ? "picture-in-picture-2" : OutlineTreeView.UNAVAILABLE_ICON)
+        .setDisabled(!feasible)
+        .setWarning(!feasible)
+        .onClick(() =>
+          void this.plugin.activatePartialEditView(listId, { openInNewWindow: true })
+        )
+    );
+
+    // Phase 5C-1A/1B: block-level delete/insert common foundation. Sibling
+    // insert has no unsafeIndent restriction (verbatim leading-whitespace
+    // copy, no column math — see edit/insertBlock.ts's insertListItemAfter
+    // doc comment); child insert IS gated on feasibility here, mirroring
+    // this menu's existing unsafeIndent-driven `feasible` flag, since a
+    // childless parent with mixed tab/space indentation can't safely derive
+    // a new contentColumn.
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle("Insert list item after")
+        .setIcon("plus")
+        .onClick(() => this.runInsertSiblingListItemCommand(listId))
+    );
+    this.addMenuItem(
+      menu,
+      "Insert child list item",
+      "plus",
+      childInsertFeasible,
+      () => this.runInsertChildListItemCommand(listId)
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle("Delete list subtree")
+        .setIcon("trash-2")
+        .setWarning(true)
+        .onClick(() => this.runDeleteCommand(listId))
+    );
+    // Auxiliary rename trigger (see "---- Inline rename" section) — the
+    // primary trigger is a dblclick on the row's own label.
+    menu.addItem((item) =>
+      item
+        .setTitle("Rename")
+        .setIcon("pencil")
+        .onClick(() => this.beginRenameForNode(listId))
+    );
+
     menu.showAtMouseEvent(evt);
+  }
+
+  /**
+   * Shared menu-item renderer: feasible items show the plain title/icon and
+   * run `onClick`; infeasible ones get the same disabled/warning treatment
+   * (UNAVAILABLE_SUFFIX/UNAVAILABLE_ICON) every no-op-able item in this view
+   * uses, so a user sees why an action can't run before clicking rather
+   * than after. Originally a local closure inside showStructureCommandMenu;
+   * pulled out to a method so showListCommandMenu's block-scoped Move/
+   * Indent/Outdent items (added post-Phase-5A) can render with the exact
+   * same feasibility-then-flag pattern instead of a second implementation.
+   */
+  private addMenuItem(
+    menu: Menu,
+    title: string,
+    icon: string,
+    feasible: boolean,
+    onClick: () => void
+  ): void {
+    menu.addItem((item) =>
+      item
+        .setTitle(feasible ? title : `${title}${OutlineTreeView.UNAVAILABLE_SUFFIX}`)
+        .setIcon(feasible ? icon : OutlineTreeView.UNAVAILABLE_ICON)
+        .setDisabled(!feasible)
+        .setWarning(!feasible)
+        .onClick(onClick)
+    );
+  }
+
+  /**
+   * Shared explicit-block-scoped menu item: always dispatches through
+   * `runBlockCommand` (tree/treeBlockCommand.ts, kind-agnostic — see that
+   * module's doc comment) regardless of fold state, unlike the section
+   * menu's separate "contextual" items above. `canRunInMode(..., "block",
+   * ...)` already handles both SectionBlockNode and ListBlockNode targets
+   * (findMoveTarget.ts/findIndentTarget.ts have always branched on
+   * `isListNode`), so this single method is what both
+   * showStructureCommandMenu's "Move subtree up/down"/"Indent/Outdent
+   * subtree" items and showListCommandMenu's identically-labeled items
+   * (added post-Phase-5A to give list items the same UI entry point) call
+   * — no separate list-specific feasibility or dispatch path exists.
+   */
+  private addExplicitBlockItem(
+    menu: Menu,
+    doc: ParsedDocument,
+    node: BlockNode,
+    nodeId: string,
+    options: TreeBlockCommandOptions,
+    title: string,
+    icon: string,
+    operation: TreeStructureOperation
+  ): void {
+    this.addMenuItem(
+      menu,
+      title,
+      icon,
+      this.canRunInMode(doc, node, operation, "block", options),
+      () => this.runBlockCommand(nodeId, operation)
+    );
   }
 
   /** Feasibility check for the given operation under a given dispatch mode. */
@@ -1347,21 +1888,21 @@ export class OutlineTreeView extends ItemView {
   private dispatchAndApply(
     sectionId: string,
     dispatch: (doc: ParsedDocument) => LineEditOutcome
-  ): void {
+  ): boolean {
     const view = this.activeMarkdownView.get();
-    if (!view) return;
+    if (!view) return false;
     const editor: Editor = view.editor;
 
     if (editor.listSelections().length > 1) {
       this.notify("Unified Outliner: multiple cursors are not supported.");
-      return;
+      return false;
     }
 
     const doc = parseDocument(editor.getValue());
     const node = doc.nodes.get(sectionId);
     if (!node) {
       this.notify(NOOP_MESSAGES["resolve-failed"]);
-      return;
+      return false;
     }
 
     const outcome = dispatch(doc);
@@ -1393,10 +1934,418 @@ export class OutlineTreeView extends ItemView {
       );
       this.refresh();
     }
+    return changed;
   }
 
   private notify(message: string | undefined): void {
     if (this.plugin.settings.showNoopNotices && message) new Notice(message);
+  }
+
+  // ---- Phase 5C-1A/1B: block-level delete/insert ------------------------
+
+  /**
+   * Delete a section or list subtree. Both node kinds share this one
+   * dispatch since edit/deleteBlock.ts's deleteBlock() is already
+   * kind-agnostic (BlockNode's range/prevSiblingId/nextSiblingId/parentId
+   * are defined identically for both) — no separate section/list dispatch
+   * was needed, mirroring runBlockCommand/runRelocateCommand's own
+   * kind-agnostic dispatch pattern.
+   */
+  private runDeleteCommand(nodeId: string): void {
+    this.dispatchAndApply(nodeId, (doc) => deleteBlock(doc, nodeId));
+  }
+
+  private runInsertSiblingListItemCommand(afterListItemId: string): void {
+    const changed = this.dispatchAndApply(afterListItemId, (doc) =>
+      insertSiblingListItem(doc, afterListItemId, {
+        normalizeOrderedLists: this.plugin.settings.normalizeOrderedLists,
+      })
+    );
+    if (changed) this.autoRenameAfterInsert();
+  }
+
+  private runInsertChildListItemCommand(parentListItemId: string): void {
+    const changed = this.dispatchAndApply(parentListItemId, (doc) =>
+      insertChildListItem(doc, parentListItemId, {
+        normalizeOrderedLists: this.plugin.settings.normalizeOrderedLists,
+      })
+    );
+    if (changed) this.autoRenameAfterInsert();
+  }
+
+  /**
+   * Opens HeadingLevelModal first (the level is never inferred — see that
+   * class's doc comment), then dispatches through the exact same
+   * dispatchAndApply tail every other tree command uses. dispatchAndApply
+   * re-parses the editor's CURRENT content when the modal's callback
+   * fires (not whatever was current when the menu was opened), so
+   * afterSectionId is re-verified against live document state at the
+   * moment of insertion, satisfying the "re-verify immediately before
+   * mutating" requirement without any extra code here.
+   */
+  private runInsertSiblingSectionCommand(afterSectionId: string): void {
+    new HeadingLevelModal(this.app, (level) => {
+      if (level === null) return;
+      const changed = this.dispatchAndApply(afterSectionId, (doc) =>
+        insertSiblingSection(doc, afterSectionId, level)
+      );
+      if (changed) this.autoRenameAfterInsert();
+    }).open();
+  }
+
+  /**
+   * Insert 直後の自動 rename: dispatchAndApply's own internal refresh()
+   * (already run by the time this is called) re-parses the note and
+   * recomputes this.highlightedId from the EDITOR CURSOR — which
+   * applyLineEditOutcome just placed exactly on the newly inserted block
+   * via its newCursorCh (see edit/insertBlock.ts's InsertOutcome and
+   * commands/applyLineEditOutcome.ts's newCursorCh handling). So
+   * highlightedId already IS the new node's id here, with no separate
+   * "which node did I just insert" tracking needed. beginRenameForNode
+   * itself handles the (structurally unexpected) case where the row isn't
+   * found in the freshly-rendered DOM by silently doing nothing.
+   */
+  private autoRenameAfterInsert(): void {
+    if (this.highlightedId) this.beginRenameForNode(this.highlightedId);
+  }
+
+  // ---- Inline rename (section / list only) ------------------------------
+  //
+  // Layering (see this ticket's explicit separation requirement):
+  //   1. Trigger layer: renderNode's dblclick listener (direct innerEl/
+  //      selfEl references), handleTreeKeyDown's F2 case, and the
+  //      "Rename" context-menu items — all funnel into either beginRename
+  //      (has DOM references already) or beginRenameForNode (re-locates
+  //      them by the row's stable DOM id first).
+  //   2. UI layer: beginRename itself — builds the <textarea>, wires
+  //      Enter/Escape/blur, toggles draggable off while open.
+  //   3. Text adapter + re-verification: edit/renameBlock.ts (pure).
+  //   4. Commit service: commitRename — one fresh re-parse, one
+  //      applyLineEditOutcome call, success/failure.
+  //   5. Tree refresh / selection restore: refresh()/ensureSelection(),
+  //      entirely pre-existing — refresh() gains one early-return guard
+  //      (see its own doc comment) and nothing else.
+  //
+  // Future callout/blockquote label editing (Phase 5D+) could reuse steps
+  // 1/2/4/5 largely as-is; only step 3 (the adapter) would need a new
+  // per-kind implementation, kept in its own module exactly like
+  // renameSection/renameListItem are kept separate from each other now.
+
+  /**
+   * Begin renaming `nodeId`. `innerEl`/`rowSelfEl` are the row's own DOM
+   * elements — renderNode's dblclick listener already has them on hand;
+   * beginRenameForNode (F2 / context menu / auto-rename-after-insert)
+   * re-locates them by the row's stable `unified-outliner-row-<id>` DOM id
+   * first, then delegates here.
+   */
+  private beginRename(
+    nodeId: string,
+    kind: "section" | "list",
+    innerEl: HTMLElement,
+    rowSelfEl: HTMLElement
+  ): void {
+    // Already renaming this exact node (e.g. a second dblclick landed on
+    // the now-open input, which is still inside innerEl and still carries
+    // the dblclick listener attached in renderNode): refocus rather than
+    // resetting in-progress typed text back to the original value.
+    if (this.renameState && this.renameState.nodeId === nodeId) {
+      this.renameState.inputEl.focus();
+      this.renameState.inputEl.select();
+      return;
+    }
+    // A different row is already mid-rename: starting a new one is a focus
+    // move away from the old input, so cancel it first — same rule as
+    // "input 外へのフォーカス移動は cancel を既定とする" applied to switching targets.
+    if (this.renameState) this.cancelRename();
+
+    const view = this.activeMarkdownView.get();
+    if (!view) {
+      this.notify(NOOP_MESSAGES["no-active-editor"]);
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const node = doc.nodes.get(nodeId);
+    if (!node) {
+      this.notify(NOOP_MESSAGES["resolve-failed"]);
+      return;
+    }
+    if ((kind === "section") !== isSectionNode(node)) {
+      this.notify(NOOP_MESSAGES["type-changed"]);
+      return;
+    }
+
+    let initialText: string;
+    let snapshot: SectionRenameSnapshot | ListRenameSnapshot;
+    if (kind === "section") {
+      const section = node as SectionBlockNode;
+      // The REAL heading text, never the "(Untitled heading)" fallback
+      // display string — per this ticket's explicit requirement.
+      initialText = section.headingText;
+      snapshot = { headingLevel: section.headingLevel };
+    } else {
+      const item = node as ListBlockNode;
+      initialText = listItemDisplayText(doc, item);
+      snapshot = {
+        marker: item.listMarker,
+        indentColumns: item.indentColumns,
+        contentColumn: contentColumnOf(doc, item),
+      };
+    }
+
+    // textContent-only DOM construction throughout (innerEl.empty() +
+    // createEl + the input's own .value property) — no innerHTML anywhere
+    // in this rename path, including for user-typed content on commit
+    // (renameSection/renameListItem treat it as an opaque string, never
+    // re-interpreted as Markdown or HTML).
+    innerEl.empty();
+    // A <textarea>, not an <input> — a first version of this feature grew
+    // the box horizontally into one long unbroken line sized to the text's
+    // own character count, but that hides the rest of the Outline Tree pane
+    // behind it for anything longer than the pane is wide. This element
+    // instead stays capped at the row's own width (styles.css: `width:
+    // 100%`) and wraps the text within it (`white-space: pre-wrap` +
+    // `overflow-wrap: anywhere` — the latter matters because this vault's
+    // own test fixtures include long runs of the same character with no
+    // spaces to break on, e.g. "333...3", which would otherwise overflow
+    // even with wrapping enabled). The `rows`/height below then grow
+    // vertically to fit however many wrapped lines that produces, so the
+    // full text stays visible without ever hiding the tree beside it.
+    const inputEl = innerEl.createEl("textarea", {
+      cls: "unified-outliner-rename-input",
+    });
+    inputEl.rows = 1;
+    inputEl.value = initialText;
+
+    // Grows the textarea's HEIGHT to fit however many lines its own text
+    // wraps into at the row's current (CSS-capped) width — `scrollHeight`
+    // already reflects the wrapped layout the browser just computed, so
+    // this just copies that measured height onto the element's own style
+    // so nothing is clipped or internally scrollable. Resetting `height` to
+    // "auto" first (rather than reading scrollHeight against whatever
+    // height happens to be set already) is required for shrinking: without
+    // it, scrollHeight can never report smaller than the previously-set
+    // height, which would make the box unable to shrink back down after the
+    // user deletes text. Called once immediately below for the initial
+    // text, and again from the "input" listener further down on every
+    // keystroke/paste — typing can both grow AND shrink the wrapped line
+    // count as the user edits.
+    const resizeRenameTextareaToContent = (): void => {
+      inputEl.style.height = "auto";
+      inputEl.style.height = `${inputEl.scrollHeight}px`;
+    };
+    resizeRenameTextareaToContent();
+
+    // Lifts the row's own text-overflow/ellipsis/overflow:hidden styling
+    // (both this plugin's — see .unified-outliner-list-text in styles.css —
+    // and whatever Obsidian's own theme applies to .tree-item-self/
+    // .tree-item-inner) for exactly as long as this row is being renamed,
+    // so a textarea taller than the row's normal single-line height isn't
+    // clipped back down vertically. Removed implicitly on both commit and
+    // cancel: both paths end in a renderTree() rebuild that discards this
+    // exact DOM node and recreates the row from scratch with its normal
+    // classes.
+    rowSelfEl.addClass("unified-outliner-renaming-row");
+
+    // Prevent HTML5 drag from starting while interacting with the row's own
+    // text field — a mousedown+move inside the input could otherwise be
+    // interpreted as an attempt to drag the whole row. Restored by
+    // cancelRename (renderTree also implicitly "restores" it on commit, by
+    // rebuilding the row from scratch with its normal draggable="true").
+    rowSelfEl.setAttribute("draggable", "false");
+
+    inputEl.addEventListener("keydown", (evt) => {
+      // Every key while renaming belongs to the input's own text editing —
+      // never to treeRootEl's ArrowUp/Down/Left/Right/Enter navigation
+      // handler (handleTreeKeyDown), which would otherwise also fire since
+      // keydown bubbles from the input up through selfEl to treeRootEl.
+      evt.stopPropagation();
+      if (evt.key === "Enter") {
+        // Unlike the <input> this replaced, a <textarea> natively accepts
+        // Enter/Shift+Enter as a literal line break — this branch matches
+        // on evt.key === "Enter" regardless of Shift, so preventDefault()
+        // here is load-bearing: it stops that native newline insertion for
+        // BOTH Enter and Shift+Enter, and commits instead. A pasted literal
+        // newline is the only remaining way one could reach commitRename's
+        // value — renameSection/renameListItem still reject that
+        // defensively (see hasNewline in edit/renameBlock.ts).
+        evt.preventDefault();
+        this.commitRename();
+      } else if (evt.key === "Escape") {
+        // IME safety net (Phase 5C-1A/1B follow-up "inline rename の安全復帰
+        // 措置"): while an IME composition is in progress (typing a kana
+        // sequence before it's converted to kanji, still-uncommitted
+        // candidate text underlined in the textarea), Escape's job is to
+        // cancel THAT composition/candidate — a distinct, lower-level
+        // browser/OS behavior that must run un-intercepted. Without this
+        // guard, evt.preventDefault()+cancelRename() below would fire on
+        // the very same Escape press, discarding the ENTIRE rename (every
+        // character typed so far, converted or not) instead of just the
+        // in-flight conversion — surprising and destructive for exactly the
+        // users this feature is meant to protect. Only once composition has
+        // ended (a second, later Escape press, now with isComposing false)
+        // does Escape mean "cancel this rename" — see cancelRename's own
+        // doc comment for why that's always fully safe to do (it never
+        // touches the document).
+        if (evt.isComposing) return;
+        evt.preventDefault();
+        this.cancelRename();
+      }
+      // Every other key is left to the <textarea>'s own native text editing
+      // (typing, arrow-key caret movement, selection, etc.); the "input"
+      // listener below keeps the box's height in sync with the result.
+    });
+    // Typing/pasting/deleting can change how many lines the text wraps into
+    // at the row's fixed width — re-measure and re-apply the height on
+    // every such change so the box never lags behind what's actually being
+    // typed (see resizeRenameTextareaToContent's own doc comment above for
+    // why this can't just be computed once at open time).
+    inputEl.addEventListener("input", resizeRenameTextareaToContent);
+    inputEl.addEventListener("blur", () => {
+      // Guard against a late/synchronous blur firing after commitRename
+      // already cleared renameState (removing this very input from the
+      // DOM via refresh()'s renderTree() can itself trigger a blur on the
+      // element being detached) — and against it firing for a node other
+      // than the one THIS input belongs to, in the unlikely event a new
+      // rename already started elsewhere by the time this fires.
+      if (this.renameState && this.renameState.nodeId === nodeId) {
+        this.cancelRename();
+      }
+    });
+    // A click inside the input is text-cursor placement, not a row
+    // click/selection change — kept from bubbling to selfEl's own click
+    // handler (harmless either way, since that would just re-jump to the
+    // same line, but this is the more literally correct scoping).
+    inputEl.addEventListener("click", (evt) => evt.stopPropagation());
+
+    this.renameState = { nodeId, kind, inputEl, rowSelfEl, snapshot };
+    inputEl.focus();
+    inputEl.select();
+  }
+
+  /**
+   * F2 / context menu "Rename" / auto-rename-after-insert entry point —
+   * these callers don't already have the row's DOM elements on hand (F2
+   * only has this.selectedId; the menu and auto-rename paths only have a
+   * nodeId), so this re-locates them via the row's stable
+   * `unified-outliner-row-<id>` DOM id (set in renderNode) and delegates
+   * to beginRename. Silently does nothing if the row isn't currently
+   * rendered (e.g. collapsed under a folded ancestor) — this is a normal,
+   * safe no-op rather than an error, since F2 only ever targets
+   * this.selectedId which ensureSelection() already keeps within the
+   * visible set.
+   */
+  private beginRenameForNode(nodeId: string): void {
+    const node = this.nodeById.get(nodeId);
+    if (!node) return;
+    const rowSelfEl = this.treeRootEl.querySelector<HTMLElement>(
+      `#${CSS.escape("unified-outliner-row-" + nodeId)}`
+    );
+    const innerEl = rowSelfEl?.querySelector<HTMLElement>(".tree-item-inner") ?? null;
+    if (!rowSelfEl || !innerEl) return;
+    this.beginRename(nodeId, node.kind, innerEl, rowSelfEl);
+  }
+
+  /**
+   * Commit service: re-resolves nodeId against a FRESH re-parse of the
+   * active editor's CURRENT content (never the snapshot's own doc, never
+   * this.currentDoc) and re-verifies structure via
+   * renameSection/renameListItem before ever calling
+   * applyLineEditOutcome — exactly the same "re-resolve, re-verify, apply
+   * via the one shared write-back path" shape as dispatchAndApply, just
+   * without reusing dispatchAndApply itself (its refresh() call would fire
+   * BEFORE this method gets to clear renameState, and refresh() bails out
+   * early whenever renameState is set — see that guard's own doc comment).
+   *
+   * On rejection (outcome.changed === false): returns without clearing
+   * renameState or touching the DOM at all — the input stays open with
+   * whatever the user typed, and NOOP_MESSAGES reports why, satisfying
+   * "拒否時は原文を変更せず、input を保持したまま notice 等で理由を通知する" with no
+   * special-casing beyond what applyLineEditOutcome already does for
+   * every other no-op reason in this view.
+   *
+   * Undo/Redo ("inline rename の安全復帰措置" requirement): a successful
+   * commit makes exactly ONE `editor.replaceRange()` call, inside
+   * applyLineEditOutcome — no separate/parallel write path was added for
+   * rename specifically, per that requirement's "既存の安全な apply 経路を
+   * そのまま踏襲し、新たな直接ファイル書き込み経路は追加しない" constraint. This
+   * turns out to already be sufficient on its own: verified empirically
+   * against this Obsidian version (via `editor.replaceRange`/`.undo()`/
+   * `.redo()` calls against a scratch note in the DevTools console — see
+   * this ticket's investigation notes) that Obsidian's Editor API treats
+   * every individual `editor.replaceRange()` call as its own isolated Undo
+   * step, regardless of the `origin` argument (present or absent, equal or
+   * different across calls) and regardless of how close together in time
+   * two calls happen — even two `replaceRange` calls issued back-to-back in
+   * the same synchronous tick landed as two separate Undo steps. So a
+   * rename's single `replaceRange` call is already guaranteed to be its own
+   * Undo/Redo unit that never merges with whatever edit happened
+   * immediately before or after it (move, indent, another rename, etc.) —
+   * no CM6 `isolateHistory` annotation or other extra plumbing was needed
+   * or added.
+   */
+  private commitRename(): void {
+    const state = this.renameState;
+    if (!state) return;
+
+    const view = this.activeMarkdownView.get();
+    if (!view) {
+      this.notify(NOOP_MESSAGES["no-active-editor"]);
+      return;
+    }
+    const editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify("Unified Outliner: multiple cursors are not supported.");
+      return;
+    }
+
+    const rawValue = state.inputEl.value;
+    const doc = parseDocument(editor.getValue());
+    const outcome =
+      state.kind === "section"
+        ? renameSection(doc, state.nodeId, state.snapshot as SectionRenameSnapshot, rawValue)
+        : renameListItem(doc, state.nodeId, state.snapshot as ListRenameSnapshot, rawValue);
+
+    const changed = applyLineEditOutcome(
+      editor,
+      { line: 0, ch: 0 },
+      0,
+      doc.lines,
+      outcome,
+      (m) => this.notify(m)
+    );
+
+    if (!changed) return;
+
+    this.renameState = null;
+    const cur = editor.getCursor();
+    const lineLen = editor.getLine(cur.line)?.length ?? 0;
+    editor.scrollIntoView(
+      { from: { line: cur.line, ch: 0 }, to: { line: cur.line, ch: lineLen } },
+      true
+    );
+    this.refresh();
+  }
+
+  /** Cancel: original text untouched, tree re-rendered back to its normal
+   * (non-editing) row for this node — since nothing in the document
+   * changed, this.currentDoc/this.currentTree are still fully valid, so a
+   * plain renderTree() (not a full refresh()) is enough to restore it.
+   *
+   * "inline rename の安全復帰措置" requirement: this function never calls
+   * applyLineEditOutcome, editor.replaceRange, or any other body-writing
+   * API — whatever the user had typed into the textarea (however long, and
+   * regardless of how the cancel was triggered: Escape, blur, or starting
+   * a rename on a different row) is simply discarded along with the
+   * textarea DOM node itself. There is nothing here that could leave a
+   * partial edit in the Markdown source, and nothing here that could ever
+   * create an Undo history entry — the accident this whole feature exists
+   * to make trivially recoverable from never reaches the document in the
+   * first place. */
+  private cancelRename(): void {
+    if (!this.renameState) return;
+    this.renameState.rowSelfEl.setAttribute("draggable", "true");
+    this.renameState = null;
+    this.renderTree();
   }
 
   // ---- Phase 3A: drag & drop ------------------------------------------

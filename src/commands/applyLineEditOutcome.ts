@@ -31,8 +31,6 @@ export const NOOP_MESSAGES: Record<string, string> = {
   "no-previous-sibling":
     "Unified Outliner: no previous sibling to indent under.",
   "already-root": "Unified Outliner: already at the root level.",
-  "not-last-child":
-    "Unified Outliner: only the last child of its parent can be outdented (MVP limitation).",
   "max-heading-level":
     "Unified Outliner: this heading or a subsection is already at level 6.",
   "min-heading-level": "Unified Outliner: heading is already at level 1.",
@@ -53,6 +51,20 @@ export const NOOP_MESSAGES: Record<string, string> = {
     "Unified Outliner: can only drop a list item onto another list item or a heading.",
   "not-editable":
     "Unified Outliner: this node cannot be opened in the Partial Edit Pane.",
+  "type-changed":
+    "Unified Outliner: this node's kind changed — rename cancelled without changing the note.",
+  "heading-level-changed":
+    "Unified Outliner: this heading's level changed — rename cancelled without changing the note.",
+  "list-syntax-changed":
+    "Unified Outliner: this list item's marker or indentation changed — rename cancelled without changing the note.",
+  "contains-newline":
+    "Unified Outliner: rename text can't contain a line break.",
+  "no-active-editor":
+    "Unified Outliner: no active note editor — rename cancelled.",
+  "boundary-unknown":
+    "Unified Outliner: could not confidently determine this block's boundary — move skipped for safety.",
+  "not-in-section":
+    "Unified Outliner: cursor is not inside any section.",
 };
 
 /** Common shape returned by moveBlock / indentBlock / setNodeOnlyLevel / moveNodeOnly. */
@@ -61,6 +73,18 @@ export interface LineEditOutcome {
   lines: string[];
   newStartLine: number;
   reason?: string;
+  /**
+   * Phase 5C-1A/1B (edit/deleteBlock.ts, edit/insertBlock.ts): optional
+   * precise column to place the cursor at on `newStartLine`, overriding the
+   * default "preserve the caller's relative offset within the block"
+   * behavior below. Move/indent/etc. never set this (undefined), so their
+   * behavior is byte-identical to before this field existed. Insert
+   * outcomes set it to land exactly on the new block's editable placeholder
+   * text (e.g. right after "## " or "- "), where "preserve the original
+   * cursor's line/ch offset" has no meaningful interpretation — there was
+   * no old block to be offset from.
+   */
+  newCursorCh?: number;
 }
 
 /**
@@ -114,17 +138,60 @@ export function applyLineEditOutcome(
     oldLast--;
     newLast--;
   }
-  const replacement = newLines.slice(first, newLast + 1).join("\n");
-  editor.replaceRange(
-    replacement,
-    { line: first, ch: 0 },
-    { line: oldLast, ch: oldLines[oldLast]?.length ?? 0 }
-  );
 
-  const offsetInBlock = cursor.line - resolvedNodeStartLine;
-  const newLine = outcome.newStartLine + offsetInBlock;
-  const lineLen = newLines[newLine]?.length ?? 0;
-  editor.setCursor({ line: newLine, ch: Math.min(cursor.ch, lineLen) });
+  // oldLast < first can only happen when `first` consumed the ENTIRE old
+  // document as a matching prefix (first === oldLines.length) — i.e. a
+  // pure append with nothing removed and no trailing old content left to
+  // anchor a "to" position on. Every pre-existing caller (move/indent/
+  // etc.) always has at least one differing old line in play, so this
+  // never came up before edit/insertBlock.ts's insertSiblingSection could
+  // insert brand-new lines strictly after the last existing line (e.g.
+  // "insert section after" on the last section in the document). Using
+  // `oldLast` unguarded here previously produced an inverted replaceRange
+  // (`from` on a line past `to`), which CodeMirror rejects with "Selection
+  // points outside of document" — this branch collapses `from`/`to` onto
+  // the end of the old document's real last line instead, and prefixes
+  // the replacement with the newline that join("\n") would otherwise have
+  // supplied between the old last line and the first inserted line.
+  if (oldLast < first) {
+    const anchorLine = Math.max(0, oldLines.length - 1);
+    const anchorCh = oldLines[anchorLine]?.length ?? 0;
+    const inserted = newLines.slice(first, newLast + 1).join("\n");
+    editor.replaceRange(
+      "\n" + inserted,
+      { line: anchorLine, ch: anchorCh },
+      { line: anchorLine, ch: anchorCh }
+    );
+  } else {
+    const replacement = newLines.slice(first, newLast + 1).join("\n");
+    editor.replaceRange(
+      replacement,
+      { line: first, ch: 0 },
+      { line: oldLast, ch: oldLines[oldLast]?.length ?? 0 }
+    );
+  }
+
+  // newCursorCh (Phase 5C-1A/1B) means "place the cursor at this exact
+  // (newStartLine, ch)", not "preserve the caller's offset within the old
+  // block" — an inserted block has no old position to be offset from, and
+  // a deleted block's fallback target (prev sibling / next sibling /
+  // parent / clamped deletion point) is likewise unrelated to wherever the
+  // cursor happened to be before the delete. Every other outcome kind
+  // (move/indent/etc.) never sets it, so this branch is unreachable for
+  // them and their behavior is unchanged.
+  let newLine: number;
+  let newCh: number;
+  if (outcome.newCursorCh !== undefined) {
+    newLine = outcome.newStartLine;
+    const lineLen = newLines[newLine]?.length ?? 0;
+    newCh = Math.min(outcome.newCursorCh, lineLen);
+  } else {
+    const offsetInBlock = cursor.line - resolvedNodeStartLine;
+    newLine = outcome.newStartLine + offsetInBlock;
+    const lineLen = newLines[newLine]?.length ?? 0;
+    newCh = Math.min(cursor.ch, lineLen);
+  }
+  editor.setCursor({ line: newLine, ch: newCh });
 
   return true;
 }

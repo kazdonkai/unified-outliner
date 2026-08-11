@@ -24,6 +24,7 @@
  * rather than trusting childIds order directly.
  */
 import {
+  BlockNode,
   isListNode,
   isSectionNode,
   ListBlockNode,
@@ -89,6 +90,31 @@ export function listItemDisplayText(doc: ParsedDocument, item: ListBlockNode): s
   const raw = doc.lines[item.range.startLine] ?? "";
   const m = raw.match(LIST_ITEM_TEXT_RE);
   return (m?.[1] ?? raw).trim();
+}
+
+/**
+ * Phase 5B: shared display label for a section or list node — the exact
+ * same text view/PartialEditView.ts's pane title has used since Phase 4C
+ * ("(Untitled heading)" / "(Empty list item)" fallbacks for an empty
+ * heading/item — English fallback text per UI review, see git history for
+ * the original Japanese strings), now extracted here so
+ * tree/ancestorPath.ts's breadcrumb labels and PartialEditView's title can
+ * both call one function instead of keeping two copies of the same
+ * fallback rule in sync by hand. Lives alongside listItemDisplayText
+ * (which it delegates to for the list case) rather than in
+ * edit/partialEdit.ts or PartialEditView.ts, since both of this function's
+ * callers are themselves tree-shaped: the Outline Tree's own node labels
+ * and the breadcrumb's ancestor labels are the same concept.
+ */
+export function nodeDisplayLabel(doc: ParsedDocument, node: BlockNode): string {
+  if (isSectionNode(node)) {
+    return node.headingText.length > 0 ? node.headingText : "(Untitled heading)";
+  }
+  if (isListNode(node)) {
+    const text = listItemDisplayText(doc, node);
+    return text.length > 0 ? text : "(Empty list item)";
+  }
+  return "";
 }
 
 function buildListNode(doc: ParsedDocument, item: ListBlockNode): OutlineTreeListNode {

@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, inspect, and focus on heading sections and list subtrees through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block.
 
-**Current version:** 0.1.4
+**Current version:** 0.2.0
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -119,12 +119,15 @@ Place the cursor on a heading or list item, then use the Command Palette or assi
 
 | Command | What it does |
 | --- | --- |
-| **Move block up** | Moves the current heading section or list subtree before its preceding sibling. |
-| **Move block down** | Moves the current heading section or list subtree after its following sibling. |
+| **Move block up / down** | Moves the minimal safe unit at the cursor — a heading section, a list subtree, a plain paragraph, or a whole callout, blockquote, fenced code block, or table when the cursor is inside one — before or after its sibling. |
+| **Move section up / down** | Moves the whole enclosing heading section (heading, body, and any child sections), regardless of where the cursor is inside it. |
 | **Indent block** | Reparents a list subtree, or safely lowers a heading section's level when the structure allows it. |
 | **Outdent block** | Promotes a list subtree, or safely raises a heading section's level when the structure allows it. |
+| **Delete block** | Deletes the current heading section or list subtree. |
+| **Insert sibling after current block** | Inserts a new, empty heading section or list item after the current one. |
+| **Insert child list item** | Inserts a new, empty list item as a child of the current one. |
 
-The same actions are available from a node's context menu in Outline Tree View. Unavailable operations make no change. Enable **Show no-op notices** in the plugin settings to see the reason.
+The same actions are available from a node's context menu in Outline Tree View. Unavailable operations make no change. Enable **Show no-op notices** in the plugin settings to see the reason. A block that Move block / Move section just moved is briefly flash-highlighted in the tree, and, if enabled, a short notice names what moved.
 
 ### Use the Outline Tree View
 
@@ -134,12 +137,17 @@ The right-sidebar tree is a working view, not only a navigator.
 - **Drag and drop list items** to reorder or reparent list subtrees when list display is enabled.
 - **Collapse or expand nodes** to control the tree's own view state. This state is saved per file and stays in sync across open Outline Tree Views.
 - **Use contextual commands** from the right-click menu. A collapsed section is treated as a subtree; an expanded section can use node-only actions.
+- **Rename a heading or list item in place**: double-click a row (or select it and press F2, or choose **Rename** from its context menu) to edit its text directly in the tree. Press Enter to commit or Escape to cancel without changing the note.
+- **On mobile**: tap a row to select it, tap an already-selected row again to start renaming it, and long-press a row to open its context menu.
+- Section rows and list rows are visually distinguishable by an optional background or edge-stripe highlight, configurable in the plugin settings and further customizable through Style Settings (see below).
 
 ### Edit a focused subtree
 
 Use **Open partial edit pane for current section** from the Command Palette, or choose the corresponding action from an Outline Tree View context menu.
 
 The **Partial Edit Pane** opens the selected section or list subtree in a dedicated editor. Make your changes, then select **Apply** to write them back to the source note. If the source area changed after the pane opened, the pane protects the note by refusing to apply conflicting content. Reload the target and review the change instead of overwriting it.
+
+An ancestor breadcrumb and a Subtree Navigator let you move up to a parent block or into a child block without leaving the pane. The pane can also be popped out into its own window from a node's context menu, and it asks for confirmation before navigating away from unsaved changes.
 
 ### Node-only heading actions
 
@@ -154,21 +162,35 @@ Open **Settings → Community plugins → Unified Outliner** to configure:
 - **Show no-op notices**: explains why an unavailable operation made no change.
 - **Show list items in Outline Tree View**: includes list items in the tree.
 - **Follow keyboard selection into body editor**: keeps the body editor synchronized while navigating the tree with the keyboard.
+- **Sync Outline Tree folding to editor**: folding or unfolding a node in the tree also folds or unfolds the matching content in the active Markdown editor.
+- **Section background style in Outline Tree**: subtle background, left-edge stripe, or off, for telling section rows apart from list rows.
+- **List row highlight style in Outline Tree**: hover-only (default), always-on subtle background, or off.
+- **Preview move target in Outline Tree**: briefly flash-highlights the block a move command just operated on.
+- **Show move result toast**: shows a short notice naming what was moved after a move command.
 
-The Outline Tree View also supports optional appearance customization through the [Style Settings](https://github.com/community-plugins/obsidian-style-settings) plugin.
+### Customizing appearance with Style Settings
+
+Install the [Style Settings](https://github.com/community-archive/obsidian-style-settings) community plugin to customize the Outline Tree View's appearance beyond the toggles above, without editing CSS by hand. Under **Settings → Style Settings → Outline Tree View – Appearance** you can adjust, separately for light and dark mode:
+
+- **Font size** of the tree's heading labels.
+- **Background color** of the Outline Tree View panel.
+- **Text color**, **muted text color** (secondary text, such as the empty-state message), and **list item text color**.
+- **Highlighted node color** (the row matching the body editor's cursor) and **keyboard selection background color** (the row selected via keyboard navigation).
+- **Section row background** and **list row background** — the colors used by the highlight styles above.
+- **Move target preview flash color** — the color of the brief flash shown after a move command.
 
 ## Safe use and current boundaries
 
 Structural changes alter Markdown text. Keep normal vault backups and review an edit if your note uses unfamiliar or highly customized Markdown.
 
 - Unified Outliner works within the active note only. It does not move content between notes.
-- Frontmatter and fenced code blocks are excluded from the structural tree.
-- Callouts and Mermaid blocks remain an explicit future design area. Their structural editing rules will be defined before the plugin changes them as movable content.
+- Frontmatter is excluded from all structural operations. The Outline Tree View itself only ever shows headings (and, optionally, list items) as nodes — callouts, blockquotes, fenced code blocks, and tables are not shown as tree nodes, but Move block can still move one of these blocks as a whole when the cursor is inside it.
+- Callouts and Mermaid blocks remain an explicit future design area for the Outline Tree View, the Partial Edit Pane, and drag-and-drop. Their structural editing rules there will be defined before the plugin changes them as movable content in those workflows.
 - A focused edit is applied only when the original target has not changed since it was loaded.
 
 ## Roadmap
 
-The next development focus is a more capable focused-editing workflow: views that focus on part of a block (hoist), pop-out windows, breadcrumb navigation, and carefully expanded subtree editing. Callouts and Mermaid blocks will be addressed through explicit parsing and safety rules before structural mutation is enabled.
+Pop-out windows, breadcrumb navigation, and Outline Tree inline rename are now available (see above). The next development focus is a more capable hoist-like view that focuses on part of a block, and carefully expanded subtree editing. Callouts and Mermaid blocks will be addressed through explicit parsing and safety rules before structural mutation is enabled.
 
 See the concise [roadmap](ROADMAP.md) for later directions and deliberate non-goals.
 

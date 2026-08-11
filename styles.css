@@ -93,6 +93,33 @@ settings:
         max: 22
         step: 1
         format: px
+    -
+        id: uo-section-highlight-color
+        title: Section Row Background (always-on aid)
+        description: Faint always-on background tint applied to every section row when "Section background style" is set to Subtle (see plugin settings). Has an alpha channel — a low default opacity keeps it from competing with the Highlighted Node / Keyboard Selection colors above.
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#5b57d10f'
+        default-dark: '#a29bfe14'
+    -
+        id: uo-list-hover-color
+        title: List Row Background (hover/subtle aid)
+        description: Background tint applied to a list row on hover (default) or always-on (if "List row highlight style" is set to Subtle in plugin settings). Deliberately a bit stronger than Section Row Background above since it only ever applies transiently by default.
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#5b57d11a'
+        default-dark: '#a29bfe24'
+    -
+        id: uo-move-flash-color
+        title: Move Target Preview Flash Color
+        description: Color of the brief flash highlight shown in the Outline Tree after Move block / Move section (see "Preview move target in Outline Tree" in plugin settings).
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#5b57d159'
+        default-dark: '#a29bfe59'
 
 */
 
@@ -106,6 +133,9 @@ settings:
   --uo-muted-text-color: #6c7086;
   --uo-list-text-color: #454a52;
   --uo-selected-bg-color: #e3e3f8;
+  --uo-section-highlight-color: #5b57d10f;
+  --uo-list-hover-color: #5b57d11a;
+  --uo-move-flash-color: #5b57d159;
 }
 
 .theme-dark {
@@ -115,6 +145,9 @@ settings:
   --uo-muted-text-color: #8a8f98;
   --uo-list-text-color: #c2c4c9;
   --uo-selected-bg-color: #35335c;
+  --uo-section-highlight-color: #a29bfe14;
+  --uo-list-hover-color: #a29bfe24;
+  --uo-move-flash-color: #a29bfe59;
 }
 
 .unified-outliner-outline-view {
@@ -262,6 +295,114 @@ settings:
   justify-content: center;
 }
 
+/* Phase 5B: ancestor breadcrumb, a second row below the title+actions
+ * header (see PartialEditView.ts's onOpen / renderBreadcrumb). Hidden
+ * entirely (display: none, via toggleVisibility) when the loaded node has
+ * no ancestors (a top-level section) or nothing is loaded yet. */
+.unified-outliner-partial-edit-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  color: var(--uo-text-color);
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-breadcrumb-segment {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.unified-outliner-partial-edit-breadcrumb-segment:hover {
+  text-decoration: underline;
+}
+
+.unified-outliner-partial-edit-breadcrumb-ellipsis {
+  max-width: none;
+}
+
+.unified-outliner-partial-edit-breadcrumb-sep {
+  opacity: 0.6;
+}
+
+/* Subtree Navigator: the downward counterpart to the breadcrumb above.
+ * Deliberately its own class family (not reused from
+ * .unified-outliner-partial-edit-breadcrumb-*) so climbing up (breadcrumb)
+ * and descending down (this) stay visually distinguishable, per the
+ * implementation instruction. */
+.unified-outliner-partial-edit-subtree-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  color: var(--uo-text-color);
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-subtree-nav-label {
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 160px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip:hover {
+  background-color: rgba(128, 128, 128, 0.12);
+}
+
+/* Visible keyboard focus — the implementation instruction explicitly
+ * requires focus visibility for this navigator (unlike the ancestor
+ * breadcrumb's plain spans, these chips are also tabIndex=0). */
+.unified-outliner-partial-edit-subtree-nav-chip:focus-visible {
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: 1px;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-outliner-partial-edit-subtree-nav-chip-marker {
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-subtree-nav-more {
+  opacity: 0.75;
+  max-width: none;
+}
+
 .unified-outliner-partial-edit-textarea {
   flex: 1 1 auto;
   width: 100%;
@@ -279,6 +420,30 @@ settings:
 
 .unified-outliner-partial-edit-textarea:disabled {
   opacity: 0.6;
+}
+
+/* Phase 5B: DiscardChangesModal's Apply/Discard/Cancel row
+ * (PartialEditView.ts). Relies on Obsidian's own modal chrome for
+ * everything else (titleEl/contentEl styling, backdrop, positioning) —
+ * only the button row's layout is plugin-owned. */
+.unified-outliner-partial-edit-modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Phase 5C-1A/1B: HeadingLevelModal's H1..H6 row (view/HeadingLevelModal.ts).
+ * Same layout convention as DiscardChangesModal's button row above. */
+.unified-outliner-heading-level-modal-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.unified-outliner-heading-level-modal-cancel {
+  margin-top: 8px;
 }
 
 /* Phase 3C: list nodes in the Outline Tree View (opt-in via
@@ -324,4 +489,143 @@ settings:
  * Obsidian. */
 .tooltip.unified-outliner-list-tooltip {
   text-align: left;
+}
+
+/* Inline rename (Outline Tree, section/list only — see the "Inline rename"
+ * section of view/OutlineTreeView.ts). Replaces a row's .tree-item-inner
+ * label with this <textarea> while renaming is in progress. Sits flush in
+ * the row (no left/right padding of its own beyond a hairline border,
+ * transparent background so the row's existing selected/current
+ * background tint still shows through). Font size intentionally matches
+ * the surrounding label rather than a fixed value: sections use the
+ * tree's own base font size and list rows use --uo-list-text-color/0.92em
+ * (.unified-outliner-list-text), and this rule is applied to both without
+ * overriding either's font-size, only inheriting it.
+ *
+ * `width: 100%` caps the box at the row's own (i.e. the Outline Tree
+ * pane's) width — it never grows sideways past that, unlike an earlier
+ * version of this feature that grew a single-line <input> as wide as the
+ * text itself and could hide the rest of the tree behind it. Long text
+ * instead wraps: `white-space: pre-wrap` allows line breaks at all, and
+ * `overflow-wrap: anywhere` forces a break even in the middle of a long
+ * run of non-whitespace characters (this vault's own test fixtures include
+ * exactly that — a list item that's just the same digit repeated with no
+ * spaces). OutlineTreeView.ts's beginRename then measures how tall that
+ * wrapped text turned out to be and sets an inline `height: <N>px` to
+ * match, growing (or shrinking, as the user edits) vertically instead of
+ * horizontally. `resize: none` hides the browser's own manual resize
+ * handle (sizing is fully automatic) and `overflow: hidden` keeps no
+ * internal scrollbar, since the inline height is always kept in sync with
+ * the full content. See .unified-outliner-renaming-row below for the
+ * matching overflow override that lets this taller-than-usual box actually
+ * render instead of being clipped back down by the row's own height. */
+.unified-outliner-rename-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 2px;
+  font: inherit;
+  color: inherit;
+  background-color: var(--uo-bg-color);
+  border: 1px solid var(--uo-current-color);
+  border-radius: 3px;
+  resize: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Added to a row's .tree-item-self (rowSelfEl) for exactly as long as that
+ * row is mid-rename (see beginRename in OutlineTreeView.ts) — lifts both
+ * this plugin's own text-overflow/ellipsis rules (.unified-outliner-
+ * list-text above) and whatever Obsidian's active theme applies by
+ * default to .tree-item-self/.tree-item-inner, so a rename <textarea>
+ * sized taller than the row's normal single-line height (via the inline
+ * `height: <N>px` set in OutlineTreeView.ts as its wrapped text grows to
+ * multiple lines) is actually visible instead of being clipped back down
+ * to the row's normal height. `!important` is deliberate and narrowly
+ * scoped: this class only ever exists on the one row currently being
+ * renamed, and disappears the moment that rename ends (both commit and
+ * cancel end in a renderTree() rebuild that discards this exact DOM node),
+ * so it can never leak into overriding a theme's overflow styling
+ * anywhere else in the tree.
+ *
+ * `flex: 1 1 auto` on .tree-item-inner (2026-08-11 fix): while NOT
+ * renaming, .tree-item-inner has no flex-grow of its own, yet still visibly
+ * fills the row, because its ordinary content is a long unbroken
+ * `white-space: nowrap` text node — that forces a huge hypothetical content
+ * width, which flex-shrink then pulls back down to fill the row exactly.
+ * The rename <textarea> has no such content-driven hypothetical width of
+ * its own (it's sized via `width: 100%` of its *parent*, which a flex
+ * item's own hypothetical main-size calculation cannot resolve against a
+ * `flex-basis: auto` container), so without this rule .tree-item-inner
+ * collapsed to a small auto/content-based width the moment its child
+ * became a <textarea> instead of a text node — visibly confirmed via
+ * DevTools on the Method vault: .tree-item-inner measured 156px against a
+ * 387px-wide row. `flex: 1 1 auto` sidesteps that collapse by explicitly
+ * growing the item to consume all remaining free space in the row, which
+ * is what the textarea's own `width: 100%` was already trying (and failing)
+ * to achieve indirectly. */
+.unified-outliner-renaming-row,
+.unified-outliner-renaming-row .tree-item-inner {
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.unified-outliner-renaming-row .tree-item-inner {
+  flex: 1 1 auto !important;
+}
+
+/* 2026-08-11 ticket ("Move block の対象を最小安全ブロックへ" §5): section/list
+ * kind identification aids, purely cosmetic — see OutlineTreeView.ts's
+ * applyTreeKindHighlightSettings (sets the [data-section-highlight]/
+ * [data-list-highlight] attributes below, from settings.treeKindHighlight)
+ * and renderNode (sets each row's own [data-kind]). No color values live in
+ * any .ts file — every color here is a themeable CSS variable, overridable
+ * via the Style Settings community plugin like every other color in this
+ * file (see the @settings block at the top). Section rows default to
+ * "subtle" (an always-on faint tint); list rows default to "hover" —
+ * deliberately weaker, so the tree doesn't get visually noisy when list
+ * items are shown (settings.showListItemsInOutline). This is an aid
+ * ALONGSIDE the existing text-content distinction (heading text vs.
+ * .unified-outliner-list-text), never a replacement for it. */
+.unified-outliner-tree-root[data-section-highlight="subtle"] .tree-item-self[data-kind="section"] {
+  background-color: var(--uo-section-highlight-color);
+  border-radius: 4px;
+}
+
+.unified-outliner-tree-root[data-section-highlight="stripe"] .tree-item-self[data-kind="section"] {
+  box-shadow: inset 2px 0 0 0 var(--uo-current-color);
+}
+
+.unified-outliner-tree-root[data-list-highlight="subtle"] .tree-item-self[data-kind="list"] {
+  background-color: var(--uo-list-hover-color);
+  border-radius: 4px;
+}
+
+.unified-outliner-tree-root[data-list-highlight="hover"] .tree-item-self[data-kind="list"]:hover {
+  background-color: var(--uo-list-hover-color);
+  border-radius: 4px;
+}
+
+/* Move target preview (2026-08-11 ticket §5B, settings.treeKindHighlight.
+ * showMoveTargetPreview): a ONE-SHOT flash, added by OutlineTreeView.ts's
+ * applyPendingMoveFlash right after a successful Move block/Move section
+ * and removed again ~900ms later (see that method's own doc comment) —
+ * never a persistent state, so it layers cleanly on top of
+ * .unified-outliner-current/.unified-outliner-selected/the always-on kind
+ * aids above without permanently altering a row's appearance. */
+.unified-outliner-move-flash {
+  animation: unified-outliner-move-flash-anim 900ms ease-out;
+  border-radius: 4px;
+}
+
+@keyframes unified-outliner-move-flash-anim {
+  from {
+    background-color: var(--uo-move-flash-color);
+  }
+  to {
+    background-color: transparent;
+  }
 }

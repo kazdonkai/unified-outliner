@@ -60,7 +60,42 @@ export interface UnifiedOutlinerSettings {
    * sync (handleCm6FoldEffect) regardless of this setting.
    */
   syncOutlineTreeFoldingToEditor: boolean;
+  /**
+   * 2026-08-11 ticket ("Move block の対象を最小安全ブロックへ" §5–6): purely
+   * cosmetic Outline Tree visual aids, plus the two move-command
+   * notifications introduced alongside the Move block/Move section
+   * redefinition. Kept as one nested object (rather than four more flat
+   * top-level keys) since these all belong to the same feature and are
+   * always read/written together from the settings tab — see settings.ts's
+   * display() for the corresponding controls.
+   */
+  treeKindHighlight: TreeKindHighlightSettings;
 }
+
+/**
+ * Section rows get an always-on, subtle visual aid by default ("subtle" —
+ * a faint background tint) so they're easy to tell apart from list rows at
+ * a glance without opening a menu or hovering. List rows deliberately get a
+ * WEAKER default ("hover" — highlighted only on hover/selection, never
+ * always-on) per the ticket's explicit "list の視覚補助は section よりさらに
+ * 弱く" requirement, so the tree doesn't get visually noisy when list items
+ * are shown (settings.showListItemsInOutline). Both move-command
+ * notifications default to on, matching this ticket's own recommended
+ * defaults verbatim.
+ */
+export interface TreeKindHighlightSettings {
+  sectionMode: "subtle" | "stripe" | "off";
+  listMode: "hover" | "subtle" | "off";
+  showMoveTargetPreview: boolean;
+  showMoveResultToast: boolean;
+}
+
+export const DEFAULT_TREE_KIND_HIGHLIGHT: TreeKindHighlightSettings = {
+  sectionMode: "subtle",
+  listMode: "hover",
+  showMoveTargetPreview: true,
+  showMoveResultToast: true,
+};
 
 export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   allowCrossSectionListMove: true,
@@ -69,6 +104,7 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   showListItemsInOutline: false,
   followKeyboardSelectionIntoBody: true,
   syncOutlineTreeFoldingToEditor: true,
+  treeKindHighlight: { ...DEFAULT_TREE_KIND_HIGHLIGHT },
 };
 
 /**
@@ -84,5 +120,21 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
 export function mergeSettings(
   raw: Record<string, unknown>
 ): UnifiedOutlinerSettings {
-  return Object.assign({}, DEFAULT_SETTINGS, raw);
+  const merged = Object.assign({}, DEFAULT_SETTINGS, raw) as UnifiedOutlinerSettings;
+  // treeKindHighlight is a NESTED object — the shallow Object.assign above
+  // would otherwise replace it wholesale with whatever partial (or absent)
+  // object `raw` has, silently dropping any of ITS sub-keys missing from a
+  // pre-existing data.json (e.g. one written before this ticket's settings
+  // existed at all, where raw.treeKindHighlight is simply undefined). Merge
+  // it one level deeper explicitly, same "missing key falls back to its
+  // default" policy as the top-level merge above.
+  const rawTreeKindHighlight = (
+    raw as { treeKindHighlight?: Partial<TreeKindHighlightSettings> }
+  ).treeKindHighlight;
+  merged.treeKindHighlight = Object.assign(
+    {},
+    DEFAULT_TREE_KIND_HIGHLIGHT,
+    rawTreeKindHighlight ?? {}
+  );
+  return merged;
 }

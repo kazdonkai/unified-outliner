@@ -40,14 +40,15 @@ describe("findIndentTarget: list items", () => {
     });
   });
 
-  it("refuses to outdent a non-last child (MVP scope limit)", () => {
+  it("allows outdenting a non-last child (trailing siblings become its children)", () => {
     const d = parseDocument(
       ["- parent", "  - child-1", "  - child-2"].join("\n")
     );
+    const parent = ownerAt(d, 0);
     const child1 = ownerAt(d, 1);
     expect(findIndentTarget(d, child1, "outdent")).toEqual({
-      kind: "none",
-      reason: "not-last-child",
+      kind: "list-outdent",
+      parentId: parent.id,
     });
     const child2 = ownerAt(d, 2);
     expect(findIndentTarget(d, child2, "outdent").kind).toBe("list-outdent");

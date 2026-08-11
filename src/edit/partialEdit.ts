@@ -21,6 +21,16 @@
  * used by every other tree/* and move/* module — no Markdown
  * re-interpretation happens here.
  *
+ * Phase 5C note (no behavior change): parser/complexBlocks.ts's
+ * ComplexBlockInfo ids (callout/fenced-code/table/paragraph) are never
+ * inserted into ParsedDocument.nodes, so passing one to extractSubtreeText
+ * or applySubtreeEdit below already resolves safely to reason
+ * "resolve-failed" with zero code change here. A caller that wants a more
+ * specific reason ("this id is a recognized-but-unsupported complex
+ * block", rather than "this id doesn't exist") should consult
+ * parser/complexBlocks.ts's describeComplexBlockRejection() BEFORE calling
+ * either function below — see that function's own doc comment.
+ *
  * Phase 4C (list subtrees): extractSubtreeText/applySubtreeEdit below are
  * the generalized core — they accept EITHER a section id or a list id,
  * since both ListBlockNode and SectionBlockNode carry the same `.range`

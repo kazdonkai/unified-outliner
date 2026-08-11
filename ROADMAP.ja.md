@@ -4,13 +4,11 @@ Unified Outliner は、単一のMarkdownノート内で意味のまとまりを�
 
 ## 現在のリリース
 
-バージョン0.1.0では、構造単位の移動・レベル変更コマンド、Outline Tree Viewからの閲覧・編集、sectionおよびlist subtree用のPartial Edit Pane、mixed structure境界規則、競合解決を伴うファイル単位のfold state永続化を提供する。
+バージョン0.2.0では、構造単位の移動・レベル変更コマンド（セクション全体の移動、段落・callout・blockquote・fenced code block・tableにも及ぶ最小安全ブロック移動を含む）、削除・挿入コマンド、Outline Tree Viewからの閲覧・編集、インラインリネーム、モバイルのタップ／長押し操作、パンくずナビゲーションとSubtree Navigator、ポップアウトウィンドウ対応を備えたsectionおよびlist subtree用のPartial Edit Pane、mixed structure境界規則、競合解決を伴うファイル単位のfold state永続化を提供する。
 
 ## 次の重点領域: Phase 5
 
 - **ホイスト相当の編集**: 選択したsectionまたはlist subtreeを、そこだけに集中できる編集文脈として開く。
-- **ポップアウトの作業フロー**: Obsidianのポップアウトウィンドウで集中編集ビューを開き、ナビゲーション状態を同期する。
-- **パンくずナビゲーション**: 集中編集ビューに祖先経路を表示し、上位ノードへ戻れるようにする。
 - **安全な編集範囲の拡張**: 競合保護を損なわずに、集中編集内での追加・削除・並べ替えを検討する。
 - **特殊Markdownブロック**: calloutとMermaidコードブロックについて、構造操作で変更を許す前に、明示的な解析・編集境界を定義する。
 

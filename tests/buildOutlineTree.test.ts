@@ -5,9 +5,10 @@ import {
   flattenOutlineTree,
   isOutlineListNode,
   isOutlineSectionNode,
+  nodeDisplayLabel,
   OutlineTreeNode,
 } from "../src/tree/buildOutlineTree";
-import { FIX_BASIC } from "./fixtures";
+import { FIX_BASIC, ownerAt } from "./fixtures";
 
 /** Test helper: section headingText, or "" for a list node (never expected in section-only assertions). */
 function headingTextOf(n: OutlineTreeNode): string {
@@ -171,5 +172,31 @@ describe("flattenOutlineTree", () => {
       isOutlineSectionNode(n) ? n.headingText : n.text
     );
     expect(flat).toEqual(["A", "one", "one-1", "two", "B", "three", "four", "C"]);
+  });
+});
+
+describe("nodeDisplayLabel", () => {
+  it("prefers headingText for a section", () => {
+    const doc = parseDocument(FIX_BASIC);
+    const a = ownerAt(doc, 0); // "# A"
+    expect(nodeDisplayLabel(doc, a)).toBe("A");
+  });
+
+  it("reflects listItemDisplayText for a list item", () => {
+    const doc = parseDocument(FIX_BASIC);
+    const one = ownerAt(doc, 3); // "- one"
+    expect(nodeDisplayLabel(doc, one)).toBe("one");
+  });
+
+  it("falls back to the placeholder text for an empty heading", () => {
+    const doc = parseDocument(["# ", "text"].join("\n"));
+    const empty = ownerAt(doc, 0);
+    expect(nodeDisplayLabel(doc, empty)).toBe("(Untitled heading)");
+  });
+
+  it("falls back to the placeholder text for an empty list item", () => {
+    const doc = parseDocument("- ");
+    const empty = ownerAt(doc, 0);
+    expect(nodeDisplayLabel(doc, empty)).toBe("(Empty list item)");
   });
 });
