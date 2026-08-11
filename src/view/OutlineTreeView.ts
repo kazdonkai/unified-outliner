@@ -2157,8 +2157,8 @@ export class OutlineTreeView extends ItemView {
     // keystroke/paste — typing can both grow AND shrink the wrapped line
     // count as the user edits.
     const resizeRenameTextareaToContent = (): void => {
-      inputEl.style.height = "auto";
-      inputEl.style.height = `${inputEl.scrollHeight}px`;
+      inputEl.setCssProps({ height: "auto" });
+      inputEl.setCssProps({ height: `${inputEl.scrollHeight}px` });
     };
     resizeRenameTextareaToContent();
 

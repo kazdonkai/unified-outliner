@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-08-11
+
+### Fixed
+
+- Adopted `obsidianmd/eslint-plugin` (the official local check for Obsidian's automated Community review) and resolved everything it flagged in the plugin's shipped source: the Outline Tree View's inline-rename textarea auto-resize now sets its height through `setCssProps` instead of directly on `element.style` (a discouraged pattern per the developer guidelines), two internal `resolveMoveTarget.ts` helpers dropped a redundant type assertion each, and the "auto" UI-language detection in `main.ts` now reads Obsidian's own public `getLanguage()` accessor (available since 1.8.7, this plugin's own minimum version) instead of an undocumented `localStorage` key. Behavior is unchanged in all three cases. Added `npm run lint` for ongoing local checks against these guidelines.
+
 ## [0.3.3] - 2026-08-11
 
 ### Added

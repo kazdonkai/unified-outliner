@@ -172,7 +172,7 @@ export function resolveMoveUnit(
     }
     return {
       unit: null,
-      reason: resolved.reason as ResolveMoveUnitReason,
+      reason: resolved.reason,
     };
   }
 
@@ -273,7 +273,7 @@ export function resolveEnclosingSectionId(
   if (!resolved.node) {
     return {
       sectionId: null,
-      reason: (resolved.reason as ResolveMoveUnitReason) ?? "no-block",
+      reason: resolved.reason ?? "no-block",
     };
   }
   const sectionId = findEnclosingSectionId(doc, resolved.node);

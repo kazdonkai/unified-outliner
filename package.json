@@ -1,6 +1,6 @@
 {
   "name": "unified-outliner",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Move, reorganize, and locally edit heading sections and list subtrees.",
   "main": "main.js",
   "repository": {
@@ -16,6 +16,7 @@
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "eslint \"src/**/*.ts\"",
     "deploy:dev": "npm run build && node scripts/deploy-dev.mjs"
   },
   "keywords": [
@@ -32,7 +33,10 @@
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.38.6",
     "@types/node": "^20.19.43",
+    "@typescript-eslint/parser": "^8.67.0",
     "esbuild": "^0.21.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "^1.13.1",
     "tslib": "^2.8.1",
     "typescript": "^5.9.3",

@@ -1,4 +1,4 @@
-import { Editor, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Editor, getLanguage, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { parseDocument } from "./parser/parseDocument";
 import { resolveCurrentBlock } from "./resolver/resolveCurrentBlock";
 import { ParsedDocument } from "./model/block";
@@ -50,17 +50,17 @@ import {
 
 /**
  * Best-effort read of Obsidian's own UI language for `language: "auto"`
- * resolution. Obsidian's typed API has no official accessor for this, but
- * its language picker (Settings → General → Language) persists the choice
- * under this exact localStorage key — a technique already used by several
- * community plugins for the same purpose. Wrapped in try/catch and returns
- * null on any failure (headless test environment, storage disabled, key
- * absent because the user never changed the default, ...), which
+ * resolution, via Obsidian's official `getLanguage()` accessor (public API
+ * since 1.8.7 — this plugin's own minAppVersion, so no compatibility gap).
+ * This replaces an earlier version that read the `language` localStorage
+ * key directly, which worked but relied on an undocumented implementation
+ * detail rather than a supported API surface. Still wrapped in try/catch
+ * and returns null on any failure (headless test environment, ...), which
  * resolveLocale() already treats as "no hint, fall back to en".
  */
 function detectObsidianLocale(): string | null {
   try {
-    return window.localStorage.getItem("language");
+    return getLanguage();
   } catch {
     return null;
   }
