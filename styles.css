@@ -578,6 +578,37 @@ settings:
   color: var(--uo-current-color);
 }
 
+/* 2026-08-12 "Heading prefix 表示設定" ticket: optional "H1".."H6" / "#"..
+ * "######" badge shown before a section's heading text (settings.
+ * headingPrefixStyle — view/OutlineTreeView.ts's section-rendering branch,
+ * tree/buildOutlineTree.ts's headingPrefixText). Deliberately uses
+ * Obsidian's OWN theme variables (--background-modifier-border / --text-
+ * muted) rather than this file's --uo-* palette, unlike the rest of this
+ * Tree's colors (see this file's own top-of-file doc comment) — the badge
+ * is meant to read as a small, neutral, first-pass utility chip rather than
+ * Tree content, so it intentionally follows the user's current Obsidian
+ * theme instead of staying fixed across themes. No background fill (per
+ * the ticket's explicit "背景なし・薄い枠あり・過度に主張しない" request) — a
+ * border only, sized relative to the Tree's own font-size (--uo-font-size)
+ * so it scales alongside the heading text it precedes rather than any
+ * unrelated Obsidian chrome font size. display: inline-block + margin-right
+ * (not a trailing space baked into the text, unlike
+ * .unified-outliner-composite-prefix above) since headingPrefixText's
+ * output must NOT include a trailing space itself — see that function's
+ * doc comment. */
+.unified-outliner-heading-prefix {
+  display: inline-block;
+  margin-right: 0.4em;
+  padding: 0 0.35em;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  font-size: 0.75em;
+  line-height: 1.5;
+  color: var(--text-muted);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Phase 4B follow-up: Obsidian's tooltip is center-aligned by default,
  * which reads fine for a single short line but looks disconnected from the
  * source Markdown once the tooltip spans multiple lines (see

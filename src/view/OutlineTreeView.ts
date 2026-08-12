@@ -174,6 +174,7 @@ import {
 import {
   buildOutlineTree,
   collectReadOnlyOutlineNodeIds,
+  headingPrefixText,
   isOutlineCompositeNode,
   isOutlineComplexMemberNode,
   isOutlineListNode,
@@ -981,9 +982,23 @@ export class OutlineTreeView extends ItemView {
       const innerEl = selfEl.createDiv({
         cls: `tree-item-inner unified-outliner-level-${node.headingLevel}`,
       });
-      innerEl.setText(
-        node.headingText.length > 0 ? node.headingText : this.plugin.t("tree.untitledHeading")
+      // 2026-08-12 "Heading prefix 表示設定" ticket: optional "H1".."H6" /
+      // "#".."######" badge, off by default (settings.headingPrefixStyle
+      // === "none"). Display-only — never part of the editable/matchable
+      // heading text (nodeDisplayLabel, rename textarea, breadcrumb labels
+      // all stay untouched), so it's rendered as its own <span>, skipped
+      // entirely when headingPrefixText returns "" (same "no prefix -> no
+      // element at all" pattern as the composite-block prefix span below).
+      const prefixText = headingPrefixText(
+        this.plugin.settings.headingPrefixStyle,
+        node.headingLevel
       );
+      if (prefixText.length > 0) {
+        innerEl.createSpan({ cls: "unified-outliner-heading-prefix", text: prefixText });
+      }
+      innerEl.createSpan({
+        text: node.headingText.length > 0 ? node.headingText : this.plugin.t("tree.untitledHeading"),
+      });
     } else if (isOutlineListNode(node)) {
       const innerEl = selfEl.createDiv({
         cls: "tree-item-inner unified-outliner-list-text",

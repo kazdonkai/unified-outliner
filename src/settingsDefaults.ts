@@ -92,7 +92,24 @@ export interface UnifiedOutlinerSettings {
    * docs/phase5d0_basic-block-extension-and-composite-block-spec.md §3.6.
    */
   compositeBlocks: CompositeBlockSettings;
+  /**
+   * 2026-08-12 ticket ("Heading prefix 表示設定"): optional prefix badge shown
+   * before a section's heading text in the Outline Tree — "none" (no
+   * prefix, the pre-existing look), "hLevel" ("H1".."H6"), or "atx" ("#"..
+   * "######", the literal ATX marker count). Purely a Tree display concern;
+   * see tree/buildOutlineTree.ts's headingPrefixText for the pure
+   * level->string mapping and view/OutlineTreeView.ts's section rendering
+   * branch for where it's applied. Defaults to "none" so existing installs
+   * (pre-ticket data.json, where this key is absent) keep their current
+   * look — this is a scalar top-level field, so mergeSettings's shallow
+   * Object.assign already resolves a missing key to this default with no
+   * extra migration code needed.
+   */
+  headingPrefixStyle: HeadingPrefixStyle;
 }
+
+/** See UnifiedOutlinerSettings.headingPrefixStyle's doc comment. */
+export type HeadingPrefixStyle = "none" | "hLevel" | "atx";
 
 /** One flag per model/compositeBlock.ts DEFAULT_COMPOSITE_BLOCK_RULES entry, by rule id. */
 export interface CompositeBlockSettings {
@@ -158,6 +175,7 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   syncOutlineTreeFoldingToEditor: true,
   treeKindHighlight: { ...DEFAULT_TREE_KIND_HIGHLIGHT },
   compositeBlocks: { ...DEFAULT_COMPOSITE_BLOCK_SETTINGS },
+  headingPrefixStyle: "none",
 };
 
 /**

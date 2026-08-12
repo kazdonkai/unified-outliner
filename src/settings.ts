@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type UnifiedOutlinerPlugin from "./main";
 import {
   DEFAULT_SETTINGS,
+  HeadingPrefixStyle,
   TreeKindHighlightSettings,
   UnifiedOutlinerSettings,
 } from "./settingsDefaults";
@@ -247,6 +248,22 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             this.plugin.settings.treeKindHighlight.listMode =
               v as TreeKindHighlightSettings["listMode"];
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.headingPrefixStyle.name"))
+      .setDesc(this.plugin.t("settings.headingPrefixStyle.desc"))
+      .addDropdown((d) =>
+        d
+          .addOption("none", this.plugin.t("settings.headingPrefixStyle.optionNone"))
+          .addOption("hLevel", this.plugin.t("settings.headingPrefixStyle.optionHLevel"))
+          .addOption("atx", this.plugin.t("settings.headingPrefixStyle.optionAtx"))
+          .setValue(this.plugin.settings.headingPrefixStyle)
+          .onChange(async (v) => {
+            this.plugin.settings.headingPrefixStyle = v as HeadingPrefixStyle;
             await this.plugin.saveSettings();
             this.plugin.refreshOutlineTreeViews();
           })

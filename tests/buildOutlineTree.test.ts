@@ -14,6 +14,7 @@ import {
   collectReadOnlyOutlineNodeIds,
   complexMemberDisplayLabel,
   flattenOutlineTree,
+  headingPrefixText,
   isOutlineCompositeNode,
   isOutlineComplexMemberNode,
   isOutlineListNode,
@@ -656,5 +657,52 @@ describe("complexMemberDisplayLabel", () => {
     const info = complexScan.blocks.find((b) => b.kind === "blockquote")!;
     expect(complexMemberDisplayLabel(doc, info, createTranslator("en"))).toBe("Quote");
     expect(complexMemberDisplayLabel(doc, info, createTranslator("ja"))).toBe("引用");
+  });
+});
+
+describe("headingPrefixText (2026-08-12 'Heading prefix 表示設定' ticket)", () => {
+  it("'none' returns an empty string for every heading level (default — no prefix shown)", () => {
+    for (let level = 1; level <= 6; level++) {
+      expect(headingPrefixText("none", level)).toBe("");
+    }
+  });
+
+  it("'hLevel' returns 'H1'..'H6', uppercase, no trailing period", () => {
+    expect(headingPrefixText("hLevel", 1)).toBe("H1");
+    expect(headingPrefixText("hLevel", 2)).toBe("H2");
+    expect(headingPrefixText("hLevel", 3)).toBe("H3");
+    expect(headingPrefixText("hLevel", 4)).toBe("H4");
+    expect(headingPrefixText("hLevel", 5)).toBe("H5");
+    expect(headingPrefixText("hLevel", 6)).toBe("H6");
+  });
+
+  it("'atx' returns the literal ATX marker run ('#'..'######') with NO trailing space", () => {
+    expect(headingPrefixText("atx", 1)).toBe("#");
+    expect(headingPrefixText("atx", 2)).toBe("##");
+    expect(headingPrefixText("atx", 3)).toBe("###");
+    expect(headingPrefixText("atx", 4)).toBe("####");
+    expect(headingPrefixText("atx", 5)).toBe("#####");
+    expect(headingPrefixText("atx", 6)).toBe("######");
+    // Explicit length check, not just a string-equality check, to guard
+    // against a trailing-space regression specifically (the ticket's own
+    // "atx は # 〜 ###### のみを表示し、後ろの空白は付けない" requirement).
+    expect(headingPrefixText("atx", 3).length).toBe(3);
+  });
+
+  it("clamps an out-of-range level defensively (real parsed data is always 1-6 per parseDocument.ts's HEADING_RE)", () => {
+    expect(headingPrefixText("hLevel", 0)).toBe("H1");
+    expect(headingPrefixText("hLevel", 7)).toBe("H6");
+    expect(headingPrefixText("atx", 0)).toBe("#");
+    expect(headingPrefixText("atx", 9)).toBe("######");
+  });
+
+  it("an unset/migrated settings value ('none', per DEFAULT_SETTINGS.headingPrefixStyle) reproduces the pre-ticket look exactly", () => {
+    // Existing-user migration behavior: mergeSettings's shallow
+    // Object.assign resolves a missing headingPrefixStyle key to
+    // DEFAULT_SETTINGS.headingPrefixStyle ("none") — verified directly in
+    // settingsDefaults.test.ts's mergeSettings coverage. This test only
+    // confirms the DOWNSTREAM effect: "none" must be indistinguishable from
+    // "no prefix rendered at all", not e.g. an empty-but-still-badged state.
+    expect(headingPrefixText("none", 4)).toBe("");
   });
 });

@@ -112,6 +112,12 @@ const en = {
   "settings.listHighlightStyle.optionHover": "Highlight on hover/selection only",
   "settings.listHighlightStyle.optionSubtle": "Always-on subtle background",
   "settings.listHighlightStyle.optionOff": "Off",
+  "settings.headingPrefixStyle.name": "Heading prefix in Outline Tree",
+  "settings.headingPrefixStyle.desc":
+    "Optional badge shown before a section's heading text in the Outline Tree, indicating its heading level. Purely cosmetic — never changes the heading text itself.",
+  "settings.headingPrefixStyle.optionNone": "Don't show",
+  "settings.headingPrefixStyle.optionHLevel": "H1–H6",
+  "settings.headingPrefixStyle.optionAtx": "#–######",
   "settings.previewMoveTarget.name": "Preview move target in Outline Tree",
   "settings.previewMoveTarget.desc":
     "Briefly flash-highlight, in the Outline Tree, the block that Move block / Move section actually operated on.",
@@ -339,6 +345,12 @@ const ja: Record<TranslationKey, string> = {
   "settings.listHighlightStyle.optionHover": "ホバー・選択時のみ強調",
   "settings.listHighlightStyle.optionSubtle": "常時、淡い背景で表示",
   "settings.listHighlightStyle.optionOff": "オフ",
+  "settings.headingPrefixStyle.name": "アウトラインツリーの見出しprefix",
+  "settings.headingPrefixStyle.desc":
+    "アウトラインツリー上で、セクションの見出しテキストの前に見出しレベルを示すバッジを表示する。純粋に見た目のみで、見出しテキスト自体は変わらない。",
+  "settings.headingPrefixStyle.optionNone": "表示しない",
+  "settings.headingPrefixStyle.optionHLevel": "H1〜H6",
+  "settings.headingPrefixStyle.optionAtx": "#〜######",
   "settings.previewMoveTarget.name": "アウトラインツリーで移動先をプレビュー",
   "settings.previewMoveTarget.desc":
     "Move block / Move section が実際に操作したブロックを、アウトラインツリー上で一瞬フラッシュ表示して強調する。",

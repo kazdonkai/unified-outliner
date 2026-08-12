@@ -166,3 +166,31 @@ describe("settingsDefaults: language (i18n)", () => {
     expect(mergeSettings({ language: null }).language).toBe("auto");
   });
 });
+
+/**
+ * 2026-08-12 ticket ("Heading prefix 表示設定"): headingPrefixStyle is a
+ * top-level SCALAR (same shape as `language` above, not nested like
+ * treeKindHighlight), so mergeSettings's existing shallow Object.assign
+ * already resolves a missing key to DEFAULT_SETTINGS.headingPrefixStyle
+ * with no extra merge/validation code needed — this is the ticket's own
+ * explicit "既存ユーザーへの特別なマイグレーションは不要。DEFAULT_SETTINGS との
+ * マージで未設定値を解決する" decision, verified directly here.
+ */
+describe("settingsDefaults: headingPrefixStyle", () => {
+  it("defaults to \"none\" (no prefix badge — matches the pre-ticket Outline Tree look)", () => {
+    expect(DEFAULT_SETTINGS.headingPrefixStyle).toBe("none");
+  });
+
+  it("mergeSettings resolves to \"none\" when raw omits the key entirely (pre-existing data.json)", () => {
+    const merged = mergeSettings({ allowCrossSectionListMove: false });
+    expect(merged.headingPrefixStyle).toBe("none");
+  });
+
+  it("mergeSettings preserves an explicit \"hLevel\"", () => {
+    expect(mergeSettings({ headingPrefixStyle: "hLevel" }).headingPrefixStyle).toBe("hLevel");
+  });
+
+  it("mergeSettings preserves an explicit \"atx\"", () => {
+    expect(mergeSettings({ headingPrefixStyle: "atx" }).headingPrefixStyle).toBe("atx");
+  });
+});

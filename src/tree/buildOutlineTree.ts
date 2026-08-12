@@ -40,6 +40,7 @@ import {
   getCompositeBlockRuleById,
 } from "../model/compositeBlock";
 import { defaultTranslator, Translator } from "../i18n";
+import { HeadingPrefixStyle } from "../settingsDefaults";
 
 export interface OutlineTreeSectionNode {
   kind: "section";
@@ -285,6 +286,40 @@ export function nodeDisplayLabel(
     return text.length > 0 ? text : t("tree.emptyListItem");
   }
   return "";
+}
+
+/**
+ * 2026-08-12 "Heading prefix 表示設定" ticket: pure level -> prefix-string
+ * mapping for settings.headingPrefixStyle, used by view/OutlineTreeView.ts's
+ * section-rendering branch to build an optional badge shown before a
+ * section's heading text in the Outline Tree. Deliberately kept separate
+ * from nodeDisplayLabel (whose plain-text output also feeds the rename
+ * textarea and breadcrumb labels) — this is a display-only decoration,
+ * never part of the editable/matchable label text, so it's returned as its
+ * own string rather than folded into nodeDisplayLabel's output.
+ *
+ * "none" returns "" — OutlineTreeView.ts skips rendering the badge entirely
+ * when this is empty, the same pattern already used for the composite-block
+ * prefix. "hLevel" returns "H1".."H6" (uppercase, no trailing period).
+ * "atx" returns the literal ATX marker run ("#".."######") with NO trailing
+ * space — any separating space between the badge and the heading text is
+ * the caller's (CSS/DOM) concern, not this string's.
+ *
+ * headingLevel is clamped to the 1-6 range parser/parseDocument.ts's own
+ * HEADING_RE already enforces (`#{1,6}`), so out-of-range input cannot occur
+ * from real parsed data — the clamp below is defensive only.
+ */
+export function headingPrefixText(style: HeadingPrefixStyle, headingLevel: number): string {
+  const level = Math.min(6, Math.max(1, Math.round(headingLevel)));
+  switch (style) {
+    case "hLevel":
+      return `H${level}`;
+    case "atx":
+      return "#".repeat(level);
+    case "none":
+    default:
+      return "";
+  }
 }
 
 /**
