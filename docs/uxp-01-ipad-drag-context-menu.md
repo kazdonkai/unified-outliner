@@ -55,7 +55,7 @@ Phase 5（hoist / popout / breadcrumb / atomic block 対応）とは主目的が
 
 ## 8. iPad実機確認項目と結果
 
-検証環境: 新設した `ipad-test` vault（Mac `/Users/kazumikaizuka/Obsidian/ipad-test` と iPad を Obsidian Sync で同期）。
+検証環境: 新設した `ipad-test` vault（Obsidian Sync で Mac と iPad を同期）。
 
 | # | 確認項目 | 結果 |
 | --- | --- | --- |
