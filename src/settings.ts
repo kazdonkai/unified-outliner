@@ -17,8 +17,37 @@ import { isValidPluginLanguage, PluginLanguage } from "./i18n";
 export { DEFAULT_SETTINGS };
 export type { UnifiedOutlinerSettings };
 
+/**
+ * Settings tab ids (2026-08-12 UI reorganization ticket). Purely a display
+ * grouping — see this file's UnifiedOutlinerSettingTab doc comment. Kept as
+ * a narrow union (not a generic string) so `renderTabBar`'s tab list and
+ * `display()`'s switch stay exhaustive-checked by the compiler as more tabs
+ * are added later.
+ */
+type SettingsTabId = "general" | "compositeBlock";
+
+/**
+ * Obsidian's PluginSettingTab has no official "sub-tabs" API, so this class
+ * uses the same self-rolled pattern most large community plugins use: a row
+ * of plain buttons at the top of `containerEl`, and a single content `div`
+ * below it whose children are fully replaced on every tab switch. See the
+ * 2026-08-12 "設定画面のタブ化" ticket — this is a *pure UI reorganization*:
+ * every setting key, default value, persisted data shape, toggle, and
+ * description string below is byte-for-byte identical to the pre-tab
+ * version; only which top-level container each `Setting` is appended to
+ * (and therefore which tab it's visible under) has changed. Do not fold
+ * behavior changes into this class without a separate justification.
+ */
 export class UnifiedOutlinerSettingTab extends PluginSettingTab {
   plugin: UnifiedOutlinerPlugin;
+
+  // Persisted only for the lifetime of this tab instance (not saved to
+  // disk) — re-opening Settings always starts back on "general". Kept as
+  // instance state (rather than a local in display()) specifically so that
+  // display()'s own re-render calls (e.g. after changing the language,
+  // below) keep the user on whichever tab they were already looking at
+  // instead of snapping back to the first one.
+  private activeTab: SettingsTabId = "general";
 
   constructor(app: App, plugin: UnifiedOutlinerPlugin) {
     super(app, plugin);
@@ -29,6 +58,55 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    this.renderTabBar(containerEl);
+
+    const content = containerEl.createDiv({
+      cls: "unified-outliner-settings-tab-content",
+    });
+    if (this.activeTab === "compositeBlock") {
+      this.renderCompositeBlockTab(content);
+    } else {
+      this.renderGeneralTab(content);
+    }
+  }
+
+  /**
+   * Tab list is intentionally a plain array literal (not a loop over some
+   * external registry) — with only two tabs today, a registry would be
+   * premature generality. Add entries here directly when a third tab is
+   * needed (see the ticket: fold-state settings were explicitly named as a
+   * candidate, deferred until actually needed).
+   */
+  private renderTabBar(containerEl: HTMLElement): void {
+    const tabBar = containerEl.createDiv({ cls: "unified-outliner-settings-tab-bar" });
+    const tabs: Array<{ id: SettingsTabId; label: string }> = [
+      { id: "general", label: this.plugin.t("settings.tabs.general") },
+      { id: "compositeBlock", label: this.plugin.t("settings.tabs.compositeBlock") },
+    ];
+    for (const tab of tabs) {
+      const isActive = this.activeTab === tab.id;
+      const button = tabBar.createEl("button", {
+        text: tab.label,
+        cls:
+          "unified-outliner-settings-tab-button" +
+          (isActive ? " unified-outliner-settings-tab-button-active" : ""),
+      });
+      button.setAttribute("type", "button");
+      button.setAttribute("aria-selected", String(isActive));
+      button.addEventListener("click", () => {
+        if (this.activeTab === tab.id) return;
+        this.activeTab = tab.id;
+        this.display();
+      });
+    }
+  }
+
+  // ---- "General" tab ------------------------------------------------------
+  // Every Setting below is unchanged from the pre-tab display(): same
+  // name/desc keys, same onChange bodies, same order relative to each
+  // other. Only the destination container (the tab's content div instead
+  // of the top-level containerEl) is new.
+  private renderGeneralTab(containerEl: HTMLElement): void {
     // i18n実装 (2026-08-11): language switch, deliberately the FIRST control
     // in this tab (per the ticket's "分かりやすい位置（原則として先頭）"
     // requirement) — every OTHER setting's own label/description below is
@@ -197,7 +275,14 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+  }
 
+  // ---- "Composite blocks" tab ---------------------------------------------
+  // Split out verbatim from the old display() so future rules (per the
+  // 2026-08-12 ticket's stated motivation — more built-in rules, and
+  // eventually a free-form rule-editing UI) have a dedicated single-screen
+  // home instead of being interleaved with unrelated general settings.
+  private renderCompositeBlockTab(containerEl: HTMLElement): void {
     // Phase 5D-0 / 5D-0.3: CompositeBlock rules — enable/disable toggles for
     // the two built-in default rules (model/compositeBlock.ts). Per the
     // 5D-0.3 approval (§4 — no separate "show composite blocks" toggle), a
@@ -206,7 +291,7 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
     // OutlineTreeView.refresh() stop grouping its member blocks, which is
     // why (unlike most other flat toggles above) this one also calls
     // refreshOutlineTreeViews() so an already-open Tree reflects the change
-    // immediately, matching showListItemsInOutline's own onChange below.
+    // immediately, matching showListItemsInOutline's own onChange above.
     new Setting(containerEl).setName(this.plugin.t("settings.compositeBlocksHeading")).setHeading();
     new Setting(containerEl).setDesc(this.plugin.t("settings.compositeBlocksIntro"));
 

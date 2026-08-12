@@ -68,6 +68,13 @@ export type TranslationVars = Record<string, string | number>;
 
 const en = {
   // ---- Settings tab -----------------------------------------------------
+  // Tab labels (2026-08-12 settings UI reorganization): purely cosmetic
+  // grouping of the same settings/toggles below into two top-of-pane tabs.
+  // Does not change any setting key, default, or persisted data shape —
+  // see settings.ts's UnifiedOutlinerSettingTab for the tab-switching
+  // implementation.
+  "settings.tabs.general": "General",
+  "settings.tabs.compositeBlock": "Composite blocks",
   "settings.language.name": "Language",
   "settings.language.desc":
     'Display language for Unified Outliner\'s settings, command names, and notices. "Auto" follows Obsidian\'s own language setting. Command names already shown in the Command Palette only update after reloading the plugin (or Obsidian) — see the notice shown after changing this.',
@@ -290,6 +297,12 @@ export type TranslationKey = keyof typeof en;
 
 const ja: Record<TranslationKey, string> = {
   // ---- 設定タブ -----------------------------------------------------------
+  // タブラベル（2026-08-12 設定UI整理）: 下記の既存設定・トグルを上部の2タブに
+  // 純粋に表示上だけ分けるためのラベル。設定キー・デフォルト値・保存データ
+  // 形式は一切変更しない — タブ切り替えの実装は settings.ts の
+  // UnifiedOutlinerSettingTab を参照。
+  "settings.tabs.general": "全般",
+  "settings.tabs.compositeBlock": "複合ブロック",
   "settings.language.name": "表示言語",
   "settings.language.desc":
     "Unified Outliner の設定・コマンド名・通知の表示言語。「自動」は Obsidian 本体の言語設定に従う。すでにコマンドパレットに表示されているコマンド名は、プラグイン（または Obsidian）を再読み込みするまで更新されない — この設定を変更した直後に表示される通知を参照。",

@@ -728,3 +728,39 @@ settings:
     background-color: transparent;
   }
 }
+
+/* Settings tab bar (2026-08-12 "設定画面のタブ化" ticket, settings.ts's
+ * UnifiedOutlinerSettingTab). Deliberately built from Obsidian's own theme
+ * variables (--background-modifier-border / --interactive-accent / etc.),
+ * NOT this plugin's own --uo-* Outline Tree palette above — the settings
+ * pane should look like a native part of the current Obsidian theme, not
+ * carry the Tree panel's independent light/dark styling. */
+.unified-outliner-settings-tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 12px;
+  padding-bottom: 0;
+}
+
+.unified-outliner-settings-tab-button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  padding: 6px 12px;
+}
+
+.unified-outliner-settings-tab-button:hover {
+  color: var(--text-normal);
+}
+
+.unified-outliner-settings-tab-button-active {
+  border-bottom-color: var(--interactive-accent);
+  color: var(--text-normal);
+  font-weight: 600;
+}
