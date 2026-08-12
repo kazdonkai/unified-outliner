@@ -244,7 +244,7 @@ settings:
   }
 }
 
-/* UXP-01 spike (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): a
+/* UXP-01 (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): a
  * dedicated drag handle, spatially separated from the row's long-press
  * gesture area. `touch-action: none` is scoped to THIS element only (never
  * the row body or the whole tree — see the ticket's own explicit
@@ -267,9 +267,9 @@ settings:
   color: var(--uo-muted-text-color);
   cursor: grab;
   /* Desktop default: hidden until the row is hovered (no pre-existing
-   * handle to preserve behavior for — see the spike's own report — so this
-   * is a new, deliberately unobtrusive affordance, not a required grab
-   * point; the whole row stays mouse-draggable exactly as before). */
+   * handle to preserve behavior for, per UXP-01's own investigation — so
+   * this is a new, deliberately unobtrusive affordance, not a required
+   * grab point; the whole row stays mouse-draggable exactly as before). */
   opacity: 0;
 }
 

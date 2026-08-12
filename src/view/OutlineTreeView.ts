@@ -232,20 +232,6 @@ import { TranslationKey } from "../i18n";
 export const OUTLINE_TREE_VIEW_TYPE = "unified-outliner-outline-tree";
 
 /**
- * UXP-01 spike ONLY (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md):
- * gates temporary console.debug calls that log dragstart/dragover/
- * dragleave/drop/dragend firing, so the native-HTML5-DnD-via-handle
- * approach can be observed on a real iPad (Safari's remote inspector, or
- * just eyeballing whether these ever fire at all) without shipping
- * permanent logging. Hardcoded `true` for the duration of the spike only —
- * this constant and every `if (UXP01_SPIKE_DEBUG)` call site must be
- * deleted before this branch is considered for merge, regardless of
- * whether the spike's approach is adopted or rejected (see the spike's own
- * completion report for the adopt/reject call).
- */
-const UXP01_SPIKE_DEBUG = true;
-
-/**
  * Phase 3D stage 3: tags a CM6 transaction as originating from THIS
  * plugin's own Outline Tree -> body-editor fold sync (syncFoldToBodyEditor
  * below), so the CM6 -> Outline Tree listener (createCm6FoldSyncExtension,
@@ -935,7 +921,7 @@ export class OutlineTreeView extends ItemView {
       selfEl.setAttribute("aria-readonly", "true");
       selfEl.setAttribute("data-readonly", "true");
     }
-    // UXP-01 spike (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): CSS
+    // UXP-01 (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): CSS
     // hook so the drag handle below can be always-visible on touch and
     // hover-revealed on desktop without a JS media-query check per paint —
     // same "one data-* attribute, no color/behavior logic in this file"
@@ -959,16 +945,14 @@ export class OutlineTreeView extends ItemView {
       });
     }
 
-    // UXP-01 spike: dedicated drag handle, spatially separated from the
-    // rest of the row so a touch on the row BODY (long-press -> context
-    // menu, tier 2 below) and a touch on the HANDLE (drag, further below)
-    // are never the same gesture recognizer target. null for a readOnly
-    // row (composite/complex-member — never a drag source, Phase 5D-0.3
-    // approval §1), matching the existing `if (!readOnly)` gate around the
-    // drag listeners further down. SPIKE ONLY: this element and its
-    // draggable wiring are the thing being validated on a real iPad before
-    // any permanent implementation decision — see the completion report in
-    // docs/uxp-01-ipad-drag-context-menu.md for the adopt/reject call.
+    // UXP-01 (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): dedicated
+    // drag handle, spatially separated from the rest of the row so a touch
+    // on the row BODY (long-press -> context menu, tier 2 below) and a
+    // touch on the HANDLE (drag, further below) are never the same gesture
+    // recognizer target. null for a readOnly row (composite/complex-member
+    // — never a drag source, Phase 5D-0.3 approval §1), matching the
+    // existing `if (!readOnly)` gate around the drag listeners further
+    // down.
     let dragHandleEl: HTMLElement | null = null;
     if (!readOnly) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
@@ -1206,12 +1190,12 @@ export class OutlineTreeView extends ItemView {
       };
 
       selfEl.addEventListener("pointerdown", (evt) => {
-        // UXP-01 spike: a touch starting ON the drag handle is never a
+        // UXP-01: a touch starting ON the drag handle is never a
         // long-press-menu candidate — the handle is the ONLY mobile drag
         // trigger (see the draggable wiring further below), so arming this
         // timer for a handle-origin touch would race the handle's own
         // native drag-lift gesture, reintroducing exactly the bug this
-        // spike exists to fix. `evt.target` is the actual DOM node the
+        // ticket exists to fix. `evt.target` is the actual DOM node the
         // touch began on, not `selfEl` (the listener's attachment point),
         // so this correctly distinguishes "touched the handle" from
         // "touched anywhere else in the row" even though both dispatch
@@ -1288,9 +1272,9 @@ export class OutlineTreeView extends ItemView {
     // resolve/relocate calls inside handleDragOver/handleDrop/
     // runRelocateCommand below branch on the DRAGGED node's kind.
     //
-    // UXP-01 spike (2026-08-12, superseding the 2026-08-11 mobile
-    // long-press fix's approach — see docs/uxp-01-ipad-drag-context-menu.md):
-    // that prior fix found that on iPadOS/mobile Safari, an element with
+    // UXP-01 (2026-08-12, superseding the 2026-08-11 mobile long-press
+    // fix's approach — see docs/uxp-01-ipad-drag-context-menu.md): that
+    // prior fix found that on iPadOS/mobile Safari, an element with
     // `draggable="true"` responds to a touch-and-hold with WebKit's OWN
     // native drag-lift gesture (which can hand the touch off to iPadOS as a
     // system-level drag, e.g. into a new Split View pane), racing against
@@ -1299,14 +1283,16 @@ export class OutlineTreeView extends ItemView {
     // long-press context menu failing to open and a duplicated/ghosted pane
     // appearing instead. That fix's response was to never mark the ROW
     // draggable on mobile at all, removing touch drag-and-drop entirely.
-    // This spike instead marks ONLY dragHandleEl draggable on mobile —
-    // selfEl itself stays non-draggable there — so the native drag-lift
-    // gesture and the long-press timer are spatially separated onto two
-    // different DOM elements (the timer's pointerdown handler above also
-    // explicitly ignores handle-origin touches, so even bubbling can't
-    // re-couple them). Desktop is UNCHANGED: selfEl keeps `draggable` as
-    // before, so mouse users keep grabbing the row from anywhere on it, not
-    // just the handle.
+    // UXP-01 instead marks ONLY dragHandleEl draggable on mobile — selfEl
+    // itself stays non-draggable there — so the native drag-lift gesture
+    // and the long-press timer are spatially separated onto two different
+    // DOM elements (the timer's pointerdown handler above also explicitly
+    // ignores handle-origin touches, so even bubbling can't re-couple
+    // them). Confirmed working on a real iPad (finger and Apple Pencil) —
+    // see the ticket's completion report for the full acceptance-criteria
+    // results. Desktop is UNCHANGED: selfEl keeps `draggable` as before, so
+    // mouse users keep grabbing the row from anywhere on it, not just the
+    // handle.
     // Phase 5D-0.3 approval §1: composite/complex-member rows, and any list
     // row currently inside a composite, are neither a drag SOURCE nor a
     // drop TARGET — skipping every listener here (not just `draggable`)
@@ -1319,30 +1305,13 @@ export class OutlineTreeView extends ItemView {
       } else {
         selfEl.setAttribute("draggable", "true");
       }
-      selfEl.addEventListener("dragstart", (evt) => {
-        if (UXP01_SPIKE_DEBUG) {
-          console.debug("[UXP-01 spike] dragstart", { nodeId: node.id, target: evt.target });
-        }
-        this.handleDragStart(evt, node.id, itemEl);
-      });
-      selfEl.addEventListener("dragover", (evt) => {
-        if (UXP01_SPIKE_DEBUG) {
-          console.debug("[UXP-01 spike] dragover", { nodeId: node.id });
-        }
-        this.handleDragOver(evt, node.id, selfEl);
-      });
-      selfEl.addEventListener("dragleave", () => {
-        if (UXP01_SPIKE_DEBUG) console.debug("[UXP-01 spike] dragleave", { nodeId: node.id });
-        this.handleDragLeave(selfEl);
-      });
-      selfEl.addEventListener("drop", (evt) => {
-        if (UXP01_SPIKE_DEBUG) console.debug("[UXP-01 spike] drop", { nodeId: node.id });
-        this.handleDrop(evt, node.id, selfEl);
-      });
-      selfEl.addEventListener("dragend", () => {
-        if (UXP01_SPIKE_DEBUG) console.debug("[UXP-01 spike] dragend", { nodeId: node.id });
-        this.handleDragEnd();
-      });
+      selfEl.addEventListener("dragstart", (evt) =>
+        this.handleDragStart(evt, node.id, itemEl)
+      );
+      selfEl.addEventListener("dragover", (evt) => this.handleDragOver(evt, node.id, selfEl));
+      selfEl.addEventListener("dragleave", () => this.handleDragLeave(selfEl));
+      selfEl.addEventListener("drop", (evt) => this.handleDrop(evt, node.id, selfEl));
+      selfEl.addEventListener("dragend", () => this.handleDragEnd());
     }
 
     if (hasChildren && !isCollapsed) {
