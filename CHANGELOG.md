@@ -4,13 +4,19 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-13
+
 ### Added
 
 - New setting: "Heading prefix in Outline Tree" (General tab) — shows an optional badge before a section's heading text in the Outline Tree, indicating its heading level. Choices: don't show (default), "H1"–"H6", or "#"–"######" (the literal ATX marker count). Purely cosmetic; never changes the heading text itself.
+- Read-only CompositeBlock projection in the Outline Tree (Phase 5D-0.3).
+- Plugin settings reorganized into "General" and "Composite blocks" tabs.
+- (UXP-01) Dragging a row on iPad now uses a dedicated drag handle with native HTML5 drag-and-drop, isolated from the long-press context menu gesture. Desktop drag behavior (grabbing the row itself) is unchanged. Verified against all 12 real-device acceptance criteria on iPad; see `docs/uxp-01-ipad-drag-context-menu.md`.
 
 ### Fixed
 
 - Ordered list markers ("1.", "1)", a mid-list restart like "3.") were silently stripped from the Outline Tree's display text by the same logic that strips unordered bullets, so numbered lists appeared unnumbered in the Tree even though the document body itself was correctly ordered. Ordered markers now display correctly at every nesting depth; bullets remain marker-free as before.
+- (UXP-02) Long-pressing a second row in the Outline Tree before dismissing the first row's context menu on mobile left both menus open and stacked, since the mobile DOM-rendered menu (unlike desktop's native OS menu) has no built-in "only one open at a time" behavior. The view now tracks its single open menu and hides it before showing a new one. Confirmed fixed on iPad and desktop; see `docs/uxp-02-long-press-menu-duplicate.md`.
 
 ## [0.3.5] - 2026-08-11
 
