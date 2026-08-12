@@ -355,6 +355,24 @@ export class OutlineTreeView extends ItemView {
   private dropIndicatorEl: HTMLElement | null = null;
 
   /**
+   * UXP-02 (2026-08-12, docs/uxp-02-long-press-menu-duplicate.md): the
+   * single Menu instance THIS view most recently opened via
+   * showTrackedMenu() below (showStructureCommandMenu's or
+   * showListCommandMenu's contextmenu/long-press call sites), or null when
+   * none is currently open. Neither Obsidian's own Menu class nor this
+   * plugin previously tracked "the currently open menu" anywhere — each
+   * call site just did `new Menu()...showAtMouseEvent(evt)` independently,
+   * so long-pressing a second row before dismissing the first row's menu
+   * left both open and stacked (confirmed as mobile-specific: desktop's
+   * native OS-rendered context menu enforces "only one at a time" itself,
+   * which is why this never surfaced there). Scoped ONLY to menus this
+   * view itself creates — never touches Obsidian's own menus, other
+   * plugins' menus, or any other view's menus (no DOM search, no global
+   * menu registry, no Menu.prototype changes).
+   */
+  private activeMenu: Menu | null = null;
+
+  /**
    * Inline rename state (section/list only — see edit/renameBlock.ts).
    * Non-null exactly while a row's label is replaced with a <textarea>.
    * `snapshot` is whichever of SectionRenameSnapshot/ListRenameSnapshot
@@ -473,6 +491,16 @@ export class OutlineTreeView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    // UXP-02 (2026-08-12, docs/uxp-02-long-press-menu-duplicate.md): hide
+    // any menu this view still has tracked as open before the view itself
+    // tears down, so closing/switching away from this leaf while a
+    // long-press/right-click menu is open doesn't leave an orphaned menu
+    // element behind. menu.hide() itself triggers the onHide callback
+    // registered in showTrackedMenu, which would otherwise just re-null an
+    // already-nulled field — harmless, but set to null directly here too
+    // so this cleanup doesn't depend on that callback having run.
+    this.activeMenu?.hide();
+    this.activeMenu = null;
     this.contentEl.empty();
     // Phase 4E: flush any fold-state mutation still sitting inside the
     // debounce window rather than leaving it to onunload's synchronous,
@@ -1824,6 +1852,30 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(sectionId))
     );
 
+    this.showTrackedMenu(menu, evt);
+  }
+
+  /**
+   * UXP-02 (2026-08-12, docs/uxp-02-long-press-menu-duplicate.md): the sole
+   * entry point every menu this view opens (showStructureCommandMenu's and
+   * showListCommandMenu's contextmenu/long-press call sites) must use
+   * instead of calling `menu.showAtMouseEvent(evt)` directly. Hides
+   * whatever menu this view previously had open — if any — before
+   * recording and showing the new one, and clears the tracking field again
+   * once the new menu itself is hidden (dismissed, an item clicked, or
+   * superseded by a later call here), using an identity check so a stale
+   * `onHide` firing after `activeMenu` has already moved on to a newer
+   * menu can never null out that newer menu's own tracking. Does not touch
+   * `Menu.prototype`, does not search the DOM for other menus, and never
+   * hides/tracks a menu this view did not itself create — Obsidian's own
+   * menus, other plugins' menus, and other views' menus are untouched.
+   */
+  private showTrackedMenu(menu: Menu, evt: MouseEvent): void {
+    this.activeMenu?.hide();
+    this.activeMenu = menu;
+    menu.onHide(() => {
+      if (this.activeMenu === menu) this.activeMenu = null;
+    });
     menu.showAtMouseEvent(evt);
   }
 
@@ -1970,7 +2022,7 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(listId))
     );
 
-    menu.showAtMouseEvent(evt);
+    this.showTrackedMenu(menu, evt);
   }
 
   /**
