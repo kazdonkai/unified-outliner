@@ -114,3 +114,20 @@
 ## 7. 安全側の方針（変更なし）
 
 unsafeIndent（タブ／スペース混在インデント）を持つ list item は、mixed structure の内部にあっても従来どおり move（`relocateListSubtree`）・Partial Edit Pane（`extractSubtreeText` / `applySubtreeEdit`）のいずれからも拒否される。この判定は section や周囲の段落の有無に影響されない——同じ section 内に安全な list item と unsafeIndent な list item が混在していても、安全な方の操作は妨げられない（`tests/mixedStructure.test.ts` の `describe("unsafe mixed structure ...")` で確認している）。
+
+## 8. 区切り線（thematic break, `---`）の Outline Tree 表示 — 方針A（非表示・現状維持）に決定（2026-08-12）
+
+`---` は Markdown 上、文脈によって3通りの異なる意味を持つ（thematic break / Setext H2 の下線 / YAML frontmatter の区切り）。この曖昧さが `parser/parseDocument.ts`（section/list の唯一の権威パーサ）の line-ownership を壊していないかを、`tests/thematicBreakSafety.test.ts` の12ケースで直接検証した。
+
+**(a) 検証結果の結論**: 空行の後・非空行の段落直後（Setext 形）・ファイル先頭（frontmatter 形）・list item 直後（インデントあり／なし）・見出し直後（深い見出しが続く場合／同レベルの見出しが続く場合）・frontmatter 直後・fenced code block 内・`- - -`（スペース入り）のいずれの位置でも、`---` が誤って見出し化される、list marker として誤認される、line ownership が失われる、二重所有になる、隣接ノードの range を破壊する、といった不具合は一件も見つからなかった。`parser/parseDocument.ts` は ATX 見出し（`#`〜`######`）のみを認識する設計であり、Setext 見出し（`===` / `---` 形式）を意図的にサポートしない——これは今回新たに見つかった不具合ではなく、パーサの設計時点からの既知のスコープ外機能である（`TODO.md` の「パーサ」節に元々記載されている未対応項目と同一）。
+
+**(b) 表示方針**: 上記の安全性は確認できたが、Outline Tree に thematic break を独立ノードとして表示する対応（方針B）は**採用しない**。現状どおり非表示のまま据え置く（方針A）。理由は以下の4点：
+
+1. **親子関係の決定が曖昧**: thematic break は見出しでも list item でもないため、Tree 上でどのノードの子として配置すべきかの基準が一意に定まらない（直前の section の子か、独立した兄弟ノードか、といった設計判断が新たに必要になる）。
+2. **ナビゲーション上の価値が低い**: thematic break はドキュメントの構造的な区切りであり、見出しや list item のようにジャンプ先として意味のある単位ではない。Tree に載せてもユーザーの移動・編集操作の対象にはならない。
+3. **read-only 専用ノード種別の新設コストが発生**: 現在の `tree/buildOutlineTree.ts` は section・list（および複合ブロックの構成員）のみを投影する設計であり、thematic break を表示するには新しい read-only ノード種別と、それに対する防御的コード（move 不可・rename 不可・fold 不可などの各所でのガード）が必要になる。表示価値に対してコストが見合わない。
+4. **視覚的な曖昧さ**: Tree 上で thematic break を表示すると、同じ `---` に由来する（今回パーサが意図的に非対応とした）Setext 見出しとの区別がユーザーから見て付きにくく、かえって「見出しなのか区切りなのか」という誤解を招きかねない。
+
+**再検討のトリガー**: 上記は現時点での判断であり、恒久的な禁止ではない。ユーザーから具体的な表示要望（concrete request）が出た場合は、この方針を再検討する。
+
+（安全性検証そのものは `tests/thematicBreakSafety.test.ts` が固定している。本節は「表示するかどうか」という方針決定の記録であり、パーサ自体への変更は一切行っていない。）
