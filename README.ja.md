@@ -167,6 +167,9 @@ Apply は、ペインを開いた時点の元の対象範囲が変更されて�
 - **List row highlight style in Outline Tree**: ホバー時のみ（既定）、常時薄い背景、オフから選びます。
 - **Preview move target in Outline Tree**: move系コマンドが実際に操作したブロックを一瞬フラッシュ表示します。
 - **Show move result toast**: move系コマンド実行後に、何を移動したかを示す通知を表示します。
+- **Heading prefix in Outline Tree**（Generalタブ）: Outline Tree上でセクションの見出しテキストの前に、見出しレベルを示す任意のバッジを表示します。既定はオフ。「H1」〜「H6」、またはATX記号そのもの（「#」〜「######」）を選べます。見た目のみの設定で、見出しテキスト自体は変更しません。
+
+設定は **General** と **Composite blocks**（callout・blockquote・fenced code block・tableのOutline Tree表示を扱う）の2タブに分かれています。
 
 ### Style Settings で見た目をカスタマイズする
 
@@ -184,13 +187,13 @@ Apply は、ペインを開いた時点の元の対象範囲が変更されて�
 構造編集はMarkdownのテキストを変更します。通常のVaultバックアップを維持し、独自記法や複雑なMarkdownを含むノートでは、反映後に結果を確認してください。
 
 - Unified Outliner はアクティブなノート内だけで動作し、ノート間で内容を移動しません。
-- frontmatterはすべての構造操作の対象外です。Outline Tree View自体には見出し（と、有効にした場合はリスト項目）だけがノードとして表示され、callout・blockquote・fenced code block・tableはツリーノードとして表示されませんが、カーソルがそれらの内部にある場合はMove blockでブロック全体を移動できます。
-- calloutとMermaidブロックは、Outline Tree View、Partial Edit Pane、ドラッグ＆ドロップにおいては今後の明示的な設計対象です。これらの機能でそれらを移動対象として変更する前に、解析・編集の安全規則を定義します。
+- frontmatterはすべての構造操作の対象外です。
+- callout・blockquote・fenced code block（Mermaidを含む）・tableは、Outline Tree View上に読み取り専用ノードとして表示されます。見出しやリスト項目と並んで確認できますが、ツリーからこれらを直接移動・追加・削除することはまだできません。本文エディタ側でカーソルがそれらの内部にある場合は、Move blockでブロック全体を移動できます。
 - Partial Edit Pane は、読み込み後に元の対象領域が変更されていない場合にだけ適用されます。
 
 ## ロードマップ
 
-ポップアウトウィンドウ、パンくずナビゲーション、Outline Tree のインライン編集（リネーム）は既に利用できます（上記参照）。次の開発の中心は、ブロックの一部にフォーカスする、より充実したホイスト相当の表示と、部分木内で安全に行える編集範囲の拡張です。calloutとMermaidブロックについては、構造変更を有効にする前に明示的な解析・安全規則を整備します。
+ポップアウトウィンドウ、パンくずナビゲーション、Outline Tree のインライン編集（リネーム）、そしてcallout・blockquote・fenced code block・tableのOutline Tree上での読み取り専用表示は既に利用できます（上記参照）。次の開発の中心は、この読み取り専用表示を、これら同じ種別のブロックに対する移動・追加・削除まで拡張することと、ホイスト相当の編集の安全性検証の継続です。
 
 後続の方向性と、意図的に対象外とする機能は、簡潔な[ロードマップ](ROADMAP.ja.md)を参照してください。
 

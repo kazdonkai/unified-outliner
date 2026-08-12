@@ -167,6 +167,9 @@ Open **Settings → Community plugins → Unified Outliner** to configure:
 - **List row highlight style in Outline Tree**: hover-only (default), always-on subtle background, or off.
 - **Preview move target in Outline Tree**: briefly flash-highlights the block a move command just operated on.
 - **Show move result toast**: shows a short notice naming what was moved after a move command.
+- **Heading prefix in Outline Tree** (General tab): shows an optional badge before a section's heading text in the Outline Tree — off by default, or the heading level as "H1"–"H6" or the literal ATX marker count ("#"–"######"). Purely cosmetic.
+
+Settings are organized into two tabs, **General** and **Composite blocks** (the latter covers callout/blockquote/fenced-code/table display in the Outline Tree).
 
 ### Customizing appearance with Style Settings
 
@@ -184,13 +187,13 @@ Install the [Style Settings](https://github.com/community-archive/obsidian-style
 Structural changes alter Markdown text. Keep normal vault backups and review an edit if your note uses unfamiliar or highly customized Markdown.
 
 - Unified Outliner works within the active note only. It does not move content between notes.
-- Frontmatter is excluded from all structural operations. The Outline Tree View itself only ever shows headings (and, optionally, list items) as nodes — callouts, blockquotes, fenced code blocks, and tables are not shown as tree nodes, but Move block can still move one of these blocks as a whole when the cursor is inside it.
-- Callouts and Mermaid blocks remain an explicit future design area for the Outline Tree View, the Partial Edit Pane, and drag-and-drop. Their structural editing rules there will be defined before the plugin changes them as movable content in those workflows.
+- Frontmatter is excluded from all structural operations.
+- Callouts, blockquotes, fenced code blocks (including Mermaid), and tables are shown in the Outline Tree View as read-only nodes: you can see them alongside headings and list items, but the tree does not yet let you move, add, or delete them directly. Move block can still move one of these blocks as a whole when the cursor is inside it in the body editor.
 - A focused edit is applied only when the original target has not changed since it was loaded.
 
 ## Roadmap
 
-Pop-out windows, breadcrumb navigation, and Outline Tree inline rename are now available (see above). The next development focus is a more capable hoist-like view that focuses on part of a block, and carefully expanded subtree editing. Callouts and Mermaid blocks will be addressed through explicit parsing and safety rules before structural mutation is enabled.
+Pop-out windows, breadcrumb navigation, Outline Tree inline rename, and read-only Outline Tree display of callouts, blockquotes, fenced code blocks, and tables are now available (see above). The next development focus is extending that read-only display into full move/insert/delete support for those same block kinds, alongside continued safety validation of hoist-like editing.
 
 See the concise [roadmap](ROADMAP.md) for later directions and deliberate non-goals.
 
