@@ -31,6 +31,14 @@ import {
   ParsedDocument,
   SectionBlockNode,
 } from "../model/block";
+import { ComplexBlockInfo, ComplexBlockKind } from "../model/complexBlock";
+import {
+  compositeBlockDisplayLabel,
+  CompositeBlockInfo,
+  CompositeBlockMember,
+  CompositeBlockRule,
+  getCompositeBlockRuleById,
+} from "../model/compositeBlock";
 import { defaultTranslator, Translator } from "../i18n";
 
 export interface OutlineTreeSectionNode {
@@ -57,14 +65,107 @@ export interface OutlineTreeListNode {
   children: OutlineTreeNode[];
 }
 
-export type OutlineTreeNode = OutlineTreeSectionNode | OutlineTreeListNode;
+/**
+ * Phase 5D-0.3: a projected CompositeBlock (model/compositeBlock.ts) — a
+ * read-only grouping of two or more already-recognized member blocks (see
+ * buildCompositeNode below) into one collapsible Tree unit. `id` matches
+ * the underlying CompositeBlockInfo's id (stable only within one
+ * buildOutlineTree() call, same convention as every other node kind here).
+ * `label`/`prefix` are resolved ONCE at build time (from the matching
+ * CompositeBlockRule — see compositeBlockDisplayLabel), not re-derived by
+ * the view layer, so every consumer (rendering, tests, a future
+ * accessible-name computation) reads the exact same string.
+ */
+export interface OutlineTreeCompositeNode {
+  kind: "composite";
+  id: string;
+  ruleId: string;
+  label: string;
+  /** Decorative symbol (e.g. "◉"); "" means no prefix — renderers must not emit an empty decorative element for that case. */
+  prefix: string;
+  /** 0-based line of the FIRST member's own first line (jump target). */
+  line: number;
+  /** The composite's members, each projected via buildMemberNode below — never empty (a CompositeBlockInfo always has >= 2 members). */
+  children: OutlineTreeNode[];
+}
+
+/**
+ * Phase 5D-0.3: a read-only Tree row for a composite member that has no
+ * OTHER representation in the Outline Tree today — a callout or blockquote
+ * (model/complexBlock.ts's ComplexBlockInfo), which (unlike a list item)
+ * is never itself a BlockNode and so has no existing node kind of its own.
+ * This node kind exists ONLY as a CompositeBlock's child; nothing in this
+ * module ever creates one outside of buildMemberNode. It carries no
+ * structural-edit capability of any kind (see the Phase 5D-0.3 design memo
+ * §4/approval §1) — the Tree view must not attach rename/drag-drop/context-
+ * menu handling to it.
+ */
+export interface OutlineTreeComplexMemberNode {
+  kind: "complex-member";
+  /** Matches the underlying ComplexBlockInfo's id. */
+  id: string;
+  complexKind: ComplexBlockKind;
+  label: string;
+  /** 0-based line of the member's own first line (jump target). */
+  line: number;
+  /** Always [] — complex-block members are not decomposed further in this revision. */
+  children: OutlineTreeNode[];
+}
+
+export type OutlineTreeNode =
+  | OutlineTreeSectionNode
+  | OutlineTreeListNode
+  | OutlineTreeCompositeNode
+  | OutlineTreeComplexMemberNode;
 
 export interface BuildOutlineTreeOptions {
   /**
    * Include list items as tree nodes alongside sections. Default false,
-   * matching every prior phase's section-only tree.
+   * matching every prior phase's section-only tree. Does NOT gate
+   * CompositeBlock projection (see `composites` below) — a list item that
+   * is a matched composite's first member is shown regardless of this flag
+   * (Phase 5D-0.3 approval §4).
    */
   includeLists?: boolean;
+  /**
+   * Phase 5D-0.3: project CompositeBlocks (model/compositeBlock.ts) already
+   * matched against this EXACT `doc` — via parser/compositeBlocks.ts's
+   * matchCompositeBlocks, itself run over parser/complexBlocks.ts's
+   * scanComplexBlocks(doc) — as OutlineTreeCompositeNode/
+   * OutlineTreeComplexMemberNode entries. This function does no scanning or
+   * matching of its own (stays a pure projection over already-computed
+   * inputs, matching this whole module's existing contract); omit this
+   * option entirely (or pass `infos: []`) to get the pre-5D-0.3 tree
+   * unchanged. `complexBlocksById` must contain every ComplexBlockInfo any
+   * composite in `infos` references as a non-list member (typically
+   * `scanComplexBlocks(doc).blocks`, keyed by `.id`); `rules` resolves each
+   * composite's `ruleId` back to its prefix/display-label (typically
+   * whatever rule list was passed to matchCompositeBlocks itself).
+   *
+   * NOT every entry in `infos` is guaranteed to actually be projected: a
+   * composite whose members (or `ruleId`) don't cleanly resolve against
+   * THIS `doc`/`complexBlocksById`/`rules` is silently skipped and its
+   * members render as if it weren't a composite at all — see
+   * `isCompositeSafelyProjectable` below (2026-08-12 amendment §A). This is
+   * a no-op for the normal refresh() pipeline, where `infos` is always
+   * matched against the exact same inputs passed here.
+   */
+  composites?: {
+    infos: CompositeBlockInfo[];
+    complexBlocksById: Map<string, ComplexBlockInfo>;
+    rules: CompositeBlockRule[];
+  };
+  /** Translator for composite/complex-member display labels and fallback text. Defaults to English, same convention as every other optional `t` in this codebase. */
+  t?: Translator;
+}
+
+/** Threaded through the recursive build below only when `options.composites` is set — see BuildOutlineTreeOptions.composites's doc comment. */
+interface CompositeProjectionContext {
+  /** Keyed by a ListBlockNode's own id — set only for ids that are some CompositeBlockInfo's members[0]. */
+  firstMemberIdToComposite: Map<string, CompositeBlockInfo>;
+  complexBlocksById: Map<string, ComplexBlockInfo>;
+  rules: CompositeBlockRule[];
+  t: Translator;
 }
 
 export function isOutlineSectionNode(
@@ -77,6 +178,18 @@ export function isOutlineListNode(
   node: OutlineTreeNode
 ): node is OutlineTreeListNode {
   return node.kind === "list";
+}
+
+export function isOutlineCompositeNode(
+  node: OutlineTreeNode
+): node is OutlineTreeCompositeNode {
+  return node.kind === "composite";
+}
+
+export function isOutlineComplexMemberNode(
+  node: OutlineTreeNode
+): node is OutlineTreeComplexMemberNode {
+  return node.kind === "complex-member";
 }
 
 const LIST_ITEM_TEXT_RE = /^[ \t]*(?:[-*+]|\d+[.)])(?:[ \t]+(.*))?$/;
@@ -132,12 +245,162 @@ export function nodeDisplayLabel(
   return "";
 }
 
-function buildListNode(doc: ParsedDocument, item: ListBlockNode): OutlineTreeListNode {
+/**
+ * Phase 5D-0.3: strips a quote-prefixed line's leading `>` (+ following
+ * whitespace) for display. Intentionally NOT byte-identical to
+ * parser/complexBlocks.ts's own quote-handling regexes (this one only
+ * strips one level and is display-only — never used for boundary
+ * detection), so it lives here rather than being imported from that
+ * scanner-only module.
+ */
+function stripQuotePrefixForDisplay(line: string): string {
+  const m = line.match(/^[ \t]*>[ \t]?(.*)$/);
+  return (m?.[1] ?? line).trim();
+}
+
+const CALLOUT_TITLE_RE = /^[ \t]*>[ \t]?\[!([^\]]+)\]([+-])?[ \t]*(.*)$/;
+
+/**
+ * Phase 5D-0.3: display label for a complex-block composite member
+ * (callout/blockquote — see OutlineTreeComplexMemberNode's doc comment).
+ * A callout prefers its own title text (the part after `[!type]`, e.g.
+ * "> [!ocr] Scan 1" -> "Scan 1"); if there is none, or for any other quote-
+ * prefixed kind (currently only "blockquote" reaches this function in
+ * practice), the first non-empty body line with its `>` prefix stripped is
+ * used instead ("既存の block label 推定規則を再利用" — the amendment's
+ * instruction to reuse whatever heuristic already exists before falling
+ * back).
+ *
+ * If every candidate line is empty, the fallback is now KIND-SPECIFIC
+ * (2026-08-12 amendment §C) rather than one generic "(empty)" string: a
+ * callout falls back to `t("tree.complexMember.calloutFallback")`
+ * ("Callout"/"コールアウト") and a blockquote to
+ * `t("tree.complexMember.blockquoteFallback")` ("Quote"/"引用"), so an
+ * otherwise-unlabelable member row is still identifiable by KIND at a
+ * glance rather than showing a content-free "(empty)". Any other
+ * ComplexBlockKind that might reach this function in a future revision
+ * (none do today — only callout/blockquote are ever composite-block
+ * members) keeps the old generic `t("tree.emptyComplexMember")` fallback,
+ * consistent with this whole codebase's "resolve safely, never guess"
+ * policy for cases that aren't explicitly specified.
+ */
+export function complexMemberDisplayLabel(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo,
+  t: Translator = defaultTranslator
+): string {
+  const firstLine = doc.lines[info.range.startLine] ?? "";
+  // A callout's own header line (`> [!type] title`) has already been fully
+  // considered by the title check above — its remainder is either a real
+  // title (returned immediately) or empty. Re-running the generic body-line
+  // fallback over that SAME line would instead pick up the bracketed marker
+  // itself (stripQuotePrefixForDisplay("> [!ocr]") -> "[!ocr]", a non-empty
+  // string that is not real content), so the fallback loop for a callout
+  // starts one line AFTER its header; a blockquote has no such header line
+  // (every line is quote content), so it keeps starting at its own
+  // range.startLine as before.
+  let bodyStartLine = info.range.startLine;
+  if (info.kind === "callout") {
+    const m = firstLine.match(CALLOUT_TITLE_RE);
+    const title = m?.[3]?.trim();
+    if (title) return title;
+    bodyStartLine += 1;
+  }
+  for (let l = bodyStartLine; l <= info.range.endLine; l++) {
+    const body = stripQuotePrefixForDisplay(doc.lines[l] ?? "");
+    if (body.length > 0) return body;
+  }
+  if (info.kind === "callout") return t("tree.complexMember.calloutFallback");
+  if (info.kind === "blockquote") return t("tree.complexMember.blockquoteFallback");
+  return t("tree.emptyComplexMember");
+}
+
+/**
+ * Phase 5D-0.3: projects one CompositeBlockMember into an OutlineTreeNode.
+ * A "list"/"single-line-list" member reuses buildListNode verbatim (same
+ * id, same recursive nested-list handling, including further nested
+ * composites — see buildListNode's own composite check below), so it keeps
+ * every existing capability the Tree already gives a plain list row
+ * EXCEPT what the Phase 5D-0.3 approval explicitly withholds from composite
+ * children — see OutlineTreeView.ts's renderNode for where that
+ * read-only-while-inside-a-composite restriction is actually enforced (this
+ * function only builds the DATA node; it carries no interactivity of its
+ * own). Any other member kind (callout/blockquote today) becomes a
+ * read-only OutlineTreeComplexMemberNode with no children of its own.
+ */
+function buildMemberNode(
+  doc: ParsedDocument,
+  member: CompositeBlockMember,
+  ctx: CompositeProjectionContext
+): OutlineTreeNode {
+  if (member.kind === "list" || member.kind === "single-line-list") {
+    const node = doc.nodes.get(member.id);
+    if (node && isListNode(node)) return buildListNode(doc, node, ctx);
+  }
+  const info = ctx.complexBlocksById.get(member.id);
+  // 2026-08-12 self-review §9 論点5: `info` is falsy only for a member that
+  // isCompositeSafelyProjectable (buildOutlineTree, below) should already
+  // have rejected — this function is only ever reached via a composite that
+  // already passed that check, so this `member.id` raw-id fallback is not
+  // exercised by any input that reaches here through buildOutlineTree's own
+  // public entry point today. Left in place (not asserted/thrown) as
+  // defense-in-depth against a future refactor that calls buildCompositeNode/
+  // buildMemberNode from somewhere else without going through that gate.
+  const label = info ? complexMemberDisplayLabel(doc, info, ctx.t) : member.id;
+  return {
+    kind: "complex-member",
+    id: member.id,
+    complexKind: member.kind as ComplexBlockKind,
+    label,
+    line: member.range.startLine,
+    children: [],
+  };
+}
+
+/**
+ * Phase 5D-0.3: projects one CompositeBlockInfo into an OutlineTreeCompositeNode.
+ * `label`/`prefix` are resolved from the matching CompositeBlockRule in
+ * `ctx.rules` (the same rule list the caller passed to matchCompositeBlocks
+ * — see BuildOutlineTreeOptions.composites's doc comment); a `ruleId` with
+ * no matching rule (should not happen in practice — every CompositeBlockInfo
+ * was produced BY one of `ctx.rules`) falls back to the raw ruleId/no
+ * prefix rather than throwing, consistent with this whole codebase's
+ * "resolve safely" policy.
+ */
+function buildCompositeNode(
+  doc: ParsedDocument,
+  composite: CompositeBlockInfo,
+  ctx: CompositeProjectionContext
+): OutlineTreeCompositeNode {
+  const rule = getCompositeBlockRuleById(ctx.rules, composite.ruleId);
+  return {
+    kind: "composite",
+    id: composite.id,
+    ruleId: composite.ruleId,
+    label: rule ? compositeBlockDisplayLabel(rule, ctx.t) : composite.ruleId,
+    prefix: rule?.prefix ?? "",
+    line: composite.range.startLine,
+    children: composite.members.map((m) => buildMemberNode(doc, m, ctx)),
+  };
+}
+
+function buildListNode(
+  doc: ParsedDocument,
+  item: ListBlockNode,
+  ctx?: CompositeProjectionContext
+): OutlineTreeListNode {
   const children: OutlineTreeNode[] = [];
   for (const id of item.childIds) {
     const child = doc.nodes.get(id);
     // Nested list items only — a list item never owns a section.
-    if (child && isListNode(child)) children.push(buildListNode(doc, child));
+    if (!child || !isListNode(child)) continue;
+    // Phase 5D-0.3: a nested list item that is itself some composite's
+    // first member is projected as that composite instead of a plain list
+    // row — same substitution buildChildren applies at the root/section
+    // level below, mirrored here so a composite can be reached at any
+    // nesting depth once its own ancestor chain is already visible.
+    const composite = ctx?.firstMemberIdToComposite.get(child.id);
+    children.push(composite ? buildCompositeNode(doc, composite, ctx!) : buildListNode(doc, child, ctx));
   }
   return {
     kind: "list",
@@ -152,7 +415,8 @@ function buildListNode(doc: ParsedDocument, item: ListBlockNode): OutlineTreeLis
 function buildSectionNode(
   doc: ParsedDocument,
   section: SectionBlockNode,
-  includeLists: boolean
+  includeLists: boolean,
+  ctx?: CompositeProjectionContext
 ): OutlineTreeSectionNode {
   return {
     kind: "section",
@@ -160,7 +424,7 @@ function buildSectionNode(
     headingText: section.headingText,
     headingLevel: section.headingLevel,
     line: section.range.startLine,
-    children: buildChildren(doc, section.childIds, includeLists),
+    children: buildChildren(doc, section.childIds, includeLists, ctx),
   };
 }
 
@@ -172,11 +436,21 @@ function buildSectionNode(
  * construction — parseDocument.ts only ever pushes root items into a
  * section's childIds / topLevelIds; nested items live under their parent
  * item's own childIds instead (see buildListNode).
+ *
+ * Phase 5D-0.3: a list item that is some composite's first member is
+ * projected as that OutlineTreeCompositeNode INSTEAD of a plain list row,
+ * regardless of `includeLists` (approval §4 — composite projection is
+ * controlled solely by each CompositeBlockRule's own enabled flag, which
+ * already determined whether `ctx.firstMemberIdToComposite` even has an
+ * entry for this id; this function does not re-check settings itself). A
+ * plain (non-composite) list item still follows `includeLists` exactly as
+ * before.
  */
 function buildChildren(
   doc: ParsedDocument,
   ids: string[],
-  includeLists: boolean
+  includeLists: boolean,
+  ctx?: CompositeProjectionContext
 ): OutlineTreeNode[] {
   const withLine: Array<{ node: OutlineTreeNode; line: number }> = [];
   for (const id of ids) {
@@ -184,12 +458,21 @@ function buildChildren(
     if (!child) continue;
     if (isSectionNode(child)) {
       withLine.push({
-        node: buildSectionNode(doc, child, includeLists),
+        node: buildSectionNode(doc, child, includeLists, ctx),
         line: child.range.startLine,
       });
-    } else if (includeLists && isListNode(child)) {
+      continue;
+    }
+    if (!isListNode(child)) continue;
+    const composite = ctx?.firstMemberIdToComposite.get(child.id);
+    if (composite) {
       withLine.push({
-        node: buildListNode(doc, child),
+        node: buildCompositeNode(doc, composite, ctx!),
+        line: composite.range.startLine,
+      });
+    } else if (includeLists) {
+      withLine.push({
+        node: buildListNode(doc, child, ctx),
         line: child.range.startLine,
       });
     }
@@ -199,16 +482,107 @@ function buildChildren(
 }
 
 /**
+ * 2026-08-12 amendment §A: "同一 section 内であっても、member が安全に一つの
+ * 親投影位置を共有できない場合は、CompositeBlock を Tree に投影しない。基本
+ * block 表示へ安全にフォールバックすること。" A CompositeBlock's Tree
+ * position is entirely inherited from its FIRST member (see buildChildren/
+ * buildListNode's substitution — the composite replaces whatever tree slot
+ * the first member would otherwise occupy), so that inheritance is only
+ * well-defined when:
+ *
+ *   1. the first member is itself a list kind (only a ListBlockNode has an
+ *      independent Tree parent/position to inherit at all — a callout or
+ *      blockquote has none, see OutlineTreeComplexMemberNode's doc comment),
+ *      AND it resolves in `doc.nodes` to an actual ListBlockNode; and
+ *   2. EVERY member (not just the first) resolves in its respective source
+ *      — a list/single-line-list member via `doc.nodes`, any other member
+ *      via `complexBlocksById` — since buildMemberNode has no safe rendering
+ *      for a member id that resolves to nothing; and
+ *   3. `info.ruleId` itself resolves in `rules` — a composite whose rule
+ *      can't be found would otherwise still get projected by
+ *      buildCompositeNode via its own (necessarily raw-id/no-prefix)
+ *      fallback, which is a degraded-but-rendered composite, not the
+ *      "fall back to normal per-member display" this amendment asks for.
+ *      2026-08-12 self-review §9 論点2: originally this function only
+ *      checked member resolution; ruleId resolution is included too so
+ *      every failure mode this function is responsible for goes through
+ *      the SAME "skip projecting entirely" fallback, not two different
+ *      degradation behaviors depending on which part of the composite is
+ *      unresolvable.
+ *
+ * In the real refresh() pipeline (view/OutlineTreeView.ts) this can never
+ * actually fail: `infos`/`complexBlocksById`/`rules` are always derived from
+ * the exact same `doc`/`complexScan`/`enabledRules` in the same refresh(),
+ * so every member and every ruleId is guaranteed to resolve. This check
+ * exists as a defensive INVARIANT for callers that pass mismatched inputs
+ * (e.g. a stale `infos` array from a previous parse, or a `rules` list that
+ * doesn't match the one `infos` was matched against) — matching this whole
+ * codebase's "never guess on an uncertain boundary" policy (see
+ * parser/complexBlocks.ts's "ambiguous"/"unsupported" editability, applied
+ * here at the projection layer instead of the recognition layer). A
+ * composite that fails this check is simply left out of
+ * `firstMemberIdToComposite` entirely — every one of its members then falls
+ * back to whatever it would render as on its own (a plain list row per
+ * `includeLists`, or — for a callout/blockquote — no Tree representation at
+ * all, exactly as if Phase 5D-0.3 didn't exist for that member).
+ */
+function isCompositeSafelyProjectable(
+  doc: ParsedDocument,
+  info: CompositeBlockInfo,
+  complexBlocksById: Map<string, ComplexBlockInfo>,
+  rules: CompositeBlockRule[]
+): boolean {
+  const first = info.members[0];
+  if (!first || (first.kind !== "list" && first.kind !== "single-line-list")) return false;
+  if (!getCompositeBlockRuleById(rules, info.ruleId)) return false;
+
+  // 2026-08-12 self-review §9 論点1: the first member's resolvability is
+  // checked ONCE here, as part of the same loop that checks every other
+  // member — it used to also be checked separately (redundantly) before
+  // this loop; `index === 0` covers exactly the same case the old
+  // standalone pre-check did (list/single-line-list -> must resolve via
+  // `doc.nodes` to an actual ListBlockNode), just without doing that
+  // specific lookup twice.
+  for (const member of info.members) {
+    if (member.kind === "list" || member.kind === "single-line-list") {
+      const node = doc.nodes.get(member.id);
+      if (!node || !isListNode(node)) return false;
+    } else if (!complexBlocksById.has(member.id)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Top-level tree nodes, in document order. `doc.topLevelIds` mixes
  * pre-heading root list items with top-level sections; with `includeLists`
  * off (default) this filters to sections only, exactly like every prior
- * phase.
+ * phase (composite-matched list items are the one exception — see
+ * `buildChildren`'s doc comment).
  */
 export function buildOutlineTree(
   doc: ParsedDocument,
   options?: BuildOutlineTreeOptions
 ): OutlineTreeNode[] {
-  return buildChildren(doc, doc.topLevelIds, options?.includeLists ?? false);
+  const t = options?.t ?? defaultTranslator;
+  let ctx: CompositeProjectionContext | undefined;
+  if (options?.composites && options.composites.infos.length > 0) {
+    const { complexBlocksById, rules } = options.composites;
+    const firstMemberIdToComposite = new Map<string, CompositeBlockInfo>();
+    for (const info of options.composites.infos) {
+      if (!isCompositeSafelyProjectable(doc, info, complexBlocksById, rules)) continue;
+      const first = info.members[0];
+      firstMemberIdToComposite.set(first.id, info);
+    }
+    ctx = {
+      firstMemberIdToComposite,
+      complexBlocksById,
+      rules: options.composites.rules,
+      t,
+    };
+  }
+  return buildChildren(doc, doc.topLevelIds, options?.includeLists ?? false, ctx);
 }
 
 /** Flatten a tree back into a list, depth-first, document order. */
@@ -222,4 +596,33 @@ export function flattenOutlineTree(tree: OutlineTreeNode[]): OutlineTreeNode[] {
   };
   walk(tree);
   return out;
+}
+
+/**
+ * 2026-08-12 amendment §A/§C: every node id that must render read-only in
+ * the Outline Tree — a CompositeBlock's own row, every one of its member
+ * rows (list item / callout / blockquote), and — recursively — any
+ * further-nested list item under one of those member rows. Extracted as a
+ * pure, Obsidian-free function over the already-built tree (rather than
+ * threaded through view/OutlineTreeView.ts's renderNode as a boolean
+ * parameter re-derived during each recursive render call) so the exact same
+ * "which rows are read-only" decision that gates rename/drag-drop/context-
+ * menu/mobile-long-press-menu attachment there is ALSO independently
+ * unit-testable without an Obsidian runtime — see this module's own tests
+ * for the read-only-propagation guarantees this underpins (a composite
+ * member's read-only status must not depend on where in a nested list
+ * hierarchy the composite happens to sit).
+ */
+export function collectReadOnlyOutlineNodeIds(tree: OutlineTreeNode[]): Set<string> {
+  const readOnlyIds = new Set<string>();
+  const walk = (nodes: OutlineTreeNode[], inheritedReadOnly: boolean): void => {
+    for (const node of nodes) {
+      const readOnly =
+        inheritedReadOnly || node.kind === "composite" || node.kind === "complex-member";
+      if (readOnly) readOnlyIds.add(node.id);
+      walk(node.children, readOnly);
+    }
+  };
+  walk(tree, false);
+  return readOnlyIds;
 }

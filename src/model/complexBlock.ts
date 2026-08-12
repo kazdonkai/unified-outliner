@@ -52,8 +52,24 @@ import { LineRange } from "./block";
  * "mermaid" is still reported as kind "fenced-code", with the info string
  * available via ComplexBlockInfo.infoString for a future phase that wants
  * to special-case it. Phase 5C does not parse or validate Mermaid syntax.
+ *
+ * Phase 5D-0 (2026-08-12) adds "thematic-break": a single line of 3+ of the
+ * same character (`-`, `*`, or `_`, optionally space-separated, up to 3
+ * leading spaces — the standard CommonMark thematic-break shape). See
+ * parser/complexBlocks.ts's scanThematicBreakBlocks doc comment for why a
+ * `-`-only run immediately below a plain text line is deliberately NOT
+ * reported here (Setext heading underline ambiguity) even though
+ * parser/parseDocument.ts itself still does not parse Setext headings at
+ * all — see docs/phase5d0_basic-block-extension-and-composite-block-spec.md
+ * §2.2.
  */
-export type ComplexBlockKind = "callout" | "blockquote" | "fenced-code" | "table" | "paragraph";
+export type ComplexBlockKind =
+  | "callout"
+  | "blockquote"
+  | "fenced-code"
+  | "table"
+  | "paragraph"
+  | "thematic-break";
 
 /**
  * Editability classification for a recognized (or attempted) complex block.

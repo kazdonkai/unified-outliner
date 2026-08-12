@@ -87,6 +87,8 @@ inline rename（§2.2）で確立した rename トリガー層に、モバイル
 - **fenced-code の境界判定に関する補足**: `resolver/resolveCurrentBlock.ts` は元々、fenced code block 内部の行をカーソル解決から一律除外していた（`section`/`list` の誤認識を防ぐための既存ガード）。本チケットはこのガード自体は変更せず、`resolveMoveTarget.ts` 側でその手前に「codeBlockLines なら先に scanner へ回す」という迂回路を追加しただけである。詳細は同ファイルの `resolveMoveUnit` の doc comment を参照。
 - **兄弟探索は scanner の対象外の概念**: paragraph・複合ブロックの「兄弟」を探す `findComplexSiblingTarget` は、scanner が返す `ComplexBlockInfo.parentId`（同じ section、あるいは同じ list item に属するという既存の関係）をそのまま使うのみで、scanner 自体には新しい概念を追加していない。
 
+**2026-08-12 追記**: `ComplexBlockKind` への `thematic-break` 追加、および本ドキュメント §6 が「両者を横断する新しい型」として保留していたのとは別の第三の概念——複数の基本/複合ブロックをユーザー定義規則で束ねる `CompositeBlock`——の認識ロジック・設定 UI は、Phase 5D-0 として着手・実装した。詳細は `docs/phase5d0_basic-block-extension-and-composite-block-spec.md` および `docs/統合実装ロードマップ_2026-08-05.md` §3.6 を参照。Tree への実際の表示統合（本ドキュメント §3 の項目群）は Phase 5D-0 にも含まれておらず、引き続き未着手のまま残っている。
+
 ## 3. Phase 5D 以降に持ち越す事項（本ドキュメントでは実装しない）
 
 以下は Phase 5C の scanner / 診断基盤には一切含まれず、Phase 5D 以降で個別に設計・承認を経て実装する。

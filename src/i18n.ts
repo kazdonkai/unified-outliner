@@ -112,6 +112,19 @@ const en = {
   "settings.showMoveResultToast.desc":
     "Show a short notice naming what was moved (paragraph / list item / section) after Move block or Move section.",
 
+  // ---- Phase 5D-0 / 5D-0.3: CompositeBlock rules -------------------------
+  "settings.compositeBlocksHeading": "Composite blocks",
+  "settings.compositeBlocksIntro":
+    "Built-in rules that group an immediately-adjacent list item + callout/blockquote (e.g. an image + its OCR transcript) into one collapsible unit in the Outline Tree. Disabling a rule here stops it from being recognized and shown as a group — your Markdown is never changed, and its member list item / callout / blockquote simply appear ungrouped again, following their own normal display settings.",
+  "settings.compositeBlockImageOcr.name": "Image + OCR",
+  "settings.compositeBlockImageOcr.desc":
+    "Group a one-line list item immediately followed by a callout, with no blank line between them.",
+  "settings.compositeBlockImageQuote.name": "Image + Quote",
+  "settings.compositeBlockImageQuote.desc":
+    "Group a one-line list item immediately followed by a blockquote, with no blank line between them.",
+  "compositeBlock.imageOcr.displayName": "Image + OCR",
+  "compositeBlock.imageQuote.displayName": "Image + Quote",
+
   // ---- Commands (Command Palette names) ---------------------------------
   "command.moveBlockUp": "Move block up (minimal safe unit at cursor)",
   "command.moveBlockDown": "Move block down (minimal safe unit at cursor)",
@@ -154,6 +167,10 @@ const en = {
   "unit.codeBlock": "code block",
   "unit.table": "table",
   "unit.paragraph": "paragraph",
+  "unit.thematicBreak": "thematic break",
+  "tree.emptyComplexMember": "(empty)",
+  "tree.complexMember.calloutFallback": "Callout",
+  "tree.complexMember.blockquoteFallback": "Quote",
 
   // ---- Outline Tree View --------------------------------------------------
   "tree.viewName": "Unified Outliner: Outline",
@@ -316,6 +333,19 @@ const ja: Record<TranslationKey, string> = {
   "settings.showMoveResultToast.desc":
     "Move block または Move section の実行後、何が移動したか（段落／リスト項目／セクション）を短い通知で表示する。",
 
+  // ---- Phase 5D-0 / 5D-0.3: CompositeBlock 規則 --------------------------
+  "settings.compositeBlocksHeading": "複合ブロック（CompositeBlock）",
+  "settings.compositeBlocksIntro":
+    "空行を挟まず隣接する list項目 + callout/blockquote（例: 画像 + その OCR 転記）を、アウトラインツリー上で1つの折りたたみ可能な単位としてまとめる組み込み規則。ここで無効化すると、まとめて表示するのをやめるだけで、Markdown 自体は一切変更されない — 対象だった list項目・callout・blockquote は、それぞれ通常の表示設定に従って個別に表示される。",
+  "settings.compositeBlockImageOcr.name": "画像+OCR",
+  "settings.compositeBlockImageOcr.desc":
+    "1行で完結する list項目の直後に、空行を挟まず callout が続く場合にまとめて表示する。",
+  "settings.compositeBlockImageQuote.name": "画像+引用",
+  "settings.compositeBlockImageQuote.desc":
+    "1行で完結する list項目の直後に、空行を挟まず blockquote が続く場合にまとめて表示する。",
+  "compositeBlock.imageOcr.displayName": "画像+OCR",
+  "compositeBlock.imageQuote.displayName": "画像+引用",
+
   // ---- コマンド（コマンドパレットの表示名） ------------------------------
   "command.moveBlockUp": "ブロックを上へ移動（カーソル位置の最小安全単位）",
   "command.moveBlockDown": "ブロックを下へ移動（カーソル位置の最小安全単位）",
@@ -358,6 +388,10 @@ const ja: Record<TranslationKey, string> = {
   "unit.codeBlock": "コードブロック",
   "unit.table": "テーブル",
   "unit.paragraph": "段落",
+  "unit.thematicBreak": "区切り線",
+  "tree.emptyComplexMember": "（空）",
+  "tree.complexMember.calloutFallback": "コールアウト",
+  "tree.complexMember.blockquoteFallback": "引用",
 
   // ---- アウトラインツリービュー -------------------------------------------
   "tree.viewName": "Unified Outliner: アウトライン",

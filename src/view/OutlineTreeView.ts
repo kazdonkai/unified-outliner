@@ -173,11 +173,17 @@ import {
 } from "../model/block";
 import {
   buildOutlineTree,
+  collectReadOnlyOutlineNodeIds,
+  isOutlineCompositeNode,
+  isOutlineComplexMemberNode,
   isOutlineListNode,
   isOutlineSectionNode,
   listItemDisplayText,
   OutlineTreeNode,
 } from "../tree/buildOutlineTree";
+import { scanComplexBlocks } from "../parser/complexBlocks";
+import { matchCompositeBlocks } from "../parser/compositeBlocks";
+import { getEnabledCompositeBlockRules } from "../settingsDefaults";
 import { resolveHighlightedNodeId } from "../tree/resolveHighlightedSectionId";
 import {
   buildNodeByIdMap,
@@ -290,6 +296,22 @@ export class OutlineTreeView extends ItemView {
   private selectedId: string | null = null;
   private nodeById: Map<string, OutlineTreeNode> = new Map();
   private parentIdById: Map<string, string | null> = new Map();
+  // Phase 5D-0.3 (2026-08-12 amendment §A/§E): every node id that must
+  // render/behave read-only — a CompositeBlock's own row, every one of its
+  // member rows, and any further-nested list item under one of those member
+  // rows. Rebuilt alongside currentTree/nodeById in refresh() via the pure
+  // tree/buildOutlineTree.ts#collectReadOnlyOutlineNodeIds (see that
+  // function's own doc comment for why this replaced an earlier
+  // insideComposite boolean threaded through renderNode's recursive calls).
+  // Consulted both by renderNode (to skip attaching rename/drag-drop/
+  // context-menu/mobile-long-press listeners) AND by the structural-command
+  // entry points themselves (beginRenameForNode, showStructureCommandMenu,
+  // showListCommandMenu) as a second, defense-in-depth check — so even a
+  // call that bypasses the DOM listeners entirely (e.g. the F2 keyboard
+  // shortcut acting on whatever is currently selectedId) still safely
+  // refuses rather than reaching a structural-edit code path for a
+  // composite/member node.
+  private readOnlyNodeIds: Set<string> = new Set();
   // Phase 4E: fold-state persistence. currentFilePath is the vault-
   // relative path of the note this refresh's tree was built from (null
   // when there's no active note) — the key fold state is persisted under
@@ -481,6 +503,7 @@ export class OutlineTreeView extends ItemView {
       this.selectedId = null;
       this.nodeById = new Map();
       this.parentIdById = new Map();
+      this.readOnlyNodeIds = new Set();
       this.currentFilePath = null;
       this.nodeIdentityById = new Map();
       this.collapsedIds = new Set();
@@ -492,9 +515,33 @@ export class OutlineTreeView extends ItemView {
     const text = view.editor.getValue();
     const doc: ParsedDocument = parseDocument(text);
     this.currentDoc = doc;
-    this.currentTree = buildOutlineTree(doc, { includeLists });
+
+    // Phase 5D-0.3: CompositeBlock projection (see buildOutlineTree.ts's
+    // BuildOutlineTreeOptions.composites doc comment). Each rule's own
+    // `enabled` flag is the ONLY switch for composite projection (approval
+    // §4 — no separate showCompositeBlocksInOutline toggle), so when every
+    // rule is disabled this skips scanComplexBlocks/matchCompositeBlocks
+    // entirely rather than paying their cost on every refresh for users who
+    // don't use the feature at all.
+    const enabledRules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const composites =
+      enabledRules.length > 0
+        ? (() => {
+            const complexScan = scanComplexBlocks(doc);
+            const infos = matchCompositeBlocks(doc, complexScan, enabledRules);
+            const complexBlocksById = new Map(complexScan.blocks.map((b) => [b.id, b]));
+            return { infos, complexBlocksById, rules: enabledRules };
+          })()
+        : undefined;
+
+    this.currentTree = buildOutlineTree(doc, {
+      includeLists,
+      composites,
+      t: (key, vars) => this.plugin.t(key, vars),
+    });
     this.nodeById = buildNodeByIdMap(this.currentTree);
     this.parentIdById = buildParentIdMap(this.currentTree);
+    this.readOnlyNodeIds = collectReadOnlyOutlineNodeIds(this.currentTree);
 
     // Phase 4E: file path is the fold-state persistence key; null (no
     // backing file — practically never for a MarkdownView, but Editor
@@ -818,6 +865,19 @@ export class OutlineTreeView extends ItemView {
     // conflicting "current row" marker.
     const isSelected = this.hasFocus && node.id === this.selectedId;
     const isSection = isOutlineSectionNode(node);
+    const isComposite = isOutlineCompositeNode(node);
+    const isComplexMember = isOutlineComplexMemberNode(node);
+    // Phase 5D-0.3 approval §1: a CompositeBlock's row itself, EVERY one of
+    // its descendant rows (list items nested inside it, callout/blockquote
+    // members), and — transitively — any FURTHER nested list item under one
+    // of those member list items, all get none of the write-back operations
+    // below (rename / drag & drop / context menu / mobile long-press menu).
+    // 2026-08-12 amendment: this used to be threaded down through the
+    // recursive render call as an `insideComposite` boolean parameter;
+    // that's now precomputed ONCE per refresh() over the whole tree (see
+    // this.readOnlyNodeIds's own doc comment — tree/buildOutlineTree.ts's
+    // collectReadOnlyOutlineNodeIds), so this is now a plain lookup.
+    const readOnly = this.readOnlyNodeIds.has(node.id);
 
     const itemEl = parentEl.createDiv({
       cls: "tree-item" + (isCollapsed ? " is-collapsed" : ""),
@@ -839,12 +899,26 @@ export class OutlineTreeView extends ItemView {
     // .unified-outliner-tree-root, which key off this attribute combined
     // with the settings-driven mode attributes applyTreeKindHighlightSettings
     // sets on the root. No color values live in this file — see that
-    // method's own doc comment for why.
-    selfEl.setAttribute("data-kind", isSection ? "section" : "list");
+    // method's own doc comment for why. Phase 5D-0.3: now just node.kind
+    // itself (previously an isSection ternary) — equivalent for the
+    // section/list kinds those existing selectors key off, and additionally
+    // gives composite/complex-member rows their own accurate value (no CSS
+    // selector keys off those two yet, so this is a no-op behavior change
+    // for them today, but keeps this attribute truthful).
+    selfEl.setAttribute("data-kind", node.kind);
     selfEl.setAttribute("role", "treeitem");
     selfEl.setAttribute("aria-selected", isSelected ? "true" : "false");
     if (hasChildren) {
       selfEl.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    }
+    // 2026-08-12 amendment §A: an EXPLICIT read-only marker (not just the
+    // absence of rename/drag/context-menu listeners below) — both a
+    // standard ARIA state assistive tech can announce, and a stable
+    // `data-*` hook this row's read-only-ness doesn't depend on inspecting
+    // which listeners happen to be attached.
+    if (readOnly) {
+      selfEl.setAttribute("aria-readonly", "true");
+      selfEl.setAttribute("data-readonly", "true");
     }
     if (isSelected) {
       this.treeRootEl.setAttribute("aria-activedescendant", selfEl.id);
@@ -881,18 +955,27 @@ export class OutlineTreeView extends ItemView {
     // would both toggle-fold twice (a harmless no-op, click fires per each
     // of the two clicks) AND open a rename, which double-clicking a fold
     // arrow has no reason to do.
-    selfEl.addEventListener("dblclick", (evt) => {
-      if (collapseEl.contains(evt.target as Node)) return;
-      evt.stopPropagation();
-      // Re-resolves the row's CURRENT DOM elements fresh by nodeId (see
-      // beginRenameForNode's own doc comment) rather than closing over
-      // selfEl/innerEl from this render pass directly: a dblclick's two
-      // constituent clicks each already run this row's own "click" handler
-      // below (jumpToLine / mobile tap logic), which can itself trigger a
-      // re-render before "dblclick" is dispatched, leaving any closed-over
-      // reference pointing at an already-detached previous render pass.
-      this.beginRenameForNode(node.id);
-    });
+    // Phase 5D-0.3 approval §1: composite/complex-member rows, and any list
+    // row currently nested inside a composite, never get inline rename —
+    // beginRenameForNode itself already guards node.kind, but a member LIST
+    // row still has kind "list" (it's a plain, reused list node — see
+    // buildOutlineTree.ts's buildMemberNode), so that guard alone wouldn't
+    // catch it; skipping the listener entirely here is what actually
+    // enforces "read-only while inside a composite" for that case.
+    if (!readOnly) {
+      selfEl.addEventListener("dblclick", (evt) => {
+        if (collapseEl.contains(evt.target as Node)) return;
+        evt.stopPropagation();
+        // Re-resolves the row's CURRENT DOM elements fresh by nodeId (see
+        // beginRenameForNode's own doc comment) rather than closing over
+        // selfEl/innerEl from this render pass directly: a dblclick's two
+        // constituent clicks each already run this row's own "click" handler
+        // below (jumpToLine / mobile tap logic), which can itself trigger a
+        // re-render before "dblclick" is dispatched, leaving any closed-over
+        // reference pointing at an already-detached previous render pass.
+        this.beginRenameForNode(node.id);
+      });
+    }
 
     if (isOutlineSectionNode(node)) {
       const innerEl = selfEl.createDiv({
@@ -933,6 +1016,32 @@ export class OutlineTreeView extends ItemView {
       // tooltip via styles.css's .unified-outliner-list-tooltip rule,
       // without touching Obsidian's tooltip styling anywhere else.
       setTooltip(innerEl, tooltipText, { classes: ["unified-outliner-list-tooltip"] });
+    } else if (isComposite) {
+      // Phase 5D-0.3 approval §5: `node.prefix` must be a meaningful,
+      // model-level string rendered via a dedicated <span> that stays part
+      // of the label's semantic content (visible in textContent — so
+      // copy/paste and the default accessible-name computation both include
+      // it — not a CSS ::before decoration), while an EMPTY prefix must not
+      // leave behind a stray empty element or stray whitespace. Putting the
+      // trailing separator space INSIDE the prefix span's own text (rather
+      // than as a sibling text node) is what achieves that: the span is
+      // simply skipped altogether when there's no prefix, with nothing else
+      // to clean up.
+      const innerEl = selfEl.createDiv({
+        cls: "tree-item-inner unified-outliner-composite-text",
+      });
+      if (node.prefix.length > 0) {
+        innerEl.createSpan({
+          cls: "unified-outliner-composite-prefix",
+          text: `${node.prefix} `,
+        });
+      }
+      innerEl.createSpan({ cls: "unified-outliner-composite-label", text: node.label });
+    } else if (isComplexMember) {
+      const innerEl = selfEl.createDiv({
+        cls: "tree-item-inner unified-outliner-complex-member-text",
+      });
+      innerEl.setText(node.label);
     }
 
     selfEl.addEventListener("click", () => {
@@ -962,7 +1071,7 @@ export class OutlineTreeView extends ItemView {
       // desktop click on an already-selected row keeps doing exactly what
       // it always did (re-preview into the body, harmless no-op selection
       // change).
-      if (Platform.isMobile && this.hasFocus && node.id === this.selectedId) {
+      if (!readOnly && Platform.isMobile && this.hasFocus && node.id === this.selectedId) {
         this.beginRenameForNode(node.id);
         return;
       }
@@ -990,12 +1099,15 @@ export class OutlineTreeView extends ItemView {
     // Partial Edit Pane entry point (showListCommandMenu below) — rather
     // than folding list support into showStructureCommandMenu's much
     // larger menu.
-    if (isOutlineSectionNode(node)) {
+    // Phase 5D-0.3 approval §1: no structure context menu for composite/
+    // complex-member rows, and none for a list row currently inside a
+    // composite either (readOnly covers all three).
+    if (!readOnly && isOutlineSectionNode(node)) {
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showStructureCommandMenu(evt, node.id);
       });
-    } else if (isOutlineListNode(node)) {
+    } else if (!readOnly && isOutlineListNode(node)) {
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showListCommandMenu(evt, node.id);
@@ -1020,7 +1132,16 @@ export class OutlineTreeView extends ItemView {
     // Entirely additive: every listener here runs ALONGSIDE the click/
     // contextmenu listeners above, never replacing them, so nothing about
     // desktop's mouse-driven click/dblclick/contextmenu behavior changes.
-    if (Platform.isMobile) {
+    //
+    // Phase 5D-0.3 approval §1: no long-press menu for composite/
+    // complex-member rows or a list row inside a composite — skip attaching
+    // this whole gesture layer for them rather than relying on the
+    // timeout callback's isOutlineSectionNode/isOutlineListNode branches to
+    // silently no-op (readOnly already implies that no-op today, but not
+    // attaching the listeners at all is what actually matches the approval's
+    // "付与しない" wording, and avoids the timer/suppressNextTapClick
+    // machinery running for a gesture that can never open anything).
+    if (!readOnly && Platform.isMobile) {
       let longPressTimerId: number | null = null;
       let longPressStart: { x: number; y: number } | null = null;
 
@@ -1117,21 +1238,32 @@ export class OutlineTreeView extends ItemView {
     // its equivalent), so simply never marking a row draggable on mobile
     // removes the competing gesture recognizer entirely, leaving the
     // pointerdown/pointermove/pointerup timer above uncontested.
-    if (!Platform.isMobile) {
-      selfEl.setAttribute("draggable", "true");
+    // Phase 5D-0.3 approval §1: composite/complex-member rows, and any list
+    // row currently inside a composite, are neither a drag SOURCE nor a
+    // drop TARGET — skipping every listener here (not just `draggable`)
+    // means dragover/drop simply never fire on this row at all, which is
+    // what actually makes it inert as a drop target too.
+    if (!readOnly) {
+      if (!Platform.isMobile) {
+        selfEl.setAttribute("draggable", "true");
+      }
+      selfEl.addEventListener("dragstart", (evt) =>
+        this.handleDragStart(evt, node.id, itemEl)
+      );
+      selfEl.addEventListener("dragover", (evt) => this.handleDragOver(evt, node.id, selfEl));
+      selfEl.addEventListener("dragleave", () => this.handleDragLeave(selfEl));
+      selfEl.addEventListener("drop", (evt) => this.handleDrop(evt, node.id, selfEl));
+      selfEl.addEventListener("dragend", () => this.handleDragEnd());
     }
-    selfEl.addEventListener("dragstart", (evt) =>
-      this.handleDragStart(evt, node.id, itemEl)
-    );
-    selfEl.addEventListener("dragover", (evt) => this.handleDragOver(evt, node.id, selfEl));
-    selfEl.addEventListener("dragleave", () => this.handleDragLeave(selfEl));
-    selfEl.addEventListener("drop", (evt) => this.handleDrop(evt, node.id, selfEl));
-    selfEl.addEventListener("dragend", () => this.handleDragEnd());
 
     if (hasChildren && !isCollapsed) {
       const childrenEl = itemEl.createDiv({ cls: "tree-item-children" });
       childrenEl.setAttribute("role", "group");
       for (const child of node.children) {
+        // 2026-08-12 amendment: read-only-ness for a composite's descendants
+        // is now precomputed in this.readOnlyNodeIds (see refresh()), not
+        // threaded through this recursive call — a plain, unparameterized
+        // render.
         this.renderNode(child, childrenEl);
       }
     }
@@ -1518,6 +1650,14 @@ export class OutlineTreeView extends ItemView {
    * disagree (e.g. the note changed in between).
    */
   private showStructureCommandMenu(evt: MouseEvent, sectionId: string): void {
+    // 2026-08-12 amendment §E (defense in depth): renderNode's own
+    // `!readOnly` gate already keeps this from ever being wired to a
+    // composite/complex-member/composite-member row's contextmenu/long-press
+    // listener in the first place; this second check is what refuses safely
+    // even if some future caller reaches this method directly with such an
+    // id (e.g. a keyboard shortcut added later that isn't as careful as
+    // handleTreeKeyDown is today).
+    if (this.readOnlyNodeIds.has(sectionId)) return;
     const doc = this.currentDoc;
     const node = doc?.nodes.get(sectionId);
     if (!doc || !node) return;
@@ -1664,6 +1804,12 @@ export class OutlineTreeView extends ItemView {
    * node-only item here would just always render disabled.
    */
   private showListCommandMenu(evt: MouseEvent, listId: string): void {
+    // 2026-08-12 amendment §E (defense in depth) — see the identical guard
+    // at the top of showStructureCommandMenu above for the full rationale.
+    // Here it also specifically covers a member list row (kind "list" but
+    // currently inside a composite), which the section/list KIND checks
+    // elsewhere in this file cannot distinguish on their own.
+    if (this.readOnlyNodeIds.has(listId)) return;
     const doc = this.currentDoc;
     const node = doc?.nodes.get(listId);
     if (!doc || !node) return;
@@ -2291,6 +2437,21 @@ export class OutlineTreeView extends ItemView {
   private beginRenameForNode(nodeId: string): void {
     const node = this.nodeById.get(nodeId);
     if (!node) return;
+    // Phase 5D-0.3 approval §1: composite/complex-member rows are read-only
+    // — no rename trigger (double-click/F2/context-menu/auto-rename-after-
+    // insert) is ever allowed to reach them. Every one of those triggers
+    // funnels through this one method, so this single guard covers all of
+    // them.
+    if (node.kind !== "section" && node.kind !== "list") return;
+    // 2026-08-12 amendment §E (defense in depth): the kind check above does
+    // NOT catch a "list" node that's currently a composite's member — F2
+    // (the one rename trigger that isn't gated by a per-row DOM listener;
+    // see handleTreeKeyDown) acts on whatever this.selectedId currently is,
+    // and selection itself is never restricted to non-read-only nodes. This
+    // second check is what actually closes that path: even if some future
+    // caller reaches this method with a read-only list node's id, it's
+    // refused here too, never just at the DOM-listener-attachment layer.
+    if (this.readOnlyNodeIds.has(nodeId)) return;
     const rowSelfEl = this.treeRootEl.querySelector<HTMLElement>(
       `#${CSS.escape("unified-outliner-row-" + nodeId)}`
     );

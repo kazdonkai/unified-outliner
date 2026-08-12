@@ -79,7 +79,7 @@
  * explicitly and visibly via mergeBlockRangesSafely, using the fixed
  * priority order:
  *
- *   callout > blockquote > (fenced-code, table) > paragraph
+ *   callout > blockquote > (fenced-code, table, thematic-break) > paragraph
  *
  *   1. callout is highest priority (a callout's own boundary rule is the
  *      most syntactically specific of the five kinds).
@@ -144,6 +144,14 @@ const QUOTE_PREFIX_RE = /^[ \t]*>/;
 const FENCE_OPEN_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*(.*)$/;
 
 const DELIMITER_CELL_RE = /^:?-+:?$/;
+
+// CommonMark thematic-break shape: up to 3 leading spaces, then 3+ of the
+// SAME character among -, *, _ (optionally separated by spaces/tabs), and
+// nothing else on the line. Captures the repeated character in group 1 so
+// scanThematicBreakBlocks can single out the `-`-only case for the Setext
+// heading disambiguation described in its own doc comment.
+const THEMATIC_BREAK_RE =
+  /^[ ]{0,3}(?:(-)[ \t]*(?:-[ \t]*){2,}|(\*)[ \t]*(?:\*[ \t]*){2,}|(_)[ \t]*(?:_[ \t]*){2,})$/;
 
 function rangesOverlap(a: LineRange, b: LineRange): boolean {
   return a.startLine <= b.endLine && b.startLine <= a.endLine;
@@ -581,6 +589,102 @@ export function scanTableBlocks(doc: ParsedDocument): ComplexBlockScanResult {
 }
 
 /**
+ * Phase 5D-0: thematic-break recognition (`---`, `***`, `___`, optionally
+ * space-separated, up to 3 leading spaces — see THEMATIC_BREAK_RE). Always
+ * a single-line range.
+ *
+ * Candidate lines exclude frontmatter, fenced-code, heading lines
+ * (HEADING_RE), and list-marker lines (LIST_RE) — the last exclusion
+ * matters because a `-`-only run WITH internal spaces (e.g. "- - -") is
+ * itself a valid LIST_RE match (marker "-", content "- -"), and
+ * parser/parseDocument.ts already claims that line as a list item; this
+ * scanner must never re-claim a line the base parser already turned into
+ * "list" structure (list stays BlockNode's exclusive domain, same
+ * principle as every other scanner in this module).
+ *
+ * Setext heading disambiguation (see
+ * docs/phase5d0_basic-block-extension-and-composite-block-spec.md §2.2):
+ * parser/parseDocument.ts does not parse Setext headings at all (ATX only),
+ * and extending it to do so is out of this ticket's scope. A `-`-only run
+ * (captured in THEMATIC_BREAK_RE's first alternative) is the ONLY case that
+ * can also read as a Setext heading underline (`=`-only runs are not valid
+ * thematic-break syntax at all, so they never reach this function; `*`/`_`
+ * runs are never valid Setext underlines). When a `-`-only candidate is
+ * IMMEDIATELY preceded (no blank line between) by a line that itself looks
+ * like ordinary paragraph text — non-blank, not frontmatter/fenced-code,
+ * and not itself a heading/list/thematic-break line — this function
+ * deliberately does NOT report a thematic-break block for it, leaving the
+ * line to fall through to scanParagraphBlocks (or an enclosing list item's
+ * continuation) exactly as it already does today. This never produces a
+ * WRONG positive claim; it only means some genuine thematic breaks that sit
+ * directly under a paragraph (no blank line) are conservatively left
+ * unrecognized, matching this whole module's "refuse rather than guess"
+ * policy.
+ */
+export function scanThematicBreakBlocks(doc: ParsedDocument): ComplexBlockScanResult {
+  const blocks: ComplexBlockInfo[] = [];
+  const diagnostics: BlockDiagnostic[] = [];
+  const n = doc.lines.length;
+  let seq = 0;
+
+  const isPlainCandidateLine = (idx: number): boolean => {
+    if (idx < 0 || idx >= n) return false;
+    if (doc.frontmatterLines[idx] || doc.codeBlockLines[idx]) return false;
+    const line = doc.lines[idx];
+    if (isBlankLine(line)) return false;
+    if (HEADING_RE.test(line)) return false;
+    if (LIST_RE.test(line)) return false;
+    return true;
+  };
+
+  for (let j = 0; j < n; j++) {
+    if (doc.frontmatterLines[j] || doc.codeBlockLines[j]) continue;
+    const line = doc.lines[j];
+    if (HEADING_RE.test(line) || LIST_RE.test(line)) continue;
+    const m = line.match(THEMATIC_BREAK_RE);
+    if (!m) continue;
+
+    const isDashOnly = m[1] === "-";
+    if (isDashOnly) {
+      const prev = j - 1;
+      const prevIsPlainText =
+        isPlainCandidateLine(prev) && !THEMATIC_BREAK_RE.test(doc.lines[prev]);
+      if (prevIsPlainText) {
+        // Plausible Setext heading underline — see doc comment above.
+        continue;
+      }
+    }
+
+    const range: LineRange = { startLine: j, endLine: j };
+    const id = `thematic-break-${seq++}`;
+    const { parentId, boundaryAmbiguous } = resolveParentId(doc, range);
+
+    if (boundaryAmbiguous) {
+      diagnostics.push({
+        kind: "ambiguous",
+        fromLine: j,
+        toLine: j,
+        message: "thematic-break range crosses existing section/list boundaries",
+      });
+      blocks.push({
+        id,
+        kind: "thematic-break",
+        range,
+        parentId: null,
+        childIds: [],
+        editability: "ambiguous",
+        reason: "block spans multiple existing section/list boundaries",
+      });
+      continue;
+    }
+
+    blocks.push({ id, kind: "thematic-break", range, parentId, childIds: [], editability: "supported" });
+  }
+
+  return { blocks, diagnostics };
+}
+
+/**
  * Paragraph recognition — diagnostic-only, per Phase 5C's approved policy:
  * paragraph blocks NEVER get editability "supported", only "read-only"
  * (boundary known, but structural operations on paragraphs are a permanent
@@ -718,7 +822,7 @@ export function mergeBlockRangesSafely(
 /**
  * Runs every Phase 5C scanner over `doc` and merges their output with
  * mergeBlockRangesSafely, in the fixed priority order
- * callout > blockquote > (fenced-code, table) > paragraph (see this
+ * callout > blockquote > (fenced-code, table, thematic-break) > paragraph (see this
  * module's top doc comment). This is the single entry point a future
  * caller should use; individual scan* functions are exported mainly for
  * isolated testing of each kind's boundary rules.
@@ -728,6 +832,7 @@ export function scanComplexBlocks(doc: ParsedDocument): ComplexBlockScanResult {
   const blockquotes = scanBlockquoteBlocks(doc);
   const fenced = scanFencedCodeBlocks(doc);
   const tables = scanTableBlocks(doc);
+  const thematicBreaks = scanThematicBreakBlocks(doc);
   const paragraphs = scanParagraphBlocks(doc);
 
   const merged = mergeBlockRangesSafely([
@@ -735,6 +840,7 @@ export function scanComplexBlocks(doc: ParsedDocument): ComplexBlockScanResult {
     blockquotes.blocks,
     fenced.blocks,
     tables.blocks,
+    thematicBreaks.blocks,
     paragraphs.blocks,
   ]);
 
@@ -745,6 +851,7 @@ export function scanComplexBlocks(doc: ParsedDocument): ComplexBlockScanResult {
       ...blockquotes.diagnostics,
       ...fenced.diagnostics,
       ...tables.diagnostics,
+      ...thematicBreaks.diagnostics,
       ...paragraphs.diagnostics,
       ...merged.diagnostics,
     ],

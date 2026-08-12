@@ -36,11 +36,16 @@ function idOf(nodes: OutlineTreeNode[], predicate: (n: OutlineTreeNode) => boole
   return "";
 }
 
+/** This fixture only ever contains section/list nodes — see tree() above. */
+function labelOf(n: OutlineTreeNode): string {
+  return n.kind === "section" ? n.headingText : n.kind === "list" ? n.text : "";
+}
+
 describe("flattenVisibleOutlineTree", () => {
   it("with nothing collapsed, includes every node in document order (same as flattenOutlineTree)", () => {
     const t = tree();
     const visible = flattenVisibleOutlineTree(t, new Set());
-    const labels = visible.map((n) => (n.kind === "section" ? n.headingText : n.text));
+    const labels = visible.map((n) => (labelOf(n)));
     expect(labels).toEqual(["A", "A1", "item1", "item2", "A2", "B"]);
   });
 
@@ -48,7 +53,7 @@ describe("flattenVisibleOutlineTree", () => {
     const t = tree();
     const a1Id = idOf(t, (n) => n.kind === "section" && n.headingText === "A1");
     const visible = flattenVisibleOutlineTree(t, new Set([a1Id]));
-    const labels = visible.map((n) => (n.kind === "section" ? n.headingText : n.text));
+    const labels = visible.map((n) => (labelOf(n)));
     // item1/item2 (children of A1) are gone; A1 itself, and A1's own
     // sibling A2, both remain.
     expect(labels).toEqual(["A", "A1", "A2", "B"]);
@@ -58,7 +63,7 @@ describe("flattenVisibleOutlineTree", () => {
     const t = tree();
     const aId = idOf(t, (n) => n.kind === "section" && n.headingText === "A");
     const visible = flattenVisibleOutlineTree(t, new Set([aId]));
-    const labels = visible.map((n) => (n.kind === "section" ? n.headingText : n.text));
+    const labels = visible.map((n) => (labelOf(n)));
     expect(labels).toEqual(["A", "B"]);
   });
 });

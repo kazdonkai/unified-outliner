@@ -555,6 +555,29 @@ settings:
   white-space: nowrap;
 }
 
+/* Phase 5D-0.3: CompositeBlock parent row / read-only complex-block member
+ * row (view/OutlineTreeView.ts's isOutlineCompositeNode/
+ * isOutlineComplexMemberNode branches). Sized/colored like a list row
+ * (.unified-outliner-list-text above) since both are display-only leaf-ish
+ * content rather than a structural heading, but the composite row's own
+ * prefix glyph (e.g. "◉"/"❖" — model/compositeBlock.ts's DEFAULT_
+ * COMPOSITE_BLOCK_RULES) gets --uo-current-color so the row reads as a
+ * distinct, grouped unit at a glance without introducing a new themeable
+ * color variable. */
+.unified-outliner-composite-text,
+.unified-outliner-complex-member-text {
+  color: var(--uo-list-text-color);
+  font-weight: 400;
+  font-size: 0.92em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-outliner-composite-prefix {
+  color: var(--uo-current-color);
+}
+
 /* Phase 4B follow-up: Obsidian's tooltip is center-aligned by default,
  * which reads fine for a single short line but looks disconnected from the
  * source Markdown once the tooltip spans multiple lines (see

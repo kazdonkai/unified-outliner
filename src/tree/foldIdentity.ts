@@ -63,8 +63,38 @@
  */
 import { flattenOutlineTree, OutlineTreeNode } from "./buildOutlineTree";
 
+/**
+ * Phase 5D-0.3: CompositeBlock / complex-member identity policy (see
+ * buildNodeIdentityMap's own doc comment for the full walk). Composite
+ * nodes and their non-list members ("complex-member" — callout/blockquote)
+ * are new OutlineTreeNode kinds (tree/buildOutlineTree.ts) on top of the
+ * section/list design above; each gets its OWN identity segment
+ * (`composite:...` / `complex-member:...`) and its own per-section
+ * occurrence pool, scoped exactly like list nodes (nearest enclosing
+ * section, not full ancestor path) — but a composite member that IS a list
+ * item (the common "image + OCR" case) is deliberately identified as if it
+ * were an ordinary top-level list item, NOT nested under its composite's
+ * own path segment. This means a list item's fold identity is completely
+ * unaffected by whether it currently happens to be grouped into a
+ * composite — if the user edits the note so the composite's match
+ * conditions no longer hold (e.g. inserts a blank line before the
+ * callout), the CompositeBlock's own identity simply stops being produced
+ * (its fold state, if any, is orphaned exactly like any other node whose
+ * identity changes — see this file's section/list doc comment above), while
+ * the underlying list item keeps its EXACT prior identity and fold state,
+ * because that identity was never derived from the composite in the first
+ * place.
+ */
 function nodeLabel(node: OutlineTreeNode): string {
-  return node.kind === "section" ? node.headingText : node.text;
+  switch (node.kind) {
+    case "section":
+      return node.headingText;
+    case "list":
+      return node.text;
+    case "composite":
+    case "complex-member":
+      return node.label;
+  }
 }
 
 /** Appends an occurrence-disambiguated `kind:label` segment onto `basePath`,
@@ -101,35 +131,68 @@ function appendSegment(
  * list nodes their "scoped to the enclosing section, not the immediate
  * list-item parent" disambiguation pool (see module doc comment).
  */
+/** One occurrence-disambiguation pool per node kind, all scoped to the nearest enclosing section (see this file's class doc comment). */
+interface OccurrencePools {
+  section: Map<string, number>;
+  list: Map<string, number>;
+  composite: Map<string, number>;
+  complexMember: Map<string, number>;
+}
+
+function freshPools(): OccurrencePools {
+  return { section: new Map(), list: new Map(), composite: new Map(), complexMember: new Map() };
+}
+
 export function buildNodeIdentityMap(tree: OutlineTreeNode[]): Map<string, string> {
   const map = new Map<string, string>();
 
   const walk = (
     nodes: OutlineTreeNode[],
     sectionPath: string,
-    sectionOccurrence: Map<string, number>,
-    listOccurrence: Map<string, number>
+    pools: OccurrencePools
   ): void => {
     for (const node of nodes) {
-      if (node.kind === "section") {
-        const path = appendSegment(sectionPath, node, sectionOccurrence);
-        map.set(node.id, path);
-        // A new section scope: fresh occurrence pools for both its own
-        // child sections and its own (any-depth) list descendants.
-        walk(node.children, path, new Map(), new Map());
-      } else {
-        const path = appendSegment(sectionPath, node, listOccurrence);
-        map.set(node.id, path);
-        // Nested list items stay in the SAME enclosing-section scope and
-        // the SAME listOccurrence pool (passed through, not reset) — a
-        // list item's children are always other list items, never a
-        // section (see model/block.ts), so sectionOccurrence is simply
-        // carried along unused here.
-        walk(node.children, sectionPath, sectionOccurrence, listOccurrence);
+      switch (node.kind) {
+        case "section": {
+          const path = appendSegment(sectionPath, node, pools.section);
+          map.set(node.id, path);
+          // A new section scope: fresh occurrence pools for its own child
+          // sections and every kind of descendant reachable without
+          // crossing into a nested section (list, composite, complex-member).
+          walk(node.children, path, freshPools());
+          break;
+        }
+        case "list": {
+          const path = appendSegment(sectionPath, node, pools.list);
+          map.set(node.id, path);
+          // Nested list items (and any composite one of them happens to be
+          // the first member of — see buildOutlineTree.ts's buildListNode)
+          // stay in the SAME enclosing-section scope and the SAME pools
+          // (passed through, not reset) — a list item's children are
+          // always other list items or composites, never a section.
+          walk(node.children, sectionPath, pools);
+          break;
+        }
+        case "composite": {
+          const path = appendSegment(sectionPath, node, pools.composite);
+          map.set(node.id, path);
+          // Members are identified in the composite's OWN enclosing-section
+          // scope, NOT nested under this composite's `path` — see this
+          // file's class doc comment for why a member's identity must stay
+          // independent of its (possibly transient) composite membership.
+          walk(node.children, sectionPath, pools);
+          break;
+        }
+        case "complex-member": {
+          const path = appendSegment(sectionPath, node, pools.complexMember);
+          map.set(node.id, path);
+          // No children (OutlineTreeComplexMemberNode.children is always []).
+          break;
+        }
       }
     }
   };
-  walk(tree, "", new Map(), new Map());
+  walk(tree, "", freshPools());
 
   return map;
 }

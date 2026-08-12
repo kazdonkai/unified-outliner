@@ -21,6 +21,7 @@ import {
   scanFencedCodeBlocks,
   scanParagraphBlocks,
   scanTableBlocks,
+  scanThematicBreakBlocks,
 } from "../src/parser/complexBlocks";
 
 function sectionIdOf(doc: ParsedDocument, headingText: string): string {
@@ -288,6 +289,100 @@ describe("scanTableBlocks", () => {
     const doc = parseDocument(text);
     const { blocks } = scanTableBlocks(doc);
     expect(blocks[0].range).toEqual({ startLine: 0, endLine: 2 });
+  });
+});
+
+// ---------------------------------------------------------------------
+// Thematic break (Phase 5D-0)
+// ---------------------------------------------------------------------
+describe("scanThematicBreakBlocks", () => {
+  it("recognizes '---', '***', and '___' as supported single-line blocks", () => {
+    for (const marker of ["---", "***", "___"]) {
+      const text = ["# H", "", marker, ""].join("\n");
+      const doc = parseDocument(text);
+      const { blocks, diagnostics } = scanThematicBreakBlocks(doc);
+      expect(diagnostics).toEqual([]);
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].kind).toBe("thematic-break");
+      expect(blocks[0].range).toEqual({ startLine: 2, endLine: 2 });
+      expect(blocks[0].editability).toBe("supported");
+      expect(blocks[0].parentId).toBe(sectionIdOf(doc, "H"));
+    }
+  });
+
+  it("recognizes a space-separated variant ('_ _ _') and up to 3 leading spaces ('   ***')", () => {
+    // Unlike '-' and '*', '_' is never a valid list marker character
+    // (LIST_RE's marker alternation is [-*+] or an ordered "N." / "N)"),
+    // so "_ _ _" has no LIST_RE collision to worry about.
+    const text = ["   ***", "_ _ _"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(2);
+    expect(blocks.map((b) => b.range.startLine).sort()).toEqual([0, 1]);
+  });
+
+  it("does NOT claim a '- - -' or '* * *' line that parseDocument.ts already parsed as a list item (marker '-'/'*', content '- -'/'* *')", () => {
+    for (const text of ["- - -", "* * *"]) {
+      const doc = parseDocument(text);
+      expect(doc.nodes.size).toBe(1); // parsed as exactly one list item, not left unowned
+      const { blocks } = scanThematicBreakBlocks(doc);
+      expect(blocks).toHaveLength(0);
+    }
+  });
+
+  it("does NOT recognize a bare '--' (only 2 dashes) as a thematic break", () => {
+    const text = ["text", "--"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("treats a '---' line directly under plain paragraph text (no blank line) as a Setext heading underline candidate, NOT a thematic break", () => {
+    const text = ["Some Heading Text", "---"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("still recognizes '---' as a thematic break when a blank line separates it from the preceding paragraph", () => {
+    const text = ["Some paragraph.", "", "---"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].range).toEqual({ startLine: 2, endLine: 2 });
+  });
+
+  it("still recognizes '***' and '___' directly under paragraph text (never a valid Setext underline, no ambiguity)", () => {
+    for (const marker of ["***", "___"]) {
+      const text = ["Some paragraph.", marker].join("\n");
+      const doc = parseDocument(text);
+      const { blocks } = scanThematicBreakBlocks(doc);
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].range).toEqual({ startLine: 1, endLine: 1 });
+    }
+  });
+
+  it("recognizes '---' directly under a heading line (ATX heading itself is not 'plain text') without misfiring", () => {
+    const text = ["# H", "---"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].range).toEqual({ startLine: 1, endLine: 1 });
+  });
+
+  it("never misreads a fenced-code block's internal '---'/'***' lines as a thematic break", () => {
+    const text = ["```", "---", "***", "```"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks } = scanThematicBreakBlocks(doc);
+    expect(blocks).toHaveLength(0);
+  });
+
+  it("does not mutate the input ParsedDocument", () => {
+    const text = ["# H", "", "---"].join("\n");
+    const doc = parseDocument(text);
+    const before = JSON.stringify([...doc.nodes.entries()]);
+    scanThematicBreakBlocks(doc);
+    expect(JSON.stringify([...doc.nodes.entries()])).toBe(before);
   });
 });
 
@@ -579,6 +674,20 @@ describe("scanComplexBlocks", () => {
 
     const kinds = new Set(blocks.map((b) => b.kind));
     expect(kinds).toEqual(new Set(["callout", "blockquote", "fenced-code", "table", "paragraph"]));
+  });
+
+  it("a thematic-break line is also independently recognized by the paragraph scanner; merge keeps the thematic-break supported and downgrades the overlapping paragraph candidate to ambiguous (priority: thematic-break > paragraph)", () => {
+    const text = ["Some paragraph.", "", "***"].join("\n");
+    const doc = parseDocument(text);
+    const { blocks, diagnostics } = scanComplexBlocks(doc);
+    const thematicBreak = blocks.find((b) => b.kind === "thematic-break")!;
+    const overlappingParagraphs = blocks.filter(
+      (b) => b.kind === "paragraph" && b.range.startLine === 2
+    );
+    expect(thematicBreak.editability).toBe("supported");
+    expect(overlappingParagraphs.length).toBeGreaterThan(0);
+    for (const p of overlappingParagraphs) expect(p.editability).toBe("ambiguous");
+    expect(diagnostics.some((d) => d.kind === "overlapping-range")).toBe(true);
   });
 });
 

@@ -397,12 +397,16 @@ function countListDescendants(doc: ParsedDocument, node: BlockNode): number {
   return count;
 }
 
-const COMPLEX_KIND_KEY: Record<ComplexBlockKind, "unit.callout" | "unit.blockquote" | "unit.codeBlock" | "unit.table" | "unit.paragraph"> = {
+const COMPLEX_KIND_KEY: Record<
+  ComplexBlockKind,
+  "unit.callout" | "unit.blockquote" | "unit.codeBlock" | "unit.table" | "unit.paragraph" | "unit.thematicBreak"
+> = {
   callout: "unit.callout",
   blockquote: "unit.blockquote",
   "fenced-code": "unit.codeBlock",
   table: "unit.table",
   paragraph: "unit.paragraph",
+  "thematic-break": "unit.thematicBreak",
 };
 
 /**

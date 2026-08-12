@@ -197,5 +197,43 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // Phase 5D-0 / 5D-0.3: CompositeBlock rules — enable/disable toggles for
+    // the two built-in default rules (model/compositeBlock.ts). Per the
+    // 5D-0.3 approval (§4 — no separate "show composite blocks" toggle), a
+    // rule's own enabled flag is the SOLE control for both matching AND
+    // Outline Tree projection: turning a rule off here makes
+    // OutlineTreeView.refresh() stop grouping its member blocks, which is
+    // why (unlike most other flat toggles above) this one also calls
+    // refreshOutlineTreeViews() so an already-open Tree reflects the change
+    // immediately, matching showListItemsInOutline's own onChange below.
+    new Setting(containerEl).setName(this.plugin.t("settings.compositeBlocksHeading")).setHeading();
+    new Setting(containerEl).setDesc(this.plugin.t("settings.compositeBlocksIntro"));
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.compositeBlockImageOcr.name"))
+      .setDesc(this.plugin.t("settings.compositeBlockImageOcr.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.compositeBlocks.imageOcr)
+          .onChange(async (v) => {
+            this.plugin.settings.compositeBlocks.imageOcr = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.compositeBlockImageQuote.name"))
+      .setDesc(this.plugin.t("settings.compositeBlockImageQuote.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.compositeBlocks.imageQuote)
+          .onChange(async (v) => {
+            this.plugin.settings.compositeBlocks.imageQuote = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
   }
 }

@@ -17,6 +17,7 @@
  * file and settings.ts needs to know the split exists.
  */
 import { isValidPluginLanguage, PluginLanguage } from "./i18n";
+import { CompositeBlockRule, DEFAULT_COMPOSITE_BLOCK_RULES } from "./model/compositeBlock";
 
 export interface UnifiedOutlinerSettings {
   /**
@@ -82,6 +83,44 @@ export interface UnifiedOutlinerSettings {
    * display() for the corresponding controls.
    */
   treeKindHighlight: TreeKindHighlightSettings;
+  /**
+   * Phase 5D-0: enabled/disabled flags for the built-in CompositeBlock
+   * rules (model/compositeBlock.ts's DEFAULT_COMPOSITE_BLOCK_RULES). This
+   * phase does not offer a free-form rule-authoring UI — only toggling the
+   * two built-in defaults — so this is a flat per-rule boolean map rather
+   * than a persisted list of rule DEFINITIONS. See
+   * docs/phase5d0_basic-block-extension-and-composite-block-spec.md §3.6.
+   */
+  compositeBlocks: CompositeBlockSettings;
+}
+
+/** One flag per model/compositeBlock.ts DEFAULT_COMPOSITE_BLOCK_RULES entry, by rule id. */
+export interface CompositeBlockSettings {
+  imageOcr: boolean;
+  imageQuote: boolean;
+}
+
+export const DEFAULT_COMPOSITE_BLOCK_SETTINGS: CompositeBlockSettings = {
+  imageOcr: true,
+  imageQuote: true,
+};
+
+/**
+ * Maps `settings.compositeBlocks`'s per-rule flags onto
+ * DEFAULT_COMPOSITE_BLOCK_RULES, filtering out disabled ones while
+ * preserving DEFAULT_COMPOSITE_BLOCK_RULES's own array order (which is also
+ * the match-priority order — see parser/compositeBlocks.ts's
+ * matchCompositeBlocks doc comment). A rule id with no corresponding
+ * settings key defaults to enabled, so a future rule added to
+ * DEFAULT_COMPOSITE_BLOCK_RULES without a matching settings field yet still
+ * participates in matching rather than silently vanishing.
+ */
+export function getEnabledCompositeBlockRules(settings: CompositeBlockSettings): CompositeBlockRule[] {
+  const flagByRuleId: Record<string, boolean> = {
+    "image-ocr": settings.imageOcr,
+    "image-quote": settings.imageQuote,
+  };
+  return DEFAULT_COMPOSITE_BLOCK_RULES.filter((rule) => flagByRuleId[rule.id] ?? true);
 }
 
 /**
@@ -118,6 +157,7 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   followKeyboardSelectionIntoBody: true,
   syncOutlineTreeFoldingToEditor: true,
   treeKindHighlight: { ...DEFAULT_TREE_KIND_HIGHLIGHT },
+  compositeBlocks: { ...DEFAULT_COMPOSITE_BLOCK_SETTINGS },
 };
 
 /**
@@ -148,6 +188,17 @@ export function mergeSettings(
     {},
     DEFAULT_TREE_KIND_HIGHLIGHT,
     rawTreeKindHighlight ?? {}
+  );
+  // compositeBlocks is a NESTED object, same "missing key falls back to its
+  // default" policy as treeKindHighlight above (a pre-existing data.json
+  // written before Phase 5D-0 simply has raw.compositeBlocks === undefined).
+  const rawCompositeBlocks = (
+    raw as { compositeBlocks?: Partial<CompositeBlockSettings> }
+  ).compositeBlocks;
+  merged.compositeBlocks = Object.assign(
+    {},
+    DEFAULT_COMPOSITE_BLOCK_SETTINGS,
+    rawCompositeBlocks ?? {}
   );
   // language is a top-level SCALAR field (unlike treeKindHighlight above),
   // so the shallow Object.assign already carries over whatever raw.language
