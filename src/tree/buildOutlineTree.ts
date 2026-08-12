@@ -56,7 +56,20 @@ export interface OutlineTreeListNode {
   kind: "list";
   /** Matches the underlying ListBlockNode's id. */
   id: string;
-  /** Item text with leading indent and the list marker stripped. */
+  /**
+   * Item text with the leading indent stripped. For an ORDERED item
+   * ("1.", "2)", a restart like "3.", ...) the item's own `listMarker` is
+   * kept as a literal prefix ("3. Buy eggs") — see the 2026-08-12
+   * "数字リストの番号非表示バグ" fix; before that fix this field silently
+   * dropped ordered markers the same way it drops unordered bullets
+   * ("-"/"*"/"+"), which are still stripped here (bullets rely on
+   * indentation/kind styling in the Tree row instead of a printed glyph).
+   * Built by listItemTreeDisplayText() below, deliberately kept separate
+   * from listItemDisplayText() (marker-free) because that other function's
+   * output ALSO becomes the rename textarea's initial editable value —
+   * baking the marker into that shared string would let a re-typed "3. "
+   * leak into the item's saved body text.
+   */
   text: string;
   /** List nesting depth (root list item = 0), for indent-based rendering. */
   indentDepth: number;
@@ -207,6 +220,35 @@ export function listItemDisplayText(doc: ParsedDocument, item: ListBlockNode): s
 }
 
 /**
+ * 2026-08-12 "数字リストの番号非表示バグ" fix: Tree/breadcrumb display text
+ * for a list item, restoring the ORDERED marker (item.listMarker — "1.",
+ * "2)", a mid-list restart like "3.", ...) that listItemDisplayText()
+ * above always strips. Bullets ("-"/"*"/"+") are intentionally left
+ * marker-free here too, unchanged from before this fix — the Tree already
+ * distinguishes list rows from sections by indentation/styling, and no
+ * bullet character was ever printed even prior to this bug.
+ *
+ * Deliberately a SEPARATE function from listItemDisplayText rather than a
+ * change to that one: listItemDisplayText's marker-free output doubles as
+ * the rename textarea's initial editable value (OutlineTreeView.ts's
+ * beginRenameForNode) and PartialEditView's saved-body source — baking the
+ * marker into that shared string would let a user's re-typed "3. " get
+ * saved back into the item's actual body text (effectively double-marking
+ * it) the next time they rename. Only display call sites (nodeDisplayLabel
+ * below, and buildListNode's own `text` field) call this wrapper.
+ *
+ * item.listMarker is used verbatim (not re-derived from the raw line) so
+ * this reflects exactly what parser/parseDocument.ts already recognized as
+ * the item's marker — including an intentional mid-list restart ("1.",
+ * "2.", "3." resuming after a "1." elsewhere) and the "N)" delimiter
+ * variant, neither of which this function needs to re-detect itself.
+ */
+function listItemTreeDisplayText(item: ListBlockNode, body: string): string {
+  if (!item.ordered) return body;
+  return body.length > 0 ? `${item.listMarker} ${body}` : item.listMarker;
+}
+
+/**
  * Phase 5B: shared display label for a section or list node — the exact
  * same text view/PartialEditView.ts's pane title has used since Phase 4C
  * ("(Untitled heading)" / "(Empty list item)" fallbacks for an empty
@@ -239,7 +281,7 @@ export function nodeDisplayLabel(
     return node.headingText.length > 0 ? node.headingText : t("tree.untitledHeading");
   }
   if (isListNode(node)) {
-    const text = listItemDisplayText(doc, node);
+    const text = listItemTreeDisplayText(node, listItemDisplayText(doc, node));
     return text.length > 0 ? text : t("tree.emptyListItem");
   }
   return "";
@@ -405,7 +447,7 @@ function buildListNode(
   return {
     kind: "list",
     id: item.id,
-    text: listItemDisplayText(doc, item),
+    text: listItemTreeDisplayText(item, listItemDisplayText(doc, item)),
     indentDepth: item.depth,
     line: item.range.startLine,
     children,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseDocument } from "../src/parser/parseDocument";
 import { scanComplexBlocks } from "../src/parser/complexBlocks";
 import { matchCompositeBlocks } from "../src/parser/compositeBlocks";
+import { isListNode } from "../src/model/block";
 import {
   CompositeBlockInfo,
   CompositeBlockRule,
@@ -17,6 +18,7 @@ import {
   isOutlineComplexMemberNode,
   isOutlineListNode,
   isOutlineSectionNode,
+  listItemDisplayText,
   nodeDisplayLabel,
   OutlineTreeNode,
 } from "../src/tree/buildOutlineTree";
@@ -168,13 +170,91 @@ describe("buildOutlineTree (includeLists: true, Phase 3C)", () => {
     expect(preB.text).toBe("pre b");
   });
 
-  it("strips the list marker and indent from the display text", () => {
-    const doc = parseDocument(["- Item text here", "1. Ordered item"].join("\n"));
+  it("strips the bullet marker and indent from the display text", () => {
+    const doc = parseDocument(["- Item text here", "* also bulleted", "+ plus bullet"].join("\n"));
     const tree = buildOutlineTree(doc, { includeLists: true });
     expect(tree.map((n) => (isOutlineListNode(n) ? n.text : ""))).toEqual([
       "Item text here",
-      "Ordered item",
+      "also bulleted",
+      "plus bullet",
     ]);
+  });
+
+  // 2026-08-12 "数字リストの番号非表示バグ" fix: an ORDERED item's marker
+  // must survive into the Tree's display text (unlike bullets, which stay
+  // marker-free per the test above) — see listItemTreeDisplayText's own
+  // doc comment in tree/buildOutlineTree.ts for why this is a separate
+  // function from listItemDisplayText rather than a shared one.
+  describe("ordered list marker preservation (2026-08-12 fix)", () => {
+    it("keeps a simple '1.' marker in the display text", () => {
+      const doc = parseDocument(["1. Ordered item"].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      const [node] = tree;
+      if (!isOutlineListNode(node)) throw new Error("expected list node");
+      expect(node.text).toBe("1. Ordered item");
+    });
+
+    it("keeps the ')' delimiter variant ('1)')", () => {
+      const doc = parseDocument(["1) Ordered item"].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      const [node] = tree;
+      if (!isOutlineListNode(node)) throw new Error("expected list node");
+      expect(node.text).toBe("1) Ordered item");
+    });
+
+    it("keeps a mid-list restart number verbatim (does not renumber)", () => {
+      // "3." here is NOT list position 3 — it's whatever digits the author
+      // typed, exactly as parser/parseDocument.ts recorded in listMarker.
+      const doc = parseDocument(["3. Third", "4. Fourth", "9. Ninth (typo, stays 9.)"].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      expect(tree.map((n) => (isOutlineListNode(n) ? n.text : ""))).toEqual([
+        "3. Third",
+        "4. Fourth",
+        "9. Ninth (typo, stays 9.)",
+      ]);
+    });
+
+    it("preserves ordered markers at every nesting depth", () => {
+      const doc = parseDocument(
+        ["1. Top", "    1. Nested one", "        1. Deeply nested"].join("\n")
+      );
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      const [top] = tree;
+      if (!isOutlineListNode(top)) throw new Error("expected list node");
+      expect(top.text).toBe("1. Top");
+      const [nested] = top.children;
+      if (!isOutlineListNode(nested)) throw new Error("expected list node");
+      expect(nested.text).toBe("1. Nested one");
+      const [deep] = nested.children;
+      if (!isOutlineListNode(deep)) throw new Error("expected list node");
+      expect(deep.text).toBe("1. Deeply nested");
+    });
+
+    it("mixes ordered and bullet items at the same level correctly", () => {
+      const doc = parseDocument(["1. First", "- a bullet", "2. Second"].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      expect(tree.map((n) => (isOutlineListNode(n) ? n.text : ""))).toEqual([
+        "1. First",
+        "a bullet",
+        "2. Second",
+      ]);
+    });
+
+    it("still shows just the bare marker for an empty ordered item (not the empty-item fallback)", () => {
+      const doc = parseDocument(["1. "].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      const [node] = tree;
+      if (!isOutlineListNode(node)) throw new Error("expected list node");
+      expect(node.text).toBe("1.");
+    });
+
+    it("an empty BULLET item still falls back to the empty-item placeholder text", () => {
+      const doc = parseDocument(["- "].join("\n"));
+      const tree = buildOutlineTree(doc, { includeLists: true });
+      const [node] = tree;
+      if (!isOutlineListNode(node)) throw new Error("expected list node");
+      expect(node.text).toBe("");
+    });
   });
 
   it("handles a document with only list items and no headings", () => {
@@ -227,6 +307,18 @@ describe("nodeDisplayLabel", () => {
     const doc = parseDocument("- ");
     const empty = ownerAt(doc, 0);
     expect(nodeDisplayLabel(doc, empty)).toBe("(Empty list item)");
+  });
+
+  // 2026-08-12 fix: nodeDisplayLabel (Tree label / breadcrumb source) keeps
+  // the ordered marker; listItemDisplayText (rename textarea's initial
+  // editable value) must NOT — regression guard for the marker-duplication
+  // risk described on listItemTreeDisplayText's doc comment.
+  it("keeps the ordered marker for a list item, unlike listItemDisplayText", () => {
+    const doc = parseDocument("1. one");
+    const node = ownerAt(doc, 0);
+    expect(nodeDisplayLabel(doc, node)).toBe("1. one");
+    if (!isListNode(node)) throw new Error("expected list node");
+    expect(listItemDisplayText(doc, node)).toBe("one");
   });
 });
 
