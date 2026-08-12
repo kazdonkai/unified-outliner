@@ -244,6 +244,54 @@ settings:
   }
 }
 
+/* UXP-01 (2026-08-12, docs/uxp-01-ipad-drag-context-menu.md): a
+ * dedicated drag handle, spatially separated from the row's long-press
+ * gesture area. `touch-action: none` is scoped to THIS element only (never
+ * the row body or the whole tree — see the ticket's own explicit
+ * constraint) so the row's normal vertical scroll and long-press-to-menu
+ * gesture are unaffected everywhere except this small tap target. Padding
+ * (not just the icon's own box) is what gives touch a target comfortably
+ * larger than the visible glyph, per the ticket's "見た目より十分広く" — the
+ * icon itself stays visually small/muted so the handle doesn't compete
+ * with the row's actual content. */
+.unified-outliner-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 100%;
+  min-height: 28px;
+  padding: 0 4px;
+  touch-action: none;
+  color: var(--uo-muted-text-color);
+  cursor: grab;
+  /* Desktop default: hidden until the row is hovered (no pre-existing
+   * handle to preserve behavior for, per UXP-01's own investigation — so
+   * this is a new, deliberately unobtrusive affordance, not a required
+   * grab point; the whole row stays mouse-draggable exactly as before). */
+  opacity: 0;
+}
+
+.unified-outliner-drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tree-item-self[data-platform="desktop"]:hover .unified-outliner-drag-handle {
+  opacity: 0.6;
+}
+
+.tree-item-self[data-platform="desktop"] .unified-outliner-drag-handle:hover {
+  opacity: 1;
+}
+
+/* Touch/mobile: always visible (no hover state exists on touch), per the
+ * ticket's explicit "iPad / touch device ではハンドルを常時視認可能にする". */
+.tree-item-self[data-platform="mobile"] .unified-outliner-drag-handle {
+  opacity: 0.7;
+}
+
 /* Phase 3B: Partial Edit Pane. Same plugin-owned colors/font-size as the
  * Outline Tree View above (--uo-bg-color / --uo-text-color / --uo-font-size)
  * — this pane is not exempt from the "don't inherit the Obsidian theme's
