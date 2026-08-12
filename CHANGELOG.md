@@ -4,6 +4,14 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Added
+
+- New setting: "Heading prefix in Outline Tree" (General tab) — shows an optional badge before a section's heading text in the Outline Tree, indicating its heading level. Choices: don't show (default), "H1"–"H6", or "#"–"######" (the literal ATX marker count). Purely cosmetic; never changes the heading text itself.
+
+### Fixed
+
+- Ordered list markers ("1.", "1)", a mid-list restart like "3.") were silently stripped from the Outline Tree's display text by the same logic that strips unordered bullets, so numbered lists appeared unnumbered in the Tree even though the document body itself was correctly ordered. Ordered markers now display correctly at every nesting depth; bullets remain marker-free as before.
+
 ## [0.3.5] - 2026-08-11
 
 ### Fixed
