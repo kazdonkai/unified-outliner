@@ -1,5 +1,7 @@
 # Contributing to Unified Outliner
 
+This repository is the single source of truth for the plugin's code, tests, and implementation-adjacent technical specs (e.g. `docs/mixed-structure-spec.md`). A separate, private repository (`unified-outliner-internal`) holds planning and progress-tracking documents only — see [`docs/repository-roles.md`](docs/repository-roles.md) for why the split exists and what belongs where.
+
 ## Development setup
 
 1. Install Node.js 20 or later.
