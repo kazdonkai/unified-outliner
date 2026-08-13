@@ -6,7 +6,7 @@ Unified Outliner は、単一のMarkdownノート内で意味のまとまりを�
 
 バージョン0.4.0では、構造単位の移動・レベル変更コマンド（セクション全体の移動、段落・callout・blockquote・fenced code block・tableにも及ぶ最小安全ブロック移動を含む）、削除・挿入コマンド、Outline Tree Viewからの閲覧・編集、インラインリネーム、モバイルのタップ／長押し操作、パンくずナビゲーションとSubtree Navigator、ポップアウトウィンドウ対応を備えたsectionおよびlist subtree用のPartial Edit Pane、mixed structure境界規則、競合解決を伴うファイル単位のfold state永続化を提供する。
 
-これに加え、blockquote・callout・fenced code block（Mermaidを含む）・tableを含む7種のブロック境界モデルを確立し、Outline Tree上でこれらのCompositeBlockを読み取り専用ノードとして投影する機能（Phase 5D-0.3）、設定タブの「General」「Composite blocks」への再編、見出しレベルを示す任意のバッジ表示設定、iPad上でのドラッグ操作を専用ハンドルと標準HTML5 Drag & Dropに分離した改善（UXP-01）、モバイルの長押しメニューが複数同時に開いてしまう不具合の修正（UXP-02）を実装した。
+これに加え、blockquote・callout・fenced code block（Mermaidを含む）・tableを含む7種のブロック境界モデルを確立し、Outline Tree上でこれらのCompositeBlockを読み取り専用ノードとして投影する機能（Phase 5D-0.3）、設定タブの「General」「Extended blocks」への再編、見出しレベルを示す任意のバッジ表示設定、iPad上でのドラッグ操作を専用ハンドルと標準HTML5 Drag & Dropに分離した改善（UXP-01）、モバイルの長押しメニューが複数同時に開いてしまう不具合の修正（UXP-02）を実装した。
 
 ## 次の重点領域: Phase 5C-1 / Phase 5D
 

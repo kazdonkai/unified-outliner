@@ -74,7 +74,7 @@ const en = {
   // see settings.ts's UnifiedOutlinerSettingTab for the tab-switching
   // implementation.
   "settings.tabs.general": "General",
-  "settings.tabs.compositeBlock": "Composite blocks",
+  "settings.tabs.compositeBlock": "Extended blocks",
   "settings.language.name": "Language",
   "settings.language.desc":
     'Display language for Unified Outliner\'s settings, command names, and notices. "Auto" follows Obsidian\'s own language setting. Command names already shown in the Command Palette only update after reloading the plugin (or Obsidian) — see the notice shown after changing this.',
@@ -126,7 +126,7 @@ const en = {
     "Show a short notice naming what was moved (paragraph / list item / section) after Move block or Move section.",
 
   // ---- Phase 5D-0 / 5D-0.3: CompositeBlock rules -------------------------
-  "settings.compositeBlocksHeading": "Composite blocks",
+  "settings.compositeBlocksHeading": "Extended blocks",
   "settings.compositeBlocksIntro":
     "Built-in rules that group an immediately-adjacent list item + callout/blockquote (e.g. an image + its OCR transcript) into one collapsible unit in the Outline Tree. Disabling a rule here stops it from being recognized and shown as a group — your Markdown is never changed, and its member list item / callout / blockquote simply appear ungrouped again, following their own normal display settings.",
   "settings.compositeBlockImageOcr.name": "Image + OCR",
@@ -308,7 +308,7 @@ const ja: Record<TranslationKey, string> = {
   // 形式は一切変更しない — タブ切り替えの実装は settings.ts の
   // UnifiedOutlinerSettingTab を参照。
   "settings.tabs.general": "全般",
-  "settings.tabs.compositeBlock": "複合ブロック",
+  "settings.tabs.compositeBlock": "拡張ブロック",
   "settings.language.name": "表示言語",
   "settings.language.desc":
     "Unified Outliner の設定・コマンド名・通知の表示言語。「自動」は Obsidian 本体の言語設定に従う。すでにコマンドパレットに表示されているコマンド名は、プラグイン（または Obsidian）を再読み込みするまで更新されない — この設定を変更した直後に表示される通知を参照。",
@@ -359,7 +359,7 @@ const ja: Record<TranslationKey, string> = {
     "Move block または Move section の実行後、何が移動したか（段落／リスト項目／セクション）を短い通知で表示する。",
 
   // ---- Phase 5D-0 / 5D-0.3: CompositeBlock 規則 --------------------------
-  "settings.compositeBlocksHeading": "複合ブロック（CompositeBlock）",
+  "settings.compositeBlocksHeading": "拡張ブロック（CompositeBlock）",
   "settings.compositeBlocksIntro":
     "空行を挟まず隣接する list項目 + callout/blockquote（例: 画像 + その OCR 転記）を、アウトラインツリー上で1つの折りたたみ可能な単位としてまとめる組み込み規則。ここで無効化すると、まとめて表示するのをやめるだけで、Markdown 自体は一切変更されない — 対象だった list項目・callout・blockquote は、それぞれ通常の表示設定に従って個別に表示される。",
   "settings.compositeBlockImageOcr.name": "画像+OCR",

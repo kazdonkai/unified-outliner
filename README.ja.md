@@ -169,7 +169,7 @@ Apply は、ペインを開いた時点の元の対象範囲が変更されて�
 - **Show move result toast**: move系コマンド実行後に、何を移動したかを示す通知を表示します。
 - **Heading prefix in Outline Tree**（Generalタブ）: Outline Tree上でセクションの見出しテキストの前に、見出しレベルを示す任意のバッジを表示します。既定はオフ。「H1」〜「H6」、またはATX記号そのもの（「#」〜「######」）を選べます。見た目のみの設定で、見出しテキスト自体は変更しません。
 
-設定は **General** と **Composite blocks**（callout・blockquote・fenced code block・tableのOutline Tree表示を扱う）の2タブに分かれています。
+設定は **General** と **Extended blocks**（callout・blockquote・fenced code block・tableのOutline Tree表示を扱う）の2タブに分かれています。
 
 ### Style Settings で見た目をカスタマイズする
 

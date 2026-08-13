@@ -169,7 +169,7 @@ Open **Settings → Community plugins → Unified Outliner** to configure:
 - **Show move result toast**: shows a short notice naming what was moved after a move command.
 - **Heading prefix in Outline Tree** (General tab): shows an optional badge before a section's heading text in the Outline Tree — off by default, or the heading level as "H1"–"H6" or the literal ATX marker count ("#"–"######"). Purely cosmetic.
 
-Settings are organized into two tabs, **General** and **Composite blocks** (the latter covers callout/blockquote/fenced-code/table display in the Outline Tree).
+Settings are organized into two tabs, **General** and **Extended blocks** (the latter covers callout/blockquote/fenced-code/table display in the Outline Tree).
 
 ### Customizing appearance with Style Settings
 
