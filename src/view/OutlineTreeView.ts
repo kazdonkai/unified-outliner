@@ -536,7 +536,7 @@ export class OutlineTreeView extends ItemView {
       this.currentFilePath = null;
       this.nodeIdentityById = new Map();
       this.collapsedIds = new Set();
-      this.renderEmptyState("No active Markdown note.");
+      this.renderEmptyState(this.plugin.t("tree.emptyNoActiveNote"));
       return;
     }
 

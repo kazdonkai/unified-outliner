@@ -118,4 +118,41 @@ describe("createTranslator", () => {
     expect(defaultTranslator("unit.paragraph")).toBe("paragraph");
     expect(defaultTranslator("unit.paragraph")).toBe(createTranslator("en")("unit.paragraph"));
   });
+
+  /**
+   * fix/command-i18n-localization (2026-08-13): tree.emptyNoActiveNote
+   * replaces a hardcoded English literal
+   * (`this.renderEmptyState("No active Markdown note.")` in
+   * view/OutlineTreeView.ts's refresh()) that never went through this
+   * module at all — found during the i18n audit for the "Command Palette
+   * stays Japanese under an English setting" bug. Confirms the new key
+   * exists in both dictionaries with genuinely different wording (key
+   * parity itself is already guaranteed at compile time — see this file's
+   * top doc comment).
+   */
+  it("tree.emptyNoActiveNote exists in both dictionaries with different wording", () => {
+    const en = createTranslator("en");
+    const ja = createTranslator("ja");
+    expect(en("tree.emptyNoActiveNote")).toBe("No active Markdown note.");
+    expect(ja("tree.emptyNoActiveNote")).toBe("アクティブなMarkdownノートがありません。");
+    expect(ja("tree.emptyNoActiveNote")).not.toBe(en("tree.emptyNoActiveNote"));
+  });
+
+  /**
+   * fix/command-i18n-localization (2026-08-13): notice.languageChanged's
+   * wording changed as part of this fix — main.ts's refreshLocale() now
+   * re-registers commands and updates the ribbon tooltip itself (see
+   * registerAllCommands()), so this Notice must no longer claim a reload
+   * is required. It must also not overclaim instant/guaranteed
+   * localization for every affected element (hotkey preservation across
+   * the removeCommand()+addCommand() cycle is unverified — see this
+   * ticket's completion report), so this only asserts the "reload"
+   * wording is gone, not that a specific new sentence is present.
+   */
+  it("notice.languageChanged no longer tells the user a reload is required", () => {
+    const en = createTranslator("en");
+    const ja = createTranslator("ja");
+    expect(en("notice.languageChanged").toLowerCase()).not.toContain("reload");
+    expect(ja("notice.languageChanged")).not.toContain("再読み込み");
+  });
 });

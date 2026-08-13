@@ -167,7 +167,7 @@ const en = {
   "notice.directionUp": "up",
   "notice.directionDown": "down",
   "notice.languageChanged":
-    "Unified Outliner: display language changed. Command names already shown in the Command Palette will update after reloading the plugin (or Obsidian).",
+    "Unified Outliner: display language updated — check the Command Palette for the new command names.",
 
   // ---- Move-result toast unit descriptions (move/resolveMoveTarget.ts) --
   "unit.sectionNamed": 'section "{heading}"',
@@ -191,6 +191,7 @@ const en = {
   "tree.emptyListItem": "(Empty list item)",
   "tree.emptyNoHeadingsOrList": "This note has no headings or list items.",
   "tree.emptyNoHeadings": "This note has no headings.",
+  "tree.emptyNoActiveNote": "No active Markdown note.",
   "tree.menu.contextual": "{title} (contextual: {mode})",
   "tree.menu.modeSubtree": "subtree",
   "tree.menu.modeNodeOnly": "node-only",
@@ -400,7 +401,7 @@ const ja: Record<TranslationKey, string> = {
   "notice.directionUp": "上",
   "notice.directionDown": "下",
   "notice.languageChanged":
-    "Unified Outliner: 表示言語を変更した。コマンドパレットにすでに表示されているコマンド名は、プラグイン（または Obsidian）を再読み込みすると更新される。",
+    "Unified Outliner: 表示言語を更新した — Command Paletteで新しいコマンド名を確認してほしい。",
 
   // ---- 移動結果トーストの対象種別の説明（move/resolveMoveTarget.ts） -----
   "unit.sectionNamed": '「{heading}」セクション',
@@ -424,6 +425,7 @@ const ja: Record<TranslationKey, string> = {
   "tree.emptyListItem": "（空のリスト項目）",
   "tree.emptyNoHeadingsOrList": "このノートには見出しもリスト項目もない。",
   "tree.emptyNoHeadings": "このノートには見出しがない。",
+  "tree.emptyNoActiveNote": "アクティブなMarkdownノートがありません。",
   "tree.menu.contextual": "{title}（コンテクスト: {mode}）",
   "tree.menu.modeSubtree": "サブツリー",
   "tree.menu.modeNodeOnly": "ノードのみ",

@@ -66,6 +66,24 @@ function detectObsidianLocale(): string | null {
   }
 }
 
+/**
+ * One entry per plugin command — the single source of truth
+ * UnifiedOutlinerPlugin#registerAllCommands() (re-)registers from on every
+ * refreshLocale() call (fix, 2026-08-13, "重要なi18n不具合"). Deliberately
+ * plain data (id/translationKey/callback), never a pre-resolved `name`
+ * string: the whole point is that `name` is resolved fresh, via the
+ * CURRENT translator, every time registerAllCommands() runs — see that
+ * method's own doc comment for why that now happens more than once.
+ * Exactly one of editorCallback/callback is set per entry, mirroring
+ * Obsidian's own Command interface's "exactly one callback kind" contract.
+ */
+interface CommandSpec {
+  id: string;
+  translationKey: TranslationKey;
+  editorCallback?: (editor: Editor) => void;
+  callback?: () => void;
+}
+
 export default class UnifiedOutlinerPlugin extends Plugin {
   settings: UnifiedOutlinerSettings = { ...DEFAULT_SETTINGS };
 
@@ -73,24 +91,61 @@ export default class UnifiedOutlinerPlugin extends Plugin {
   locale: SupportedLocale = "en";
   private translator: Translator = createTranslator("en");
 
+  /**
+   * The ribbon icon's own DOM element, returned by addRibbonIcon() in
+   * onload() below — kept so refreshLocale() can update its tooltip text
+   * on a later language change, the same "re-localize what a one-shot
+   * Obsidian API call fixed in place" problem registerAllCommands() solves
+   * for Command Palette entries (fix, 2026-08-13). Still null the very
+   * first time refreshLocale() runs (called from the top of onload(),
+   * before addRibbonIcon() below has created it) — see refreshLocale()'s
+   * own null-guard.
+   */
+  private ribbonIconEl: HTMLElement | null = null;
+
   /** Translate a UI string owned by this plugin. See src/i18n.ts. */
   t(key: TranslationKey, vars?: TranslationVars): string {
     return this.translator(key, vars);
   }
 
   /**
-   * Resolves this.settings.language into a concrete locale and rebuilds the
-   * translator. Called once from onload() (right after loadSettings(),
-   * before any addCommand/addSettingTab — Obsidian reads a command's `name`
-   * once at registration time, so it has to already be in the right
-   * language) and again from the settings tab whenever the language setting
-   * itself changes. Never re-registers/removes commands — see the settings
-   * tab's change handler for the one-time Notice that explains why already-
-   * visible Command Palette names only update after a reload.
+   * Resolves this.settings.language into a concrete locale, rebuilds the
+   * translator, and — fix, 2026-08-13, "重要なi18n不具合" (English users
+   * saw stale Japanese Command Palette entries even after switching the
+   * language setting) — re-localizes the two things that used to be fixed
+   * in place at an earlier one-shot registration call: every Command
+   * Palette entry (via registerAllCommands() below) and the ribbon icon's
+   * tooltip. Called once from onload() (right after loadSettings(), before
+   * addSettingTab) and again from the settings tab whenever the language
+   * setting itself changes.
+   *
+   * Whether Obsidian actually preserves a user's existing hotkey binding
+   * for a command id across registerAllCommands()'s removeCommand()+
+   * addCommand() cycle, and whether the ribbon attribute(s) set below are
+   * the ones Obsidian's own UI actually reads for the tooltip, have NOT
+   * been confirmed on a real Obsidian instance as of this fix — see this
+   * ticket's completion report for exactly what still needs manual
+   * verification and why the wording in notice.languageChanged
+   * deliberately avoids promising instant, guaranteed localization.
    */
   refreshLocale(): void {
     this.locale = resolveLocale(this.settings.language, detectObsidianLocale());
     this.translator = createTranslator(this.locale);
+    this.registerAllCommands();
+    if (this.ribbonIconEl) {
+      const tooltip = this.t("command.ribbonTooltip");
+      // Obsidian's addRibbonIcon(icon, title, cb) sets the ribbon's
+      // tooltip via its `title` argument, but which DOM attribute it
+      // actually uses (aria-label, the native title attribute, or
+      // something else) is not documented in obsidian.d.ts and has not
+      // been confirmed on a real Obsidian instance — see this method's
+      // own doc comment. Setting both is a safe superset: aria-label is
+      // the convention Obsidian's own UI CSS uses for icon tooltips, and
+      // title is the native HTML tooltip fallback; whichever one turns
+      // out to be unused is simply inert, not harmful.
+      this.ribbonIconEl.setAttribute("aria-label", tooltip);
+      this.ribbonIconEl.setAttribute("title", tooltip);
+    }
   }
 
   /** Translate a no-op/rejection reason (see NOOP_MESSAGES's key set) into the current locale. */
@@ -103,14 +158,192 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * One-time notice shown by the settings tab (settings.ts) after the
    * language setting actually changes value — never gated by
    * showNoopNotices (this is not a no-op notice), and never shown for a
-   * re-selection of the same value. Explains that Command Palette entries
-   * already registered under the old language need a reload to update,
-   * since Obsidian reads a command's `name` once at addCommand() time and
-   * this plugin deliberately never re-registers commands on a language
-   * change (see refreshLocale()'s doc comment).
+   * re-selection of the same value.
+   *
+   * Fix (2026-08-13): refreshLocale() (called immediately before this, by
+   * the settings tab's onChange handler) now re-registers every command
+   * and updates the ribbon tooltip itself, so this Notice deliberately no
+   * longer tells the user a reload is required. It also deliberately does
+   * NOT claim the change is instant/guaranteed for every affected element
+   * — see notice.languageChanged's own i18n comment and refreshLocale()'s
+   * doc comment for what has not yet been confirmed on a real Obsidian
+   * instance (hotkey preservation in particular).
    */
   notifyLanguageChanged(): void {
     new Notice(this.t("notice.languageChanged"));
+  }
+
+  /**
+   * Fix (2026-08-13, "重要なi18n不具合"): (re-)registers every command in
+   * getCommandSpecs() against Obsidian's command registry, resolving each
+   * `name` via the CURRENT translator (this.t()) at the moment this runs —
+   * never a value captured earlier. Called from refreshLocale() — once at
+   * the top of onload() (nothing is registered yet the very first time;
+   * see the try/catch below) and again every time refreshLocale() runs
+   * after a language-setting change — so Command Palette entries no
+   * longer need a full plugin reload to pick up a new language.
+   *
+   * Uses the public, documented Plugin#removeCommand(commandId) (Obsidian
+   * >= 1.7.2 — this plugin's own manifest.json minAppVersion is 1.8.7, so
+   * no compatibility gap), never a private/internal API. Obsidian's own
+   * command registry keys entries by "<plugin-id>:<command-id>", not the
+   * bare id passed to addCommand (community-confirmed usage; not spelled
+   * out in this method's own removeCommand doc comment in obsidian.d.ts),
+   * so removeCommand is called with that same "<manifest.id>:<id>" prefix.
+   *
+   * Whether Obsidian preserves a user's existing hotkey binding for a
+   * command id across this removeCommand()+addCommand() cycle has NOT been
+   * confirmed on a real Obsidian instance as of this fix — see this
+   * ticket's completion report. If hotkeys turn out to be lost, this
+   * approach needs reconsidering (e.g. mutating the already-registered
+   * Command object's own `.name` in place instead, if the Command Palette
+   * turns out to honor that without a fresh addCommand() call — also
+   * unconfirmed). The try/catch below is defensive only, in case
+   * removeCommand throws for an id that was never registered (guaranteed
+   * true on this method's very first call, from onload()): no behavior in
+   * this codebase depends on which branch runs.
+   */
+  private registerAllCommands(): void {
+    for (const spec of this.getCommandSpecs()) {
+      try {
+        this.removeCommand(`${this.manifest.id}:${spec.id}`);
+      } catch {
+        // Nothing registered yet under this id — see this method's own
+        // doc comment.
+      }
+      if (spec.editorCallback) {
+        this.addCommand({
+          id: spec.id,
+          name: this.t(spec.translationKey),
+          editorCallback: spec.editorCallback,
+        });
+      } else if (spec.callback) {
+        this.addCommand({
+          id: spec.id,
+          name: this.t(spec.translationKey),
+          callback: spec.callback,
+        });
+      }
+    }
+  }
+
+  /**
+   * The plugin's full command table — id, i18n key, and callback wiring
+   * for every command this plugin registers, in the same order they were
+   * previously registered as 15 individual addCommand() calls in onload()
+   * (command ids and their callback bodies are UNCHANGED by this refactor
+   * — see this ticket's completion report for the id-by-id mapping).
+   * Building this array touches neither this.t() nor Obsidian's command
+   * registry by itself, so calling it once per registerAllCommands() call
+   * is cheap and side-effect-free.
+   */
+  private getCommandSpecs(): CommandSpec[] {
+    return [
+      // CHANGELOG (2026-08-11, "Move block の対象を最小安全ブロックへ"):
+      // this command's MEANING changed. Before that ticket, cursor position
+      // anywhere inside a section (including a plain body paragraph)
+      // resolved to "the whole section" — the same behavior "Move section
+      // up/down" below now owns explicitly. As of that ticket, Move block
+      // instead resolves to the smallest Markdown-safe unit at the cursor:
+      // a heading line -> the section; a list item -> its subtree; inside
+      // a callout/blockquote/fenced-code/table -> that whole block; an
+      // ordinary paragraph -> just that paragraph. See
+      // move/resolveMoveTarget.ts's top doc comment for the full
+      // rationale. This id and any existing hotkeys are UNCHANGED (still
+      // move-block-up/down) — only the resolved target differs.
+      {
+        id: "move-block-up",
+        translationKey: "command.moveBlockUp",
+        editorCallback: (editor) => this.moveCurrentBlock(editor, "up"),
+      },
+      {
+        id: "move-block-down",
+        translationKey: "command.moveBlockDown",
+        editorCallback: (editor) => this.moveCurrentBlock(editor, "down"),
+      },
+      // New, explicit counterpart (2026-08-11 ticket) to the narrowed Move
+      // block above: always moves the WHOLE enclosing section subtree
+      // (heading + body + child sections + lists), no matter where inside
+      // it the cursor is. This is exactly Move block's pre-ticket
+      // behavior, now under its own name.
+      {
+        id: "move-section-up",
+        translationKey: "command.moveSectionUp",
+        editorCallback: (editor) => this.moveCurrentSection(editor, "up"),
+      },
+      {
+        id: "move-section-down",
+        translationKey: "command.moveSectionDown",
+        editorCallback: (editor) => this.moveCurrentSection(editor, "down"),
+      },
+      // Node-only: swaps just the current heading LINE's text with the
+      // previous/next heading line in whole-document order, ignoring level
+      // and subtree structure entirely. The body/children physically stay
+      // put — only the heading label moves. See docs §5–6.
+      {
+        id: "move-node-only-up",
+        translationKey: "command.moveNodeOnlyUp",
+        editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "up"),
+      },
+      {
+        id: "move-node-only-down",
+        translationKey: "command.moveNodeOnlyDown",
+        editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "down"),
+      },
+      // Block-scoped: reindents/reparents a whole list subtree, or changes
+      // a heading's level under the section-safety checks in
+      // move/findIndentTarget.ts. See docs/別ペイン実装計画と当面の実装指示.md §6.2.
+      {
+        id: "indent-block",
+        translationKey: "command.indentBlock",
+        editorCallback: (editor) => this.indentCurrentBlock(editor, "indent"),
+      },
+      {
+        id: "outdent-block",
+        translationKey: "command.outdentBlock",
+        editorCallback: (editor) => this.indentCurrentBlock(editor, "outdent"),
+      },
+      // Node-only: changes just the current heading line's level, ignoring
+      // child sections / body / following blocks entirely. See docs §5.1,
+      // §6.1.
+      {
+        id: "indent-node-only",
+        translationKey: "command.indentNodeOnly",
+        editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "indent"),
+      },
+      {
+        id: "outdent-node-only",
+        translationKey: "command.outdentNodeOnly",
+        editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "outdent"),
+      },
+      // Phase 5C-1A/1B: block-level delete/insert common foundation
+      // (section/list only — see edit/deleteBlock.ts, edit/insertBlock.ts).
+      {
+        id: "delete-block",
+        translationKey: "command.deleteBlock",
+        editorCallback: (editor) => this.deleteCurrentBlock(editor),
+      },
+      {
+        id: "insert-sibling-block",
+        translationKey: "command.insertSiblingBlock",
+        editorCallback: (editor) => this.insertSiblingAfterCurrentBlock(editor),
+      },
+      {
+        id: "insert-child-list-item",
+        translationKey: "command.insertChildListItem",
+        editorCallback: (editor) => this.insertChildListItemForCursor(editor),
+      },
+      {
+        id: "open-outline-tree-view",
+        translationKey: "command.openOutlineTreeView",
+        callback: () => void this.activateOutlineTreeView(),
+      },
+      {
+        id: "open-partial-edit-pane",
+        translationKey: "command.openPartialEditPane",
+        editorCallback: (editor) => this.openPartialEditForCursor(editor),
+      },
+    ];
   }
 
   /**
@@ -142,125 +375,12 @@ export default class UnifiedOutlinerPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    // i18n実装: locale must be resolved before any addCommand/addSettingTab
-    // call below — see refreshLocale()'s own doc comment.
+    // i18n実装: locale must be resolved before addSettingTab below — and,
+    // as of the 2026-08-13 i18n fix, this call is also what actually
+    // registers all 15 of this plugin's commands (see refreshLocale()'s
+    // and registerAllCommands()'s own doc comments) — nothing left to do
+    // here for that.
     this.refreshLocale();
-
-    // CHANGELOG (2026-08-11, "Move block の対象を最小安全ブロックへ"): this
-    // command's MEANING changed. Before this ticket, cursor position
-    // anywhere inside a section (including a plain body paragraph) resolved
-    // to "the whole section" — the same behavior "Move section up/down"
-    // (added below) now owns explicitly. As of this ticket, Move block
-    // instead resolves to the smallest Markdown-safe unit at the cursor: a
-    // heading line -> the section; a list item -> its subtree; inside a
-    // callout/blockquote/fenced-code/table -> that whole block; an ordinary
-    // paragraph -> just that paragraph. See move/resolveMoveTarget.ts's top
-    // doc comment for the full rationale. Command ids and any existing
-    // hotkeys are UNCHANGED (still move-block-up/down) — only the resolved
-    // target differs. Users who relied on the old "moves the enclosing
-    // section from anywhere inside it" behavior should bind Move section
-    // up/down instead.
-    this.addCommand({
-      id: "move-block-up",
-      name: this.t("command.moveBlockUp"),
-      editorCallback: (editor) => this.moveCurrentBlock(editor, "up"),
-    });
-
-    this.addCommand({
-      id: "move-block-down",
-      name: this.t("command.moveBlockDown"),
-      editorCallback: (editor) => this.moveCurrentBlock(editor, "down"),
-    });
-
-    // New, explicit counterpart (2026-08-11 ticket) to the narrowed Move
-    // block above: always moves the WHOLE enclosing section subtree
-    // (heading + body + child sections + lists), no matter where inside it
-    // the cursor is — heading line, own body paragraph, or any depth of
-    // nested list item/subsection. This is exactly Move block's pre-ticket
-    // behavior, now under its own name so it stays available as an explicit
-    // choice rather than being cursor-position-dependent.
-    this.addCommand({
-      id: "move-section-up",
-      name: this.t("command.moveSectionUp"),
-      editorCallback: (editor) => this.moveCurrentSection(editor, "up"),
-    });
-
-    this.addCommand({
-      id: "move-section-down",
-      name: this.t("command.moveSectionDown"),
-      editorCallback: (editor) => this.moveCurrentSection(editor, "down"),
-    });
-
-    // Node-only: swaps just the current heading LINE's text with the
-    // previous/next heading line in whole-document order, ignoring level
-    // and subtree structure entirely. The body/children physically stay
-    // put — only the heading label moves. See docs §5–6 and the README's
-    // node-only vs block-scoped move note (advanced operation).
-    this.addCommand({
-      id: "move-node-only-up",
-      name: this.t("command.moveNodeOnlyUp"),
-      editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "up"),
-    });
-
-    this.addCommand({
-      id: "move-node-only-down",
-      name: this.t("command.moveNodeOnlyDown"),
-      editorCallback: (editor) => this.moveCurrentNodeOnly(editor, "down"),
-    });
-
-    // Block-scoped: reindents/reparents a whole list subtree, or changes a
-    // heading's level under the section-safety checks in
-    // move/findIndentTarget.ts (no subsections, needs a previous sibling to
-    // indent, etc.). See docs/別ペイン実装計画と当面の実装指示.md §6.2.
-    this.addCommand({
-      id: "indent-block",
-      name: this.t("command.indentBlock"),
-      editorCallback: (editor) => this.indentCurrentBlock(editor, "indent"),
-    });
-
-    this.addCommand({
-      id: "outdent-block",
-      name: this.t("command.outdentBlock"),
-      editorCallback: (editor) => this.indentCurrentBlock(editor, "outdent"),
-    });
-
-    // Node-only: changes just the current heading line's level, ignoring
-    // child sections / body / following blocks entirely. See docs §5.1,
-    // §6.1. Command ids are new and additive — existing indent-block /
-    // outdent-block ids and any hotkeys bound to them are unaffected.
-    this.addCommand({
-      id: "indent-node-only",
-      name: this.t("command.indentNodeOnly"),
-      editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "indent"),
-    });
-
-    this.addCommand({
-      id: "outdent-node-only",
-      name: this.t("command.outdentNodeOnly"),
-      editorCallback: (editor) => this.changeNodeOnlyLevel(editor, "outdent"),
-    });
-
-    // Phase 5C-1A/1B: block-level delete/insert common foundation
-    // (section/list only — see edit/deleteBlock.ts, edit/insertBlock.ts).
-    // Body-editor-side entry points, resolving "current block" the same
-    // way every other body-editor command does (resolveCurrentBlock).
-    this.addCommand({
-      id: "delete-block",
-      name: this.t("command.deleteBlock"),
-      editorCallback: (editor) => this.deleteCurrentBlock(editor),
-    });
-
-    this.addCommand({
-      id: "insert-sibling-block",
-      name: this.t("command.insertSiblingBlock"),
-      editorCallback: (editor) => this.insertSiblingAfterCurrentBlock(editor),
-    });
-
-    this.addCommand({
-      id: "insert-child-list-item",
-      name: this.t("command.insertChildListItem"),
-      editorCallback: (editor) => this.insertChildListItemForCursor(editor),
-    });
 
     // Phase 2A: Outline Tree View — a right-sidebar panel that visualizes
     // the active note's heading structure and stays in sync with the body
@@ -271,10 +391,8 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       (leaf) => new OutlineTreeView(leaf, this)
     );
 
-    // `void` here (and at the other addCommand callback below, and at
-    // openPartialEditForCursor's call to activatePartialEditView) is a
-    // deliberate marker, not a suppression: Obsidian's addRibbonIcon /
-    // addCommand callback types don't await whatever they return, so
+    // `void` here is a deliberate marker, not a suppression: Obsidian's
+    // addRibbonIcon callback type doesn't await whatever it returns, so
     // there is no caller to `await` this from — but activateOutlineTreeView
     // is still `async` (it awaits leaf.setViewState internally), so an
     // un-marked call here would be a floating Promise whose rejection
@@ -284,23 +402,24 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // reject in practice; `void` simply documents at the call site that
     // the returned Promise is intentionally not awaited, for readers and
     // for lint rules like no-floating-promises.
-    this.addRibbonIcon("list-tree", this.t("command.ribbonTooltip"), () => {
-      void this.activateOutlineTreeView();
-    });
-
-    this.addCommand({
-      id: "open-outline-tree-view",
-      name: this.t("command.openOutlineTreeView"),
-      callback: () => void this.activateOutlineTreeView(),
-    });
+    //
+    // Fix (2026-08-13): the returned HTMLElement is kept in
+    // this.ribbonIconEl so refreshLocale() can update its tooltip on a
+    // later language change — see that field's own doc comment.
+    this.ribbonIconEl = this.addRibbonIcon(
+      "list-tree",
+      this.t("command.ribbonTooltip"),
+      () => {
+        void this.activateOutlineTreeView();
+      }
+    );
 
     // Phase 3B: Partial Edit Pane — a focused, explicit-save editing view
     // for exactly one section subtree at a time. Normally opened from the
     // Outline Tree View's right-click menu (which already has a specific
-    // sectionId to hand it); this command is the body-editor-side entry
-    // point, resolving "current section" the same way every other
-    // body-editor command resolves its target (resolveCurrentBlock). See
-    // view/PartialEditView.ts.
+    // sectionId to hand it); its body-editor-side command entry point
+    // (open-partial-edit-pane) is registered via getCommandSpecs() above,
+    // like every other command. See view/PartialEditView.ts.
     this.registerView(
       PARTIAL_EDIT_VIEW_TYPE,
       (leaf) => new PartialEditView(leaf, this)
@@ -318,11 +437,6 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // pattern Obsidian's own Backlinks/Outline core panels use for "no
     // target yet" — letting it simply persist like any other sidebar leaf
     // is both simpler and more consistent with standard Obsidian behavior.
-    this.addCommand({
-      id: "open-partial-edit-pane",
-      name: this.t("command.openPartialEditPane"),
-      editorCallback: (editor) => this.openPartialEditForCursor(editor),
-    });
 
     this.addSettingTab(new UnifiedOutlinerSettingTab(this.app, this));
 
