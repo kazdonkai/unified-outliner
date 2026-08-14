@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-14
+
+### Fixed
+
+- Corrected the GitHub Release tag to exactly match `manifest.json`'s version string (`0.4.1`), which had previously been pushed as `v0.4.1`. Obsidian's Community Plugins listing requires an exact match to resolve a release, so the mismatched tag prevented the plugin from being installable via in-app search. No functional or user-facing changes in this release.
+
 ## [0.4.0] - 2026-08-13
 
 ### Added
