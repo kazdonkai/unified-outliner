@@ -417,6 +417,48 @@ settings:
   justify-content: center;
 }
 
+/* Phase 5A-1 ("Partial Edit Pane の stale 状態検知・安全な再読み込み"):
+ * the stale/unavailable indicator + Reload button row, placed directly
+ * below the title+actions header and ABOVE the breadcrumb (see
+ * PartialEditView.ts's onOpen / renderSyncStatus). Hidden entirely
+ * (toggleVisibility(false)) whenever the pane is synced or nothing is
+ * loaded. Uses Obsidian's own --text-warning/--text-error theme variables
+ * (never a plugin-owned hardcoded color) so it stays correct across every
+ * theme, matching how every other row on this pane already relies on
+ * Obsidian's own CSS variables (--uo-text-color, etc.) rather than
+ * inventing new ones. */
+.unified-outliner-partial-edit-sync-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-sync-status-label {
+  flex: 1 1 auto;
+}
+
+.unified-outliner-partial-edit-sync-status-stale {
+  background-color: var(--text-warning);
+  background-color: color-mix(in srgb, var(--text-warning) 16%, transparent);
+  color: var(--text-warning);
+}
+
+.unified-outliner-partial-edit-sync-status-unavailable {
+  background-color: var(--text-error);
+  background-color: color-mix(in srgb, var(--text-error) 16%, transparent);
+  color: var(--text-error);
+}
+
+.unified-outliner-partial-edit-sync-status-reload {
+  flex-shrink: 0;
+}
+
 /* Phase 5B: ancestor breadcrumb, a second row below the title+actions
  * header (see PartialEditView.ts's onOpen / renderBreadcrumb). Hidden
  * entirely (display: none, via toggleVisibility) when the loaded node has

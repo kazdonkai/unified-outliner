@@ -128,12 +128,28 @@
  * D&D/rename/insert/delete; see resolver/resolveParagraphAtCursor.ts's own
  * doc comment for the full non-goal list.
  */
-import { App, ItemView, Menu, Modal, Notice, WorkspaceLeaf, setIcon, setTooltip } from "obsidian";
+import {
+  App,
+  Editor,
+  ItemView,
+  MarkdownFileInfo,
+  MarkdownView,
+  Menu,
+  Modal,
+  Notice,
+  TAbstractFile,
+  TFile,
+  WorkspaceLeaf,
+  debounce,
+  setIcon,
+  setTooltip,
+} from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
 import { parseDocument } from "../parser/parseDocument";
 import { applySubtreeEdit, extractSubtreeText, SubtreeKind } from "../edit/partialEdit";
 import { nodeDisplayLabel, standaloneComplexBlockLabel } from "../tree/buildOutlineTree";
 import { scanComplexBlocks } from "../parser/complexBlocks";
+import { ParsedDocument } from "../model/block";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
 import { DescendantNavigationEntry, findDirectChildren } from "../tree/descendantPath";
 import { SiblingNavigationState, getSiblingNavigationState } from "../tree/siblingNavigation";
@@ -145,7 +161,9 @@ import {
   applyParagraphEdit,
   buildParagraphEditAnchor,
   ParagraphEditAnchor,
+  resolveParagraphAnchorText,
 } from "../edit/paragraphPartialEdit";
+import { classifySyncOutcome, shouldRunStaleCheck } from "./partialEditSyncClassification";
 import {
   buildQuotePrefixProjection,
   CalloutFoldMarker,
@@ -232,6 +250,93 @@ export class PartialEditView extends ItemView {
   private siblingState: SiblingNavigationState = { previous: null, next: null };
 
   /**
+   * Phase 5A-1 ("Partial Edit Pane の stale 状態検知・安全な再読み込み"):
+   * whether the note's actual content, at the range this pane last
+   * loaded/re-anchored from, still matches `originalText` (or, for a
+   * CompositeBlock/paragraph, its own anchor snapshot). "synced" is the
+   * default and the only state that ever existed before this ticket
+   * (unchanged clean/dirty semantics — see isDirty()). "stale" means the
+   * note changed elsewhere and Apply would be refused as a conflict by
+   * the existing, UNCHANGED fail-closed check inside
+   * applySubtreeEdit/applyParagraphEdit/applyCompositeBlockEdit — this
+   * field never gates or replaces that check, it only pre-emptively
+   * disables the visible Apply button (see updateDirtyState) so the user
+   * isn't invited to click a button that's guaranteed to fail. "unavailable"
+   * means the target itself could not be resolved at all (the source note
+   * was deleted, or the target range no longer resolves) — see
+   * transitionToUnavailable's own doc comment for why this never clears
+   * itself automatically. Reset to "synced" on every fresh load
+   * (loadNodeInternal/loadParagraphInternal/loadCompositeInternal/
+   * renderEmptyState) and on a successful performAutoReload/executeReload.
+   */
+  private syncState: "synced" | "stale" | "unavailable" = "synced";
+
+  /**
+   * Phase 5A-1: set once in onClose, checked at the top of every method
+   * that may still run after this pane's DOM/leaf is gone — a pending
+   * `vault.cachedRead` promise (performStaleCheck) or a debounced
+   * `scheduleStaleCheck` callback can both still fire after close, since
+   * neither is itself tied to this Component's registerEvent lifecycle
+   * (only the workspace/vault event LISTENERS are — the debounced
+   * function and any in-flight async read survive independently). Every
+   * such method treats a closed pane as a safe no-op rather than touching
+   * now-detached DOM or stale internal state.
+   */
+  private closed = false;
+
+  /**
+   * Phase 5A-1 hardening §1 (self-Apply suppression): true for the exact
+   * span of applyEdit()'s own note-mutating call — set immediately before
+   * applyLineEditOutcome and cleared (via try/finally, so an exception or
+   * early return can never leave it stuck true) right after this pane's
+   * own re-anchoring finishes — for every one of applyEdit()'s three
+   * branches (paragraph/composite/node), success path only (a failed
+   * Apply returns before ever reaching applyLineEditOutcome, so it never
+   * sets this at all — see each branch's own comment).
+   *
+   * Closes a theoretical self-Apply race this ticket's own safety review
+   * flagged: IF `editor-change` were ever to fire synchronously from
+   * `editor.replaceRange` (unconfirmed) inside a leading-edge-synchronous
+   * `debounce` (also unconfirmed — see scheduleStaleCheck's own doc
+   * comment), a stale check could otherwise run inside applyEdit()'s own
+   * call stack, BEFORE this.originalText / the relevant anchor is
+   * reassigned to match the just-applied content, and incorrectly read
+   * that gap as staleness — with no automatic path back to "synced"
+   * afterward (see the now-retracted claim this ticket's review
+   * explicitly walked back).
+   *
+   * Checked by BOTH performStaleCheck (via shouldRunStaleCheck, so a
+   * suppressed synchronous re-entrant call is a cheap no-op before even
+   * touching the vault) AND evaluateAgainstText itself (so an ALREADY
+   * in-flight `vault.cachedRead` promise scheduled before this Apply
+   * started, whose `.then()` callback could in principle still run later,
+   * is equally inert — defense-in-depth that does not rely on any
+   * assumption about microtask/debounce ordering). Events arriving during
+   * suppression are fully discarded, never queued — see
+   * scheduleStaleCheck's own doc comment for why an explicit, single
+   * `scheduleStaleCheck()` call right after releasing suppression (inside
+   * each applyEdit() branch, after the try/finally) is what guarantees a
+   * fresh re-check still happens afterward, rather than relying on
+   * whatever debounced call may or may not have been swallowed.
+   */
+  private isApplyingOwnEdit = false;
+
+  /**
+   * Phase 5A-1: the single per-Pane, per-instance debounced stale check —
+   * every event source below (editor-change/vault modify/active-leaf-
+   * change/file-open) schedules through this SAME debouncer, so a burst of
+   * several events (e.g. Apply's own editor-change firing alongside a
+   * near-simultaneous vault "modify" for the same edit) collapses into one
+   * performStaleCheck() call rather than several redundant ones. 150ms,
+   * `resetTimer: true` — the same call shape OutlineTreeView.ts's own
+   * scheduleRefresh already uses for its own editor-change/active-leaf-
+   * change/file-open debounce (see that file's own doc comment); reusing
+   * the identical, already-proven-safe call shape here rather than
+   * inventing a different debounce configuration.
+   */
+  private scheduleStaleCheck = debounce(() => this.performStaleCheck(), 150, true);
+
+  /**
    * Phase 5B: how many of the nearest ancestors the breadcrumb shows
    * before collapsing the rest into a leading "…" segment (tooltip-only).
    * A single named constant per the implementation instruction's "マジック
@@ -280,6 +385,17 @@ export class PartialEditView extends ItemView {
   ];
 
   private titleEl!: HTMLElement;
+  /**
+   * Phase 5A-1: the stale/unavailable indicator + Reload button row,
+   * placed between the title/actions header and the ancestor breadcrumb
+   * (see onOpen) — "near the Pane header/breadcrumb" per this ticket's own
+   * UI placement requirement. Hidden entirely (toggleVisibility(false))
+   * whenever `syncState === "synced"` or nothing is loaded — see
+   * renderSyncStatus.
+   */
+  private syncStatusEl!: HTMLElement;
+  private syncStatusLabelEl!: HTMLElement;
+  private syncStatusReloadEl!: HTMLButtonElement;
   private breadcrumbEl!: HTMLElement;
   private siblingNavEl!: HTMLElement;
   private siblingPrevEl!: HTMLButtonElement;
@@ -448,6 +564,29 @@ export class PartialEditView extends ItemView {
     setIcon(this.closeButtonEl, "x");
     setTooltip(this.closeButtonEl, this.plugin.t("partialEdit.close"));
     this.closeButtonEl.addEventListener("click", () => this.leaf.detach());
+
+    // Phase 5A-1: the stale/unavailable indicator + Reload button row,
+    // placed directly below the title/actions header and ABOVE the
+    // breadcrumb — "near the Pane header/breadcrumb" per this ticket's own
+    // placement requirement (R2). aria-live="polite" is this ticket's
+    // minimal aria-live-equivalent announcement: when renderSyncStatus
+    // below changes syncStatusLabelEl's text, a screen reader announces it
+    // without the user needing to navigate to this row explicitly.
+    this.syncStatusEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-sync-status",
+    });
+    this.syncStatusEl.setAttribute("aria-live", "polite");
+    this.syncStatusLabelEl = this.syncStatusEl.createSpan({
+      cls: "unified-outliner-partial-edit-sync-status-label",
+    });
+    this.syncStatusReloadEl = this.syncStatusEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-sync-status-reload",
+      text: this.plugin.t("partialEdit.reload"),
+    });
+    this.syncStatusReloadEl.addEventListener("click", () => {
+      void this.performReload();
+    });
+    this.syncStatusEl.toggleVisibility(false);
 
     // Phase 5B: a second row below the title+actions header, dedicated to
     // the ancestor breadcrumb. Kept as its own element (not squeezed into
@@ -656,6 +795,58 @@ export class PartialEditView extends ItemView {
       this.app.workspace.on("layout-change", () => this.updateCloseButtonVisibility())
     );
 
+    // Phase 5A-1: the sole authoritative sources for "did this pane's
+    // loaded content go stale" — every one of them ultimately funnels into
+    // the SAME debounced performStaleCheck() (see scheduleStaleCheck's own
+    // doc comment), never `this.plugin.activeMarkdownView`
+    // (ActiveMarkdownViewTracker), which is a PLUGIN-SHARED, single
+    // "most-recently-focused" cache — not per-file — and was the v1
+    // design's own root-cause bug (see the design doc's revision history).
+    //
+    // editor-change: fires for BOTH a user keystroke AND a programmatic
+    // edit (Apply's own editor.replaceRange call — obsidian.d.ts's own doc
+    // comment: "either programmatically or from a user event"), so this
+    // pane's OWN Apply also fires this. That is not a false-positive risk
+    // here: applyEdit() already reassigns `this.originalText` (or the
+    // relevant anchor's originalText) SYNCHRONOUSLY, in the same call
+    // stack as the replaceRange call that triggers this event — by the
+    // time this debounced check actually runs (at least one full event
+    // loop turn later), `this.originalText` and the live editor content
+    // already agree, so performStaleCheck resolves to "synced", never a
+    // spurious "stale". `info.file?.path === this.sourcePath` is the
+    // match — never `activeMarkdownViewTracker` — so a background/
+    // inactive/popped-out Pane still detects a change to its own
+    // sourcePath.
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (editor: Editor, info: MarkdownView | MarkdownFileInfo) =>
+        this.handleEditorChange(editor, info)
+      )
+    );
+    // vault "modify"/"rename"/"delete": path-based, so these catch a
+    // change to `sourcePath` even while it has no open editor at all
+    // (background file, or a file never opened in this window) — the
+    // case editor-change alone can never cover.
+    this.registerEvent(
+      this.app.vault.on("modify", (file: TAbstractFile) => this.handleVaultModify(file))
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) =>
+        this.handleVaultRename(file, oldPath)
+      )
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file: TAbstractFile) => this.handleVaultDelete(file))
+    );
+    // active-leaf-change / file-open: deliberately ONLY a re-check
+    // trigger, never the primary sourcePath-matching path — neither
+    // handler inspects which file/leaf triggered it; both simply ask
+    // performStaleCheck to re-verify THIS pane's own sourcePath, which
+    // performStaleCheck itself no-ops on when nothing is loaded. Switching
+    // to an unrelated file therefore never staleifies/unavailable-izes
+    // this pane by itself.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleStaleCheck()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleStaleCheck()));
+
     this.renderEmptyState();
     this.updateCloseButtonVisibility();
   }
@@ -664,6 +855,14 @@ export class PartialEditView extends ItemView {
     // Intentionally no auto-save here: per the Phase 3B design, Close
     // (like Cancel) never applies pending edits — only the Apply button
     // does. Nothing to clean up beyond the DOM itself.
+    //
+    // Phase 5A-1: `closed` is checked at the top of every method that
+    // might still run after this point (a pending vault.cachedRead
+    // promise, or a debounced scheduleStaleCheck callback already queued
+    // before this pane closed) — see that field's own doc comment for why
+    // registerEvent's automatic unregistration alone isn't enough to make
+    // those paths inert.
+    this.closed = true;
     this.contentEl.empty();
   }
 
@@ -859,6 +1058,10 @@ export class PartialEditView extends ItemView {
     // doc comment and view/partialEditSourceNoteCheck.ts for why this
     // exists and how applyEdit uses it.
     this.sourcePath = view.file?.path ?? null;
+    // Phase 5A-1: a fresh load is by definition in sync with what it was
+    // just read from — see the `syncState` field's own doc comment for
+    // when this gets set to anything else.
+    this.syncState = "synced";
     // Phase 5C-2: breadcrumb / sibling nav / Subtree Navigator stay at
     // their empty state for a callout/blockquote — this ticket's own
     // approved scope explicitly leaves those three unextended
@@ -922,6 +1125,9 @@ export class PartialEditView extends ItemView {
     // Phase 5C-4 convention, reused as-is: recorded fresh on every load,
     // from the SAME `view` this method already resolved `doc` from above.
     this.sourcePath = view.file?.path ?? null;
+    // Phase 5A-1: see loadNodeInternal's identical reset — a fresh load is
+    // always in sync with what it was just read from.
+    this.syncState = "synced";
     // Phase 5P-2 explicit scope: no breadcrumb / sibling nav / Subtree
     // Navigator for a paragraph — see this class's own doc comment.
     // renderSiblingNav's own visibility check hinges on `this.nodeId`
@@ -988,6 +1194,9 @@ export class PartialEditView extends ItemView {
     this.quoteProjection = null;
     this.label = label;
     this.sourcePath = view.file?.path ?? null;
+    // Phase 5A-1: see loadNodeInternal's identical reset — a fresh load is
+    // always in sync with what it was just read from.
+    this.syncState = "synced";
     // Phase 5D-2A explicit scope: no breadcrumb / sibling nav / Subtree
     // Navigator for a CompositeBlock — mirrors loadParagraphInternal's own
     // identical choice above.
@@ -1010,6 +1219,9 @@ export class PartialEditView extends ItemView {
     // Phase 5C-4: reset alongside the other per-load fields above — see
     // the class field's own doc comment.
     this.sourcePath = null;
+    // Phase 5A-1: an empty pane has nothing to be stale/unavailable about
+    // — see the `syncState` field's own doc comment.
+    this.syncState = "synced";
     // Phase 5P-2: reset alongside nodeId/nodeKind — this method already
     // implicitly leaves nodeId/nodeKind at their initial null values (never
     // set here), so paragraphAnchor is cleared explicitly to match.
@@ -1554,34 +1766,60 @@ export class PartialEditView extends ItemView {
         return false;
       }
 
-      applyLineEditOutcome(
-        editor,
-        { line: outcome.newStartLine, ch: 0 },
-        outcome.newStartLine,
-        doc.lines,
-        outcome,
-        () => {}
-      );
+      // Phase 5A-1 hardening §1: suppress this pane's OWN stale-check
+      // reaction to the editor-change this call is about to fire, for the
+      // exact span from immediately before the note mutation through
+      // re-anchoring completion — see isApplyingOwnEdit's own doc comment
+      // for the full rationale. try/finally guarantees the flag is always
+      // released, even if applyLineEditOutcome/re-anchoring/updateDirtyState
+      // were ever to throw.
+      this.isApplyingOwnEdit = true;
+      try {
+        applyLineEditOutcome(
+          editor,
+          { line: outcome.newStartLine, ch: 0 },
+          outcome.newStartLine,
+          doc.lines,
+          outcome,
+          () => {}
+        );
 
-      this.originalText = this.textareaEl.value;
-      // Phase 5P-4 supplement: re-anchor from a FRESH re-resolution at the
-      // outcome's own new position, rather than blindly spreading the old
-      // anchor. applyParagraphEdit may have resolved via its Pass 2
-      // structural re-search (a same-parent paragraph<->paragraph swap
-      // happened elsewhere while this pane was open) — in that case the
-      // OLD anchor's complexBlockId no longer points at this paragraph at
-      // all, and spreading it forward would silently reintroduce the exact
-      // staleness this fix exists to close. Re-resolving via
-      // resolveParagraphAtCursor at outcome.newStartLine, against the
-      // just-applied document, always yields the correct current id/
-      // siblingCount — a SECOND Apply within the same pane session then
-      // starts from a fully current anchor, not a stale one.
-      const freshDoc = parseDocument(editor.getValue());
-      const freshResolved = resolveParagraphAtCursor(freshDoc, outcome.newStartLine);
-      this.paragraphAnchor = freshResolved.paragraph
-        ? buildParagraphEditAnchor(freshDoc, freshResolved.paragraph)
-        : { ...this.paragraphAnchor, originalText: this.textareaEl.value };
-      this.updateDirtyState();
+        this.originalText = this.textareaEl.value;
+        // Phase 5P-4 supplement: re-anchor from a FRESH re-resolution at the
+        // outcome's own new position, rather than blindly spreading the old
+        // anchor. applyParagraphEdit may have resolved via its Pass 2
+        // structural re-search (a same-parent paragraph<->paragraph swap
+        // happened elsewhere while this pane was open) — in that case the
+        // OLD anchor's complexBlockId no longer points at this paragraph at
+        // all, and spreading it forward would silently reintroduce the exact
+        // staleness this fix exists to close. Re-resolving via
+        // resolveParagraphAtCursor at outcome.newStartLine, against the
+        // just-applied document, always yields the correct current id/
+        // siblingCount — a SECOND Apply within the same pane session then
+        // starts from a fully current anchor, not a stale one.
+        const freshDoc = parseDocument(editor.getValue());
+        const freshResolved = resolveParagraphAtCursor(freshDoc, outcome.newStartLine);
+        this.paragraphAnchor = freshResolved.paragraph
+          ? buildParagraphEditAnchor(freshDoc, freshResolved.paragraph)
+          : { ...this.paragraphAnchor, originalText: this.textareaEl.value };
+        // Phase 5A-1 hardening §1: this pane just re-anchored from its own
+        // just-applied content, so it is synced by definition — set
+        // explicitly rather than left to whatever it happened to be before
+        // Apply (requestLoadNode's "Apply and switch" flow can reach this
+        // branch even while stale — see class doc comment on
+        // requestLoadNode's "apply" choice).
+        this.syncState = "synced";
+        this.updateDirtyState();
+      } finally {
+        this.isApplyingOwnEdit = false;
+      }
+      // Exactly one debounced re-check after releasing suppression — see
+      // isApplyingOwnEdit's own doc comment for why this is what
+      // guarantees a fresh check still happens even if an event arriving
+      // during suppression was discarded rather than queued. Idempotent
+      // and cheap when nothing actually changed concurrently (the common
+      // case): performStaleCheck simply confirms "synced" again.
+      this.scheduleStaleCheck();
 
       const lineLen = editor.getLine(outcome.newStartLine)?.length ?? 0;
       editor.scrollIntoView(
@@ -1635,27 +1873,40 @@ export class PartialEditView extends ItemView {
         return false;
       }
 
-      applyLineEditOutcome(
-        editor,
-        { line: outcome.newStartLine, ch: 0 },
-        outcome.newStartLine,
-        doc.lines,
-        outcome,
-        () => {}
-      );
+      // Phase 5A-1 hardening §1: same self-Apply suppression span as the
+      // paragraph branch above — see isApplyingOwnEdit's own doc comment.
+      this.isApplyingOwnEdit = true;
+      try {
+        applyLineEditOutcome(
+          editor,
+          { line: outcome.newStartLine, ch: 0 },
+          outcome.newStartLine,
+          doc.lines,
+          outcome,
+          () => {}
+        );
 
-      // Phase 5D-2A: re-anchor from outcome.resolvedSnapshot — present
-      // only when the just-applied text still forms a CompositeBlock
-      // matching the ORIGINAL ruleId at the same position (see that
-      // field's own doc comment on ApplyCompositeBlockEditOutcome). When
-      // it does not (方針A: a structure-breaking edit was permitted
-      // through), compositeAnchor becomes null and any FURTHER Apply from
-      // this same pane session correctly falls through to the top guard's
-      // "no node loaded" refusal, rather than silently operating against a
-      // CompositeBlock that no longer exists.
-      this.originalText = this.textareaEl.value;
-      this.compositeAnchor = outcome.resolvedSnapshot ?? null;
-      this.updateDirtyState();
+        // Phase 5D-2A: re-anchor from outcome.resolvedSnapshot — present
+        // only when the just-applied text still forms a CompositeBlock
+        // matching the ORIGINAL ruleId at the same position (see that
+        // field's own doc comment on ApplyCompositeBlockEditOutcome). When
+        // it does not (方針A: a structure-breaking edit was permitted
+        // through), compositeAnchor becomes null and any FURTHER Apply from
+        // this same pane session correctly falls through to the top guard's
+        // "no node loaded" refusal, rather than silently operating against a
+        // CompositeBlock that no longer exists.
+        this.originalText = this.textareaEl.value;
+        this.compositeAnchor = outcome.resolvedSnapshot ?? null;
+        // Phase 5A-1 hardening §1: see the paragraph branch's identical
+        // comment above — explicitly synced right after this pane's own
+        // re-anchoring, regardless of what syncState held before Apply.
+        this.syncState = "synced";
+        this.updateDirtyState();
+      } finally {
+        this.isApplyingOwnEdit = false;
+      }
+      // See the paragraph branch's identical comment above.
+      this.scheduleStaleCheck();
 
       const lineLen = editor.getLine(outcome.newStartLine)?.length ?? 0;
       editor.scrollIntoView(
@@ -1766,56 +2017,69 @@ export class PartialEditView extends ItemView {
       return false;
     }
 
-    // outcome.changed is already true here, so applyLineEditOutcome's own
-    // no-op branch never fires — the notify callback is unreachable, but
-    // required by its signature.
-    applyLineEditOutcome(
-      editor,
-      { line: startLine, ch: 0 },
-      startLine,
-      doc.lines,
-      outcome,
-      () => {}
-    );
+    // Phase 5A-1 hardening §1: same self-Apply suppression span as the
+    // paragraph/composite branches above — see isApplyingOwnEdit's own
+    // doc comment. outcome.changed is already true here, so
+    // applyLineEditOutcome's own no-op branch never fires — the notify
+    // callback is unreachable, but required by its signature.
+    this.isApplyingOwnEdit = true;
+    try {
+      applyLineEditOutcome(
+        editor,
+        { line: startLine, ch: 0 },
+        startLine,
+        doc.lines,
+        outcome,
+        () => {}
+      );
 
-    // Phase 5D-0.5: originalText re-anchors to the RECONSTRUCTED raw text
-    // (never the textarea's own, possibly prefix-stripped, value) — for
-    // every non-projecting kind newRawText === this.textareaEl.value
-    // already, so this is byte-identical to the pre-5D-0.5 behavior there.
-    this.originalText = newRawText;
-    if (this.quoteProjection) {
-      // Rebuild the projection/line-mapping fresh from the just-applied
-      // raw text, rather than trusting the pre-apply projection's now
-      // possibly-stale prefixes — this is what guarantees a SECOND Apply
-      // in the same pane session starts from a fully current basis (see
-      // the class doc comment's originalText/quoteProjection contract).
-      // A rebuild can fail here ONLY with reason "nested" — never
-      // "no-body" (line count, and therefore body-line count, cannot
-      // change on this path; see invertQuotePrefixProjection) — if the
-      // user's own edited content happened to introduce a literal leading
-      // `>` into a line (typed, not structural). That is not a data-loss
-      // risk (the Apply above already succeeded and the note already
-      // holds newRawText); this pane simply, safely degrades to showing
-      // that node raw from here on, exactly like the "no-body" fallback
-      // already does for a header-only callout.
-      // Phase 5D-1A: the freshly rebuilt projection's own `titleSlot` is
-      // recomputed from `newRawText`'s new header line (which already
-      // reflects any title edit just applied above), so calling
-      // renderQuoteHeader() right below also re-syncs quoteTitleInputEl
-      // to the just-applied title — no separate title re-sync needed
-      // here.
-      const kind = this.quoteProjection.kind;
-      const rebuilt = buildQuotePrefixProjection(newRawText, kind);
-      this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
-      this.renderQuoteHeader();
-      // Keep the textarea itself in sync with whatever currentDisplayText()
-      // now resolves to (projected again, or raw on the rare degrade
-      // above) — normally a no-op, since projecting the just-reconstructed
-      // raw text back should reproduce exactly what the textarea already
-      // shows.
-      this.textareaEl.value = this.currentDisplayText();
+      // Phase 5D-0.5: originalText re-anchors to the RECONSTRUCTED raw text
+      // (never the textarea's own, possibly prefix-stripped, value) — for
+      // every non-projecting kind newRawText === this.textareaEl.value
+      // already, so this is byte-identical to the pre-5D-0.5 behavior there.
+      this.originalText = newRawText;
+      if (this.quoteProjection) {
+        // Rebuild the projection/line-mapping fresh from the just-applied
+        // raw text, rather than trusting the pre-apply projection's now
+        // possibly-stale prefixes — this is what guarantees a SECOND Apply
+        // in the same pane session starts from a fully current basis (see
+        // the class doc comment's originalText/quoteProjection contract).
+        // A rebuild can fail here ONLY with reason "nested" — never
+        // "no-body" (line count, and therefore body-line count, cannot
+        // change on this path; see invertQuotePrefixProjection) — if the
+        // user's own edited content happened to introduce a literal leading
+        // `>` into a line (typed, not structural). That is not a data-loss
+        // risk (the Apply above already succeeded and the note already
+        // holds newRawText); this pane simply, safely degrades to showing
+        // that node raw from here on, exactly like the "no-body" fallback
+        // already does for a header-only callout.
+        // Phase 5D-1A: the freshly rebuilt projection's own `titleSlot` is
+        // recomputed from `newRawText`'s new header line (which already
+        // reflects any title edit just applied above), so calling
+        // renderQuoteHeader() right below also re-syncs quoteTitleInputEl
+        // to the just-applied title — no separate title re-sync needed
+        // here.
+        const kind = this.quoteProjection.kind;
+        const rebuilt = buildQuotePrefixProjection(newRawText, kind);
+        this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
+        this.renderQuoteHeader();
+        // Keep the textarea itself in sync with whatever currentDisplayText()
+        // now resolves to (projected again, or raw on the rare degrade
+        // above) — normally a no-op, since projecting the just-reconstructed
+        // raw text back should reproduce exactly what the textarea already
+        // shows.
+        this.textareaEl.value = this.currentDisplayText();
+      }
+      // Phase 5A-1 hardening §1: see the paragraph branch's identical
+      // comment above — explicitly synced right after this pane's own
+      // re-anchoring, regardless of what syncState held before Apply.
+      this.syncState = "synced";
+      this.updateDirtyState();
+    } finally {
+      this.isApplyingOwnEdit = false;
     }
-    this.updateDirtyState();
+    // See the paragraph branch's identical comment above.
+    this.scheduleStaleCheck();
 
     const lineLen = editor.getLine(outcome.newStartLine)?.length ?? 0;
     editor.scrollIntoView(
@@ -1856,6 +2120,64 @@ export class PartialEditView extends ItemView {
     const dirty = this.isDirty();
     this.applyButtonEl.toggleVisibility(dirty);
     this.cancelButtonEl.toggleVisibility(dirty);
+
+    // Phase 5A-1: Apply is ALSO disabled whenever this pane is stale or
+    // unavailable — deliberately a UX-layer-only precaution, never a
+    // replacement for (or weakening of) the existing, unchanged
+    // fail-closed conflict check inside applySubtreeEdit/
+    // applyParagraphEdit/applyCompositeBlockEdit, which would refuse the
+    // exact same Apply anyway (that check is precisely WHAT makes a pane
+    // "stale" in the first place — see resolveCurrentTarget). This only
+    // pre-empts a click that is guaranteed to fail, with an explanatory
+    // tooltip for both visual and non-visual (screen reader) users.
+    // `anyLoaded` mirrors isDirty()'s own "something is loaded" condition
+    // exactly, so an empty pane's Apply button stays disabled=true exactly
+    // as it always has (renderEmptyState's own explicit `disabled = true`
+    // is left untouched by this — this line simply reproduces the same
+    // value for the empty case rather than overriding it differently).
+    const anyLoaded = this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null;
+    const applyBlockedBySync = anyLoaded && this.syncState !== "synced";
+    this.applyButtonEl.disabled = anyLoaded ? applyBlockedBySync : true;
+    setTooltip(
+      this.applyButtonEl,
+      applyBlockedBySync
+        ? this.plugin.t(
+            this.syncState === "stale"
+              ? "partialEdit.staleApplyDisabledReason"
+              : "partialEdit.unavailableApplyDisabledReason"
+          )
+        : ""
+    );
+
+    this.renderSyncStatus();
+  }
+
+  /**
+   * Phase 5A-1: renders the stale/unavailable indicator + Reload row
+   * (syncStatusEl) from `this.syncState` — called from updateDirtyState so
+   * every place that already re-renders dirty/Apply state (load, Cancel,
+   * Apply, and this ticket's own transitionToStale/transitionToUnavailable/
+   * performAutoReload) keeps this row in sync for free, with no separate
+   * call site to remember. Hidden whenever synced or nothing is loaded —
+   * mirrors the `anyLoaded` condition updateDirtyState above already uses
+   * for the Apply button's own sync-based disabling.
+   */
+  private renderSyncStatus(): void {
+    const anyLoaded = this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null;
+    const show = anyLoaded && this.syncState !== "synced";
+    this.syncStatusEl.toggleVisibility(show);
+    this.syncStatusEl.toggleClass(
+      "unified-outliner-partial-edit-sync-status-stale",
+      show && this.syncState === "stale"
+    );
+    this.syncStatusEl.toggleClass(
+      "unified-outliner-partial-edit-sync-status-unavailable",
+      show && this.syncState === "unavailable"
+    );
+    if (!show) return;
+    this.syncStatusLabelEl.setText(
+      this.plugin.t(this.syncState === "stale" ? "partialEdit.staleLabel" : "partialEdit.unavailableLabel")
+    );
   }
 
   /**
@@ -1917,6 +2239,432 @@ export class PartialEditView extends ItemView {
     const inSidebar = root === workspace.leftSplit || root === workspace.rightSplit;
     this.closeButtonEl.toggleVisibility(inSidebar);
   }
+
+  // ---------------------------------------------------------------------
+  // Phase 5A-1 ("Partial Edit Pane の stale 状態検知・安全な再読み込み"):
+  // event handlers, the debounced stale check, and Reload. See this file's
+  // top-level doc comment's Phase 5A-1 paragraph and
+  // docs/phase5a1_partial_edit_stale_pane_synchronization_design.md for
+  // the full design and rationale; each method below only carries the
+  // parts of that rationale a reader needs locally.
+  // ---------------------------------------------------------------------
+
+  /**
+   * editor-change handler — matches purely on `info.file?.path`, NEVER on
+   * `this.plugin.activeMarkdownView` (see onOpen's own doc comment on this
+   * registration for why). `info` is `MarkdownView | MarkdownFileInfo`
+   * (obsidian.d.ts) — both expose `.file` uniformly, so no instanceof
+   * check is needed before reading it.
+   */
+  private handleEditorChange(_editor: Editor, info: MarkdownView | MarkdownFileInfo): void {
+    if (this.closed || !this.sourcePath) return;
+    if (info.file?.path !== this.sourcePath) return;
+    this.scheduleStaleCheck();
+  }
+
+  /** vault "modify" handler — path-based, works even with no open editor for sourcePath. */
+  private handleVaultModify(file: TAbstractFile): void {
+    if (this.closed || !this.sourcePath) return;
+    if (!(file instanceof TFile) || file.path !== this.sourcePath) return;
+    this.scheduleStaleCheck();
+  }
+
+  /**
+   * vault "rename" handler — follows `sourcePath` to the file's new path
+   * WITHOUT touching the textarea or any loaded content (a rename alone
+   * says nothing about whether the CONTENT changed). `this.sourcePath` is
+   * reassigned synchronously here, so every downstream read of it — this
+   * debounced check's own eventual callback included, since that callback
+   * always reads `this.sourcePath` live rather than closing over a local
+   * copy — sees the new path, never a stale one, regardless of how much
+   * later the debounced check actually executes.
+   */
+  private handleVaultRename(file: TAbstractFile, oldPath: string): void {
+    if (this.closed || !this.sourcePath) return;
+    if (!(file instanceof TFile) || oldPath !== this.sourcePath) return;
+    this.sourcePath = file.path;
+    this.scheduleStaleCheck();
+  }
+
+  /**
+   * vault "delete" handler — an unambiguous, immediate transition to
+   * "unavailable" (no debounce needed: there is nothing left to compare
+   * against). Deliberately does NOT clear `nodeId`/`paragraphAnchor`/
+   * `compositeAnchor`/`originalText`/the textarea's own buffered value —
+   * an in-progress dirty edit is never force-discarded just because its
+   * source note disappeared. See transitionToUnavailable's own doc
+   * comment for why this state does not auto-clear if the path later
+   * becomes valid again (e.g. a same-named file recreated, or an undo of
+   * the deletion) — only an explicit Reload re-attempts resolution.
+   */
+  private handleVaultDelete(file: TAbstractFile): void {
+    if (this.closed || !this.sourcePath) return;
+    if (!(file instanceof TFile) || file.path !== this.sourcePath) return;
+    this.transitionToUnavailable();
+  }
+
+  /**
+   * E5 (design doc §3, "two-stage"): the first stage — search every open
+   * MarkdownView (via `getLeavesOfType`, which per obsidian.d.ts's own doc
+   * comment also searches leaves inside pop-out windows when no root is
+   * given) for one whose `.file?.path` equals `this.sourcePath`. Returns
+   * that view's live `Editor` when found (its `getValue()` reflects
+   * every keystroke, even totally unsaved ones — the freshest possible
+   * source), or `null` when `sourcePath` has no open editor anywhere
+   * (background file, inactive tab never focused this session, etc.) —
+   * callers fall back to `vault.cachedRead` in that case. Never trusts
+   * `this.plugin.activeMarkdownView` — see onOpen's own doc comment.
+   */
+  private findOpenEditorForSourcePath(): Editor | null {
+    if (!this.sourcePath) return null;
+    const leaves = this.app.workspace.getLeavesOfType("markdown");
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file?.path === this.sourcePath) {
+        return view.editor;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The debounced target of `scheduleStaleCheck` — see that field's own
+   * doc comment for the debounce configuration and why every event source
+   * funnels here. Skips entirely once `syncState === "unavailable"`: per
+   * this ticket's own requirement, "unavailable" never auto-clears itself
+   * — only an explicit Reload (executeReload below) re-attempts
+   * resolution. `vault.cachedRead` (E4, the no-open-editor fallback) is
+   * used here ONLY for a safe, read-only staleness COMPARISON — never to
+   * silently overwrite the textarea; see evaluateAgainstText's own
+   * `fromLiveEditor` gate for where that distinction is enforced.
+   */
+  private performStaleCheck(): void {
+    if (!this.sourcePath) return;
+    if (!this.nodeId && !this.paragraphAnchor && !this.compositeAnchor) return;
+    // Phase 5A-1 hardening §1: closed / self-Apply-suppressed / already-
+    // "unavailable" are now one shared, Obsidian-free decision
+    // (partialEditSyncClassification.ts#shouldRunStaleCheck) — see that
+    // function's own doc comment, and isApplyingOwnEdit's own doc comment
+    // for why a suppressed re-entrant call must no-op here BEFORE even
+    // touching the vault, not just at evaluateAgainstText's own guard.
+    if (
+      !shouldRunStaleCheck({
+        closed: this.closed,
+        suppressed: this.isApplyingOwnEdit,
+        currentSyncState: this.syncState,
+      })
+    ) {
+      return;
+    }
+
+    const path = this.sourcePath;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.transitionToUnavailable();
+      return;
+    }
+
+    const openEditor = this.findOpenEditorForSourcePath();
+    if (openEditor) {
+      this.evaluateAgainstText(openEditor.getValue(), path, true);
+      return;
+    }
+    // Phase 5A-1 hardening §3: a rejected cachedRead (e.g. a transient I/O
+    // error, or the file vanishing between getAbstractFileByPath above and
+    // this read) must fail closed — this is the PASSIVE detection path
+    // (never explicitly requested by the user), so the chosen behavior is
+    // to change nothing at all: no textarea/quote-input/originalText/
+    // anchor/snapshot mutation, no incorrect auto-reload, no substituted
+    // or guessed content, and no syncState transition either (a transient
+    // read failure here is not itself evidence the target is actually
+    // unavailable — see executeReload's own doc comment for why an
+    // EXPLICIT Reload's own read failure is treated differently). The
+    // rejection is swallowed rather than surfaced as a Notice — a silent,
+    // periodic background check failing once is not something the user
+    // needs interrupted for, and the next debounced check (editor-change/
+    // vault modify/active-leaf-change/file-open) will simply try again.
+    void this.app.vault
+      .cachedRead(file)
+      .then((text) => {
+        this.evaluateAgainstText(text, path, false);
+      })
+      .catch(() => {
+        /* Fail closed — see this method's own comment above. */
+      });
+  }
+
+  /**
+   * Re-resolves the currently loaded target against a fresh parse of
+   * `doc`, reusing exactly the same read-only resolvers
+   * applySubtreeEdit/applyParagraphEdit/applyCompositeBlockEdit
+   * themselves call for their own conflict check — see each branch's own
+   * comment below. This is what guarantees stale-detection can never be
+   * weaker than Apply's own fail-closed contract: it IS that contract's
+   * own read side, never a separately re-implemented approximation of it.
+   *
+   * `ambiguous` distinguishes a paragraph whose position could not be
+   * safely, uniquely re-identified (deletion, an ambiguous duplicate, or
+   * a nearby structural change — see applyParagraphEdit's own doc
+   * comment for "anchor-unresolved") from a section/list/callout/
+   * blockquote/CompositeBlock's more definitive resolve-failure. Per this
+   * ticket's own explicit instruction, an ambiguous case leans toward
+   * "stale" rather than "unavailable" when merely DETECTED (see
+   * evaluateAgainstText) — only a subsequent, explicit Reload attempt
+   * that ALSO fails escalates it to "unavailable" (see executeReload).
+   */
+  private resolveCurrentTarget(doc: ParsedDocument): { ok: boolean; text: string | null; ambiguous: boolean } {
+    if (this.nodeId) {
+      const extracted = extractSubtreeText(doc, this.nodeId);
+      return { ok: extracted.ok, text: extracted.ok ? extracted.text : null, ambiguous: false };
+    }
+
+    if (this.paragraphAnchor) {
+      // Phase 5A-1 hardening §2: reuses edit/paragraphPartialEdit.ts's own
+      // dedicated, explicitly read-only `resolveParagraphAnchorText` —
+      // never the discarded-result no-op-probe pattern (re-splicing the
+      // anchor's own snapshot text via the Apply-time function below,
+      // purely to read its outcome) this ticket's own safety review
+      // flagged as a responsibility-boundary risk: an "Apply"-named
+      // function reused for reads, with no explicit read-only contract.
+      // See resolveParagraphAnchorText's own doc comment for the full
+      // two-pass identity-resolution algorithm (mirroring, but not
+      // identical to, the Apply-time function's own — see ITS doc comment
+      // for exactly how and why the two intentionally differ) and why it
+      // is provably free of any Editor/Vault/DOM/Notice dependency.
+      return resolveParagraphAnchorText(doc, this.paragraphAnchor);
+    }
+
+    if (this.compositeAnchor) {
+      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
+      return { ok: extracted.ok, text: extracted.ok ? extracted.text : null, ambiguous: false };
+    }
+
+    return { ok: false, text: null, ambiguous: false };
+  }
+
+  /**
+   * Classifies the result of one resolveCurrentTarget call against
+   * `this.originalText` and either: (a) clears back to "synced" (content
+   * matches), (b) silently, safely auto-reloads (see performAutoReload's
+   * own doc comment for the full condition list this branch enforces), or
+   * (c) marks stale/unavailable for display only, never touching the
+   * textarea. `fromLiveEditor` is `true` only for the E3/open-editor path
+   * (performStaleCheck) — auto-reload (silently updating the textarea
+   * without a confirmation) is restricted to exactly that case, per this
+   * ticket's own explicit instruction; the E4/vault.cachedRead path is
+   * always read-only-comparison-only here, never an auto-textarea-update,
+   * regardless of dirty state.
+   */
+  private evaluateAgainstText(text: string, path: string, fromLiveEditor: boolean): void {
+    // Phase 5A-1 hardening §1: `isApplyingOwnEdit` is checked here too,
+    // not just at performStaleCheck's own entry — a `vault.cachedRead`
+    // promise scheduled BEFORE this Apply started could in principle still
+    // have its `.then()` callback reach this method later; guarding here
+    // as well makes that inert regardless of any assumption about
+    // microtask/debounce ordering. See isApplyingOwnEdit's own doc comment.
+    if (this.closed || this.isApplyingOwnEdit || this.sourcePath !== path) return;
+    if (!this.nodeId && !this.paragraphAnchor && !this.compositeAnchor) return;
+
+    const doc = parseDocument(text);
+    const resolved = this.resolveCurrentTarget(doc);
+
+    // Phase 5A-1 hardening §4: the actual classification decision is now a
+    // pure, Obsidian-free function (partialEditSyncClassification.ts) —
+    // see its own doc comment for the full decision table (mirrored from
+    // this method's pre-hardening inline logic, unit-tested there with
+    // real assertions rather than only via this file's own static-source
+    // checks). Everything below is purely dispatch: apply whichever side
+    // effect the decision calls for, never re-deciding anything itself.
+    const decision = classifySyncOutcome({
+      resolved,
+      originalText: this.originalText,
+      isDirty: this.isDirty(),
+      fromLiveEditor,
+    });
+
+    switch (decision) {
+      case "unavailable":
+        this.transitionToUnavailable();
+        return;
+      case "stale":
+        this.transitionToStale();
+        return;
+      case "already-synced":
+        if (this.syncState !== "synced") {
+          this.syncState = "synced";
+          this.updateDirtyState();
+        }
+        return;
+      case "clean-pane-auto-reload":
+        // resolved.text is guaranteed non-null whenever classifySyncOutcome
+        // returns "clean-pane-auto-reload" (see that function's own doc
+        // comment) — this null check exists only so TypeScript can narrow
+        // resolved.text's type across the pure-function boundary; it is
+        // not a reachable runtime branch.
+        if (resolved.text === null) return;
+        this.performAutoReload(resolved.text, doc);
+        return;
+    }
+  }
+
+  /** See `syncState`'s own doc comment. Idempotent (a no-op re-render when already stale). */
+  private transitionToStale(): void {
+    if (this.closed) return;
+    if (this.syncState === "stale") return;
+    this.syncState = "stale";
+    this.updateDirtyState();
+  }
+
+  /**
+   * See `syncState`'s own doc comment for what "unavailable" means and
+   * why it never clears itself automatically (performStaleCheck's own
+   * early-return on `syncState === "unavailable"` is the other half of
+   * that contract) — a deleted-then-recreated file, or a target that
+   * starts resolving again for any other reason, is picked up again ONLY
+   * via an explicit Reload (executeReload), never silently. Idempotent.
+   */
+  private transitionToUnavailable(): void {
+    if (this.closed) return;
+    if (this.syncState === "unavailable") return;
+    this.syncState = "unavailable";
+    this.updateDirtyState();
+  }
+
+  /**
+   * Applies a freshly re-resolved `newText` to this pane's OWN in-memory
+   * state — never to the note (no editor.replaceRange call anywhere in
+   * this method) — from either the clean-Pane auto-reload path
+   * (evaluateAgainstText) or an explicit Reload (executeReload). Mirrors
+   * applyEdit()'s own existing post-Apply re-anchoring for each of the
+   * three anchor kinds (see that method's own paragraph/composite/node
+   * branches), reused here for the same reason: a second Apply (or a
+   * second stale check) after this must start from a fully current basis.
+   */
+  private performAutoReload(newText: string, doc: ParsedDocument): void {
+    this.originalText = newText;
+    if (this.nodeId && this.quoteProjection) {
+      const kind = this.quoteProjection.kind;
+      const rebuilt = buildQuotePrefixProjection(newText, kind);
+      this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
+    }
+    if (this.paragraphAnchor) {
+      this.paragraphAnchor = { ...this.paragraphAnchor, originalText: newText };
+    }
+    if (this.compositeAnchor) {
+      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
+      if (extracted.ok && extracted.resolvedSnapshot) {
+        this.compositeAnchor = extracted.resolvedSnapshot;
+      }
+    }
+    this.syncState = "synced";
+    this.textareaEl.value = this.currentDisplayText();
+    this.renderQuoteHeader();
+    this.updateDirtyState();
+  }
+
+  /**
+   * The Reload button's click handler (syncStatusReloadEl, onOpen). Clean
+   * Pane (isDirty() === false): reloads immediately, no confirmation — per
+   * this ticket's own explicit requirement. Dirty Pane: reuses the EXISTING
+   * DiscardChangesModal (R2 — see that class's own doc comment for the
+   * `showApply` extension), but with `showApply: false` and Reload-specific
+   * title/body text — Apply is never offered here, since a dirty+stale/
+   * unavailable Apply is guaranteed to be refused by the very same
+   * fail-closed check that made this pane stale in the first place, and
+   * offering it would only give a false expectation. "Cancel" (the only
+   * other reachable choice — "apply" is never sent when showApply is
+   * false) preserves the buffered edit and current syncState exactly as
+   * they were; only "discard" proceeds to executeReload.
+   */
+  private async performReload(): Promise<void> {
+    if (this.closed || !this.sourcePath) return;
+    if (!this.nodeId && !this.paragraphAnchor && !this.compositeAnchor) return;
+
+    if (this.isDirty()) {
+      new DiscardChangesModal(
+        this.app,
+        this.plugin,
+        (choice) => {
+          if (choice === "discard") {
+            void this.executeReload();
+          }
+          // "cancel": no-op — the buffered edit and current syncState stay
+          // exactly as they were. ("apply" is unreachable here since the
+          // modal is opened with showApply: false below.)
+        },
+        {
+          showApply: false,
+          titleKey: "partialEdit.reloadConfirmTitle",
+          bodyKey: "partialEdit.reloadConfirmBody",
+          discardButtonKey: "partialEdit.reloadConfirmDiscardButton",
+        }
+      ).open();
+      return;
+    }
+
+    await this.executeReload();
+  }
+
+  /**
+   * The actual read-then-resolve-then-apply-locally reload, shared by both
+   * performReload's clean-Pane immediate path and its dirty-Pane
+   * post-Discard path. Unlike performStaleCheck/evaluateAgainstText (which
+   * restrict auto-textarea-updates to the E3/open-editor case only), an
+   * EXPLICIT Reload is allowed to use `vault.cachedRead` (E4) too — the
+   * user asked for this, so it is no longer an unsolicited auto-update.
+   * A resolution failure here (still unavailable, or the ambiguous
+   * paragraph case still unresolved) is the one place this ticket
+   * escalates an "ambiguous" result to "unavailable" — see
+   * resolveCurrentTarget's own doc comment for why a mere DETECTION leans
+   * toward "stale" instead, while a deliberate, explicit Reload attempt
+   * that still fails is treated as more conclusive.
+   */
+  private async executeReload(): Promise<void> {
+    if (this.closed) return;
+    const path = this.sourcePath;
+    if (!path) return;
+
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.transitionToUnavailable();
+      new Notice(this.plugin.t("partialEdit.reloadFailedNotice"));
+      return;
+    }
+
+    const openEditor = this.findOpenEditorForSourcePath();
+    // Phase 5A-1 hardening §3: unlike performStaleCheck's own passive
+    // cachedRead (which silently swallows a rejection — see that method's
+    // own comment), this IS an explicit, user-requested action, so a read
+    // failure here is treated exactly like any other resolution failure
+    // just below: transition to "unavailable" and show the same
+    // reloadFailedNotice (never the raw error/path itself). The buffered
+    // textarea/quote-inputs and current anchor are left completely
+    // untouched either way — this catch returns before performAutoReload
+    // is ever reached.
+    let text: string;
+    try {
+      text = openEditor ? openEditor.getValue() : await this.app.vault.cachedRead(file);
+    } catch {
+      if (this.closed || this.sourcePath !== path) return;
+      this.transitionToUnavailable();
+      new Notice(this.plugin.t("partialEdit.reloadFailedNotice"));
+      return;
+    }
+    if (this.closed || this.sourcePath !== path) return;
+
+    const doc = parseDocument(text);
+    const resolved = this.resolveCurrentTarget(doc);
+    if (!resolved.ok || resolved.text === null) {
+      this.transitionToUnavailable();
+      new Notice(this.plugin.t("partialEdit.reloadFailedNotice"));
+      return;
+    }
+
+    this.performAutoReload(resolved.text, doc);
+    new Notice(this.plugin.t("partialEdit.reloadedNotice"));
+  }
 }
 
 type DiscardChangesChoice = "apply" | "discard" | "cancel";
@@ -1936,32 +2684,83 @@ type DiscardChangesChoice = "apply" | "discard" | "cancel";
  * the same as an explicit Cancel, since either way the answer to "should
  * the pending edit be discarded" is no.
  */
+/**
+ * Phase 5A-1 (R2, minimal-change extension): `showApply` defaults to
+ * `true`, so every pre-existing call site (requestLoadNode/
+ * requestLoadParagraphAtCursor/requestLoadComposite's own node-switch
+ * guard, all THREE unchanged by this ticket, still calling
+ * `new DiscardChangesModal(this.app, this.plugin, (choice) => {...})`
+ * with no 4th argument) keeps its exact pre-5A-1 Apply/Discard/Cancel
+ * behavior byte-for-byte. Only the NEW dirty+stale/unavailable Reload
+ * confirmation (PartialEditView#performReload) passes
+ * `{ showApply: false, titleKey: ..., bodyKey: ... }`, per this ticket's
+ * own explicit requirement that a stale/unavailable Reload confirmation
+ * must never offer Apply as a choice (a stale Apply is guaranteed to be
+ * refused as a conflict by the existing, unchanged fail-closed check —
+ * offering it would give the user a false expectation). `titleKey`/
+ * `bodyKey` default to the original unsavedChanges* keys, so the
+ * node-switch-guard call sites' wording is also completely unchanged.
+ *
+ * `discardButtonKey` (2026-09-08 UX fix, real-device B-1 feedback):
+ * defaults to `undefined`, in which case onOpen falls back to
+ * `common.discard` exactly as before — so all three node-switch call
+ * sites, none of which pass this option, keep showing the shared plain
+ * "Discard"/"破棄" label byte-for-byte unchanged. Only performReload's
+ * Reload confirmation passes `partialEdit.reloadConfirmDiscardButton`
+ * ("Discard changes and reload" / "変更を破棄して再読み込み"): a bare
+ * "Discard" is ambiguous in a dialog whose only two choices are that
+ * button and Cancel (does it discard the edits and leave the pane as-is,
+ * or does it also reload?) — this dialog's one real action is BOTH
+ * discarding the pane's unapplied edits AND reloading the current note
+ * content, and the label says so explicitly. A separate key (rather than
+ * changing `common.discard` itself, which is shared with the three
+ * node-switch call sites) keeps their wording untouched. Deliberately
+ * never uses "Apply"/"Reapply"/"Save"/"Overwrite" (or their ja
+ * equivalents) — this modal's Reload context never offers Apply as a
+ * choice (`showApply: false`), and a stale/unavailable Apply would be
+ * refused as a conflict by the unchanged low-level fail-closed check
+ * regardless, so such wording would only mislead the user about what this
+ * dialog can do.
+ */
+interface DiscardChangesModalOptions {
+  showApply?: boolean;
+  titleKey?: TranslationKey;
+  bodyKey?: TranslationKey;
+  discardButtonKey?: TranslationKey;
+}
+
 class DiscardChangesModal extends Modal {
   private resolved = false;
 
   constructor(
     app: App,
     private readonly plugin: UnifiedOutlinerPlugin,
-    private readonly onChoice: (choice: DiscardChangesChoice) => void
+    private readonly onChoice: (choice: DiscardChangesChoice) => void,
+    private readonly options: DiscardChangesModalOptions = {}
   ) {
     super(app);
   }
 
   onOpen(): void {
-    this.titleEl.setText(this.plugin.t("partialEdit.unsavedChangesTitle"));
+    const showApply = this.options.showApply ?? true;
+    this.titleEl.setText(this.plugin.t(this.options.titleKey ?? "partialEdit.unsavedChangesTitle"));
     this.contentEl.createEl("p", {
-      text: this.plugin.t("partialEdit.unsavedChangesBody"),
+      text: this.plugin.t(this.options.bodyKey ?? "partialEdit.unsavedChangesBody"),
     });
 
     const buttonsEl = this.contentEl.createDiv({
       cls: "unified-outliner-partial-edit-modal-buttons",
     });
-    const applyEl = buttonsEl.createEl("button", {
-      text: this.plugin.t("common.apply"),
-      cls: "mod-cta",
+    if (showApply) {
+      const applyEl = buttonsEl.createEl("button", {
+        text: this.plugin.t("common.apply"),
+        cls: "mod-cta",
+      });
+      applyEl.addEventListener("click", () => this.choose("apply"));
+    }
+    const discardEl = buttonsEl.createEl("button", {
+      text: this.plugin.t(this.options.discardButtonKey ?? "common.discard"),
     });
-    applyEl.addEventListener("click", () => this.choose("apply"));
-    const discardEl = buttonsEl.createEl("button", { text: this.plugin.t("common.discard") });
     discardEl.addEventListener("click", () => this.choose("discard"));
     const cancelEl = buttonsEl.createEl("button", { text: this.plugin.t("common.cancel") });
     cancelEl.addEventListener("click", () => this.choose("cancel"));

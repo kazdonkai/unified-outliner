@@ -428,6 +428,76 @@ const en = {
   "partialEdit.noPreviousSibling": "No previous sibling",
   "partialEdit.noNextSibling": "No next sibling",
 
+  // ---- Phase 5A-1 ("Partial Edit Pane の stale 状態検知・安全な再読み込み")
+  // stale/unavailable indicator, Reload button, and Reload confirmation
+  // (extends DiscardChangesModal via showApply — see that class's own doc
+  // comment in PartialEditView.ts).
+  "partialEdit.reload": "Reload",
+  // Stale status wording fix (2026-09-08 ticket, real-device UX feedback):
+  // the previous wording only stated the pane's own state ("out of date")
+  // without explaining WHY — that the note changed and no longer matches
+  // this pane. Deliberately does not mention that Reload discards unapplied
+  // edits (the adjacent Reload confirmation modal already explains that
+  // precisely — see partialEdit.reloadConfirmBody/reloadConfirmDiscardButton
+  // — so repeating it here would be redundant), and deliberately avoids
+  // exposing implementation terms ("stale"/"conflict"/"snapshot") to the
+  // user. This is a wording-only change — staleApplyDisabledReason (the
+  // Apply-disabled tooltip) and every stale/unavailable state-transition
+  // and Apply fail-closed behavior are unchanged.
+  "partialEdit.staleLabel":
+    "Unified Outliner: The note has changed, so this pane no longer matches the current content.",
+  "partialEdit.staleApplyDisabledReason":
+    "Apply is disabled because this pane is out of date. Reload to get the current content, then edit again.",
+  // Unavailable status wording fix (2026-09-08 ticket, real-device E-3
+  // feedback): the previous wording ("this content is no longer
+  // available") was vague about WHAT is unavailable and WHY editing is
+  // blocked, and read in a different register than the stale/Reload-
+  // confirmation wording fixed earlier the same day. "unavailable" is a
+  // genuinely shared state covering BOTH a deleted source file AND a
+  // target that can no longer be safely re-resolved (a split/merged
+  // paragraph, a changed parent, or any other fail-closed re-resolution
+  // failure — see resolveCurrentTarget's own doc comment in
+  // PartialEditView.ts) — this wording deliberately says only "the
+  // editing target can no longer be found", which is equally true of
+  // either cause, rather than naming the file-deletion cause specifically
+  // (this ticket does not split "unavailable" into separate file-missing
+  // vs. resolution-failure states/wording). Never exposes implementation
+  // terms ("file"/"deleted"/"stale"/"conflict"/"snapshot") to the user.
+  // This is a wording-only change — unavailableApplyDisabledReason (the
+  // Apply-disabled tooltip) and every unavailable-state condition/
+  // transition are unchanged.
+  "partialEdit.unavailableLabel":
+    "Unified Outliner: The editing target can no longer be found, so this pane cannot be edited.",
+  "partialEdit.unavailableApplyDisabledReason":
+    "Apply is disabled because this content could not be found. Try Reload, or close and reopen this pane.",
+  "partialEdit.reloadedNotice": "Unified Outliner: reloaded the current content.",
+  "partialEdit.reloadFailedNotice":
+    "Unified Outliner: could not reload — this content is still unavailable.",
+  // Reload confirmation UX wording fix (2026-09-08 ticket, real-device B-1
+  // feedback): the modal's only real action is discarding this pane's
+  // unapplied edits and reloading the current note content — a stale/
+  // unavailable Apply is guaranteed to be refused as a conflict by the
+  // existing, unchanged low-level fail-closed check, so the title/body/
+  // button wording here deliberately never uses "Apply"/"Reapply"/"Save"/
+  // "Overwrite" (or their ja equivalents), which would wrongly suggest the
+  // pane's edits can still reach the note from this dialog. `titleKey`/
+  // `bodyKey` below are consumed exclusively via performReload's own
+  // DiscardChangesModal call (never shared with the three node-switch
+  // Apply/Discard/Cancel call sites, which keep using
+  // partialEdit.unsavedChangesTitle/Body and common.discard unchanged), so
+  // their wording was updated in place here rather than introduced as new
+  // keys.
+  "partialEdit.reloadConfirmTitle": "Unified Outliner: Reload changes?",
+  "partialEdit.reloadConfirmBody":
+    "The note has changed, so this pane's edits can no longer be applied. Reloading will discard this pane's unapplied changes and show the current note content.",
+  // New key (common.discard's plain "Discard" is shared with the three
+  // node-switch Apply/Discard/Cancel call sites and must not change for
+  // them — see DiscardChangesModalOptions#discardButtonKey in
+  // PartialEditView.ts): this is the Reload confirmation's own main-button
+  // label, explicit about BOTH actions it performs (discard, then reload),
+  // never "Discard" alone.
+  "partialEdit.reloadConfirmDiscardButton": "Discard changes and reload",
+
   // ---- Insert-section heading-level modal (HeadingLevelModal.ts) --------
   "modal.insertSectionTitle": "Unified Outliner: insert section",
   "modal.chooseHeadingLevel": "Choose the heading level for the new section.",
@@ -1003,6 +1073,21 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.nextSibling": "次へ",
   "partialEdit.noPreviousSibling": "前の兄弟がない",
   "partialEdit.noNextSibling": "次の兄弟がない",
+
+  "partialEdit.reload": "再読み込み",
+  "partialEdit.staleLabel": "Unified Outliner: 本文が変更されたため、このペインの内容は現在の本文と一致していません。",
+  "partialEdit.staleApplyDisabledReason":
+    "このペインの内容が古いため、適用は無効になっている。再読み込みしてから編集し直すこと。",
+  "partialEdit.unavailableLabel": "Unified Outliner: 編集対象が見つからないため、このペインでは編集できません。",
+  "partialEdit.unavailableApplyDisabledReason":
+    "この内容が見つからないため、適用は無効になっている。再読み込みするか、このペインを閉じて開き直すこと。",
+  "partialEdit.reloadedNotice": "Unified Outliner: 現在の内容を再読み込みした。",
+  "partialEdit.reloadFailedNotice":
+    "Unified Outliner: 再読み込みできなかった——この内容は依然として利用できない。",
+  "partialEdit.reloadConfirmTitle": "Unified Outliner: 再読み込みしますか？",
+  "partialEdit.reloadConfirmBody":
+    "本文が変更されたため、このペインの編集内容は現在の本文に適用できません。再読み込みすると、このペインの未適用の変更は破棄され、現在の本文が表示されます。",
+  "partialEdit.reloadConfirmDiscardButton": "変更を破棄して再読み込み",
   "partialEdit.unsavedChangesTitle": "Unified Outliner: 未保存の変更",
   "partialEdit.unsavedChangesBody":
     "このノードには未適用の編集がある。切り替える前に適用するか、破棄するか、このまま留まるかを選んでほしい。",

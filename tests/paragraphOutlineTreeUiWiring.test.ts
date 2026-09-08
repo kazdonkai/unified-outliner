@@ -945,10 +945,21 @@ describe("Phase 5T-4A: Tree paragraph → existing Partial Edit bridge ('段落�
     }
   });
 
-  it("edit/paragraphPartialEdit.ts's blank-line validation is checked BEFORE any re-resolution against doc — appears earlier than the function's own scanComplexBlocks(doc) call", () => {
+  it("edit/paragraphPartialEdit.ts's blank-line validation is checked BEFORE any re-resolution against doc — appears earlier than the function's own re-scan of the document", () => {
+    // Phase 5A-1 hardening §2: applyParagraphEdit's own re-scan is now the
+    // shared supportedParagraphCandidates(doc) helper (consolidated with
+    // the new read-only resolveParagraphAnchorText — see
+    // edit/paragraphPartialEdit.ts's own doc comment on that
+    // consolidation), which itself calls scanComplexBlocks(doc) — so the
+    // literal "scanComplexBlocks(doc)" call form no longer appears inside
+    // applyParagraphEdit's OWN body, only inside that shared helper
+    // (defined just above it). This test now checks the call form that
+    // actually appears in applyParagraphEdit's body; the ordering
+    // guarantee this test exists to verify (blank-line validation strictly
+    // first) is unchanged.
     const start = paragraphPartialEditTs.indexOf("export function applyParagraphEdit(");
     expect(start).toBeGreaterThan(-1);
-    const scanIdx = paragraphPartialEditTs.indexOf("scanComplexBlocks(doc)", start);
+    const scanIdx = paragraphPartialEditTs.indexOf("supportedParagraphCandidates(doc)", start);
     const blankCheckIdx = paragraphPartialEditTs.indexOf(
       "paragraphEditTextContainsBlankLine(newText)",
       start
