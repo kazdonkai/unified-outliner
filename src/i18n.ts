@@ -404,21 +404,35 @@ const en = {
   // edit/quotePrefixProjection.ts's "nested" reason) — no raw fallback.
   "partialEdit.quoteNestedUnsupported":
     "Unified Outliner: nested quotes are not yet supported for editing quote body text here.",
-  // Phase 5D-0.5: applyEdit's invertQuotePrefixProjection refusal — the
-  // edited display text's line count no longer matches the loaded
-  // projection's own body-line count (a line was added, removed, or
-  // split/joined via a newline). Zero-byte-change: the note is never
-  // touched when this fires.
-  "partialEdit.quoteLineCountChanged":
-    "Unified Outliner: adding or removing lines is not supported here — edit existing line content only.",
+  // Phase 5D-1.5 ("単独 Callout / Blockquote Partial Edit Pane の可変長
+  // 本文編集"): applyEdit's invertQuotePrefixProjection refusal — the
+  // body was fully cleared for a BLOCKQUOTE specifically (a callout in
+  // the same situation instead succeeds with a header-only result, no
+  // Notice at all — see that function's own doc comment). Zero-byte-
+  // change: the note is never touched when this fires, and the pane's
+  // own draft (the emptied textarea) is left exactly as the user typed
+  // it. Supersedes the old, now-removed Phase 5D-0.5
+  // "quoteLineCountChanged" key this ticket's own approved scope
+  // explicitly retires (adding/removing lines is now supported).
+  "partialEdit.quoteBodyEmptyUnsupported":
+    "Unified Outliner: a blockquote body cannot be emptied here — delete the whole block in the body editor instead.",
+  // Phase 5D-1.5: applyEdit's own re-verification of a variable-length
+  // body edit against the CURRENT parser/scanner, run in isolation right
+  // before the splice call — see that method's own doc comment for what
+  // this catches (e.g. edited content that itself looks like a callout
+  // header once re-prefixed with `>`). Zero-byte-change; the pane's own
+  // draft is left untouched, same as every other Apply-time refusal here.
+  "partialEdit.quoteEditStructureInvalid":
+    "Unified Outliner: this edit can't be applied — it would break the callout/blockquote structure.",
   // Phase 5D-1A: placeholder/tooltip label for the callout title input
   // (see view/PartialEditView.ts's onOpen/renderQuoteHeader).
   "partialEdit.quoteTitleLabel": "Callout title",
   // Phase 5D-1A: applyEdit's reconstructQuoteHeader refusal — the title
   // input contains a newline. Rejects the WHOLE Apply (title and any body
   // edit together), zero-byte-change. Deliberately a distinct key from
-  // quoteLineCountChanged (that one is about the BODY's own line count;
-  // this one is about the title, a single-line field by definition).
+  // quoteBodyEmptyUnsupported/quoteEditStructureInvalid above (those are
+  // about the BODY; this one is about the title, a single-line field by
+  // definition).
   "partialEdit.quoteTitleNewlineUnsupported":
     "Unified Outliner: the callout title cannot contain a line break.",
   // Phase 5D-1B: tooltip/aria-label for the fold-marker <select> itself
@@ -1110,8 +1124,16 @@ const ja: Record<TranslationKey, string> = {
   // Phase 5D-0.5: ユーザー指定の文言をそのまま使用する。
   "partialEdit.quoteNestedUnsupported":
     "Unified Outliner: ネストした引用は現在の引用本文編集に未対応である。",
-  "partialEdit.quoteLineCountChanged":
-    "Unified Outliner: ここでは行の追加・削除に対応していない。既存の行の内容のみを編集してほしい。",
+  // Phase 5D-1.5: 引用ブロックの本文を全削除した場合の拒否。コールアウト
+  // の場合は同じ操作でも header-only calloutとして成功する（Noticeなし）
+  // ため、この文言は blockquote 専用である。
+  "partialEdit.quoteBodyEmptyUnsupported":
+    "Unified Outliner: 引用ブロックを空にはできない。ブロック全体の削除は本文エディタで行ってほしい。",
+  // Phase 5D-1.5: 可変長本文編集の再直列化結果を現在のparser/scannerで
+  // 再検証した際に、有効なcallout/blockquote構造として認識できなかった
+  // 場合の拒否。
+  "partialEdit.quoteEditStructureInvalid":
+    "Unified Outliner: この編集はコールアウト／引用ブロックの構造を崩すため適用できない。",
   "partialEdit.quoteTitleLabel": "コールアウトのタイトル",
   "partialEdit.quoteTitleNewlineUnsupported":
     "Unified Outliner: コールアウトのタイトルには改行を含められない。",

@@ -85,10 +85,17 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
     expect(body).toContain("this.quoteProjection = null;");
   });
 
-  it("renderEmptyState resets quoteProjection to null and calls renderQuoteHeader", () => {
-    const body = bodyOf(viewTs, "private renderEmptyState(): void {", "renderEmptyState()");
-    expect(body).toContain("this.quoteProjection = null;");
-    expect(body).toContain("this.renderQuoteHeader();");
+  it("renderEmptyState resets quoteProjection to null (via the shared resetLoadedState helper) and calls renderQuoteHeader", () => {
+    // 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
+    // バグ修正"): see compositeBlockPartialEditUiWiring.test.ts's identical
+    // note — quoteProjection's reset moved off renderEmptyState's own
+    // inline resets and into the new shared resetLoadedState() method
+    // (also called from onClose); renderEmptyState now delegates to it.
+    const emptyStateBody = bodyOf(viewTs, "private renderEmptyState(): void {", "renderEmptyState()");
+    expect(emptyStateBody).toContain("this.resetLoadedState();");
+    expect(emptyStateBody).toContain("this.renderQuoteHeader();");
+    const resetBody = bodyOf(viewTs, "private resetLoadedState(): void {", "resetLoadedState()");
+    expect(resetBody).toContain("this.quoteProjection = null;");
   });
 
   it("renderLoadedState sets the textarea from currentDisplayText(), never from raw originalText directly, and calls renderQuoteHeader", () => {
@@ -110,20 +117,32 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
     expect(body).not.toContain("this.textareaEl.value !== this.originalText");
   });
 
-  it("applyEdit's non-paragraph branch inverts the projection (when present) and refuses on failure BEFORE ever calling applySubtreeEdit", () => {
+  it("applyEdit's non-paragraph branch inverts the projection (when present), refuses on a 'blockquote-empty' failure, and re-verifies the reconstructed candidate against the current parser/scanner — all strictly BEFORE ever calling applySubtreeEdit (Phase 5D-1.5)", () => {
     const body = bodyOf(viewTs, "private applyEdit(): boolean {", "applyEdit()");
     const invertIndex = body.indexOf(
       "invertQuotePrefixProjection(this.quoteProjection, this.textareaEl.value)"
     );
-    const lineCountNoticeIndex = body.indexOf('this.plugin.t("partialEdit.quoteLineCountChanged")');
+    const emptyNoticeIndex = body.indexOf(
+      'this.plugin.t("partialEdit.quoteBodyEmptyUnsupported")'
+    );
+    // Phase 5D-1.5: the "quoteLineCountChanged" refusal this test used to
+    // pin is gone — invertQuotePrefixProjection now reconstructs a
+    // variable-length edit instead of refusing it outright (see that
+    // function's own doc comment). The only remaining invert-stage
+    // refusal is "blockquote-empty".
+    const structureNoticeIndex = body.indexOf(
+      'this.plugin.t("partialEdit.quoteEditStructureInvalid")'
+    );
     const applySubtreeEditIndex = body.indexOf(
       "applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)"
     );
     expect(invertIndex).toBeGreaterThan(-1);
-    expect(lineCountNoticeIndex).toBeGreaterThan(-1);
+    expect(emptyNoticeIndex).toBeGreaterThan(-1);
+    expect(structureNoticeIndex).toBeGreaterThan(-1);
     expect(applySubtreeEditIndex).toBeGreaterThan(-1);
-    expect(invertIndex).toBeLessThan(lineCountNoticeIndex);
-    expect(lineCountNoticeIndex).toBeLessThan(applySubtreeEditIndex);
+    expect(invertIndex).toBeLessThan(emptyNoticeIndex);
+    expect(emptyNoticeIndex).toBeLessThan(structureNoticeIndex);
+    expect(structureNoticeIndex).toBeLessThan(applySubtreeEditIndex);
   });
 
   it("applyEdit's non-paragraph success path re-anchors originalText to the reconstructed raw text (newRawText), never to the textarea's own (possibly prefix-stripped) value", () => {
@@ -444,9 +463,18 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
     expect(noticeCallCount).toBe(2);
   });
 
-  it("the i18n keys this ticket introduces (quoteNestedUnsupported / quoteLineCountChanged) exist with non-empty en/ja text", () => {
+  it("the i18n keys this ticket introduces (quoteNestedUnsupported / quoteBodyEmptyUnsupported / quoteEditStructureInvalid) exist with non-empty en/ja text", () => {
+    // Phase 5D-1.5: quoteLineCountChanged is retired (adding/removing
+    // lines is now supported) in favor of quoteBodyEmptyUnsupported (a
+    // blockquote's body was fully cleared) and quoteEditStructureInvalid
+    // (the reconstructed candidate failed re-verification against the
+    // current parser/scanner).
     const i18nTs = readFileSync(path.resolve(__dirname, "../src/i18n.ts"), "utf-8");
-    for (const key of ["partialEdit.quoteNestedUnsupported", "partialEdit.quoteLineCountChanged"]) {
+    for (const key of [
+      "partialEdit.quoteNestedUnsupported",
+      "partialEdit.quoteBodyEmptyUnsupported",
+      "partialEdit.quoteEditStructureInvalid",
+    ]) {
       const matches = i18nTs.match(new RegExp(`"${key}":\\s*\\n?\\s*"([^"]+)"`, "g")) ?? [];
       // Present in both the en and ja dictionaries.
       expect(matches.length).toBe(2);

@@ -59,21 +59,67 @@
  *     blockquote's range always has at least one line, and blockquote has
  *     no header line to exclude, so its body-line list is never empty.
  *
- * ---- What counts as an allowed edit ----
+ * ---- What counts as an allowed edit (Phase 5D-1.5 update) ----
  *
- * invertQuotePrefixProjection accepts ONLY a per-line CONTENT change,
- * including emptying a line's content entirely (which still reconstructs
- * as `prefix + ""` — a valid, syntactically bare quoted line like a lone
- * `>`). Any edit that changes the number of lines — adding a line,
- * deleting a line, or splitting/joining lines via an embedded newline —
- * changes `editedDisplayText.split("\n").length` relative to the
- * projection's own `lines.length`, and is refused wholesale with reason
- * "line-count-changed": there is no per-line prefix to attribute to a
- * line that did not exist when the projection was built, and guessing
- * one (e.g. "reuse the previous line's prefix") would silently fabricate
- * Markdown structure that was never in the original note. This mirrors
- * every other refusal policy in this codebase: resolve safely, refuse
- * the operation, never guess.
+ * Through Phase 5D-1C, invertQuotePrefixProjection accepted ONLY a
+ * per-line CONTENT change — any edit that changed the number of lines was
+ * refused wholesale with reason "line-count-changed", on the theory that
+ * there is no per-line prefix to attribute to a line that did not exist
+ * when the projection was built, and guessing one would silently
+ * fabricate Markdown structure. Phase 5D-1.5 ("単独 Callout / Blockquote
+ * Partial Edit Pane の可変長本文編集") replaces that wholesale refusal
+ * with real support for adding, removing, and splitting/joining lines —
+ * ordinary textarea editing (Enter, Backspace/Delete, multi-line paste,
+ * whole-body replacement) — for BOTH callout and blockquote. The
+ * unresolvable-prefix problem that motivated the old refusal is real, but
+ * it only actually blocks EXACT positional attribution; it does not block
+ * reconstructing valid Markdown. This module now handles two cases:
+ *
+ *   - Same line count as the loaded projection (`editedDisplayText.split
+ *     ("\n").length === projection.lines.length`): each line reunites
+ *     with its own ORIGINAL prefix, preserving exact per-line formatting
+ *     (mixed `>`/`> `/`>  ` styles, list-item-owned indentation) —
+ *     UNCHANGED from before this ticket for a line whose content is
+ *     unchanged, or already blank and stays blank. The one thing that DID
+ *     change: a line whose content this edit itself made blank (was
+ *     non-empty, is now `""`) normalizes to that line's own prefix with
+ *     trailing whitespace stripped, per this ticket's own explicit
+ *     worked example (6-2) — see invertQuotePrefixProjection's own doc
+ *     comment for the exact "cleared vs. already-blank" distinction that
+ *     keeps a genuinely unedited round-trip still byte-identical.
+ *   - A DIFFERENT line count: there is no positional correspondence left
+ *     to trust (a line inserted or removed partway through shifts every
+ *     line after it), so every line — kept, added, or shifted alike — is
+ *     reconstructed under ONE canonical prefix instead, derived from the
+ *     projection's own first body line (preserving that line's leading
+ *     indentation, e.g. for a list-item-owned block) with its trailing
+ *     whitespace stripped. A blank line's content reconstructs as that
+ *     bare prefix alone (e.g. `>`, never `> ` with a trailing space) —
+ *     never a bare, quote-breaking empty raw line — matching this
+ *     ticket's own explicit "空行は `>` のみの行へ正規化する" requirement.
+ *     A NON-blank line reconstructs as the bare prefix plus exactly one
+ *     space plus its content. See invertQuotePrefixProjection's own doc
+ *     comment for the exact algorithm and worked example.
+ *
+ * Fully emptying the body (`editedDisplayText === ""`) is handled as a
+ * THIRD, explicit case, not merely "zero lines" of the above: for a
+ * callout, this reconstructs as the header line alone (a valid,
+ * already-supported "header-only" callout — the exact same shape
+ * buildQuotePrefixProjection's own "no-body" case already falls back to
+ * raw-editing for at LOAD time); for a blockquote (no header to fall back
+ * to — emptying it would delete the block's only content entirely, not
+ * shrink it), this is refused with reason "blockquote-empty". Neither
+ * case guesses: a callout with a title becomes a bare header line users
+ * can see and edit further; a blockquote's would-be deletion is refused
+ * outright, leaving the note and the pane's own draft untouched — see
+ * view/PartialEditView.ts's applyEdit for the user-facing Notice.
+ *
+ * Whatever this module reconstructs, view/PartialEditView.ts's applyEdit
+ * re-verifies the result against the CURRENT parser/scanner (in isolation
+ * — never assumed valid) before ever touching the note, exactly like this
+ * ticket's own approved scope requires — see that method's own doc
+ * comment for why that check cannot live in this Obsidian/parser-free
+ * module itself.
  */
 
 /** Only callout/blockquote ever reach this module — see extractSubtreeText's SubtreeKind (edit/partialEdit.ts), which also includes "section"/"list" that never project. */
@@ -293,7 +339,16 @@ export function projectedDisplayText(projection: QuotePrefixProjection): string 
   return projection.lines.map((line) => line.content).join("\n");
 }
 
-export type QuotePrefixProjectionInvertReason = "line-count-changed";
+/**
+ * Phase 5D-1.5: "blockquote-empty" is the ONLY remaining refusal reason —
+ * see this module's top doc comment's "What counts as an allowed edit"
+ * section. A blockquote whose body was fully emptied has no header to
+ * fall back to (emptying it would delete the block's only content
+ * entirely), so it is refused rather than silently producing an empty/
+ * invalid block; a callout in the same situation instead succeeds with a
+ * header-only result (not a refusal at all).
+ */
+export type QuotePrefixProjectionInvertReason = "blockquote-empty";
 
 export type QuotePrefixProjectionInvertResult =
   | { ok: true; rawText: string }
@@ -301,24 +356,78 @@ export type QuotePrefixProjectionInvertResult =
 
 /**
  * Reconstruct raw Markdown text from `projection` and the textarea's
- * CURRENT (possibly edited) display text. Refuses with
- * "line-count-changed" — never guesses a prefix for an added/removed
- * line — whenever `editedDisplayText`'s own line count no longer matches
- * `projection.lines.length`, per this module's top doc comment. On
- * success, each edited line is reunited with its ORIGINAL prefix (never
- * a re-derived one), and the callout header (if any) is reattached
- * verbatim and unedited — the header is never part of `editedDisplayText`
- * at all, since projectedDisplayText never included it either.
+ * CURRENT (possibly edited) display text — see this module's top doc
+ * comment ("What counts as an allowed edit (Phase 5D-1.5 update)") for
+ * the full policy this implements. Three cases, checked in this order:
+ *
+ * 1. `editedDisplayText === ""` (the body was fully cleared): a callout
+ *    reconstructs as its header line ALONE (no body lines at all — a
+ *    valid, already-supported header-only callout); a blockquote refuses
+ *    with "blockquote-empty" (no header to fall back to).
+ * 2. `editedDisplayText.split("\n").length === projection.lines.length`
+ *    (an exact per-line content edit, no lines added/removed): each line
+ *    reunites with its own ORIGINAL prefix — EXCEPT a line this specific
+ *    edit actively CLEARED (its edited content is `""` but its ORIGINAL
+ *    `mapping.content` was not), which normalizes to that line's own
+ *    prefix with trailing whitespace stripped (a bare `>`), same as case
+ *    3 below — this is this ticket's own explicit requirement ("空の編集
+ *    行は...`>` のみの行へ正規化する" applies to ANY line an edit makes
+ *    blank, not only ones introduced by a line-count change). A line that
+ *    was ALREADY blank and stays untouched (`mapping.content === ""` and
+ *    edited content is still `""`) is NOT "cleared by this edit" — it
+ *    reunites with its ORIGINAL prefix byte-for-byte like every other
+ *    untouched line, which is what keeps a genuinely unedited round-trip
+ *    (a pre-existing bare `>` body line, or one with trailing whitespace
+ *    after `>`) exactly byte-identical, unchanged from before this
+ *    ticket.
+ * 3. Any other line count (lines were added, removed, or split/joined via
+ *    an embedded newline): every line reconstructs under one canonical
+ *    prefix derived from `projection.lines[0].prefix` with its trailing
+ *    space/tab stripped (`basePrefix`) — a blank line's content becomes
+ *    `basePrefix` alone (e.g. `>`), a non-blank line becomes `basePrefix
+ *    + " " + content` (e.g. `> text`). Worked example: loaded body
+ *    ["A", "B"] (prefix "> " on both) edited to "A\nnew\n\nC" (4 lines)
+ *    reconstructs as ["> A", "> new", ">", "> C"] — every line rebuilt
+ *    under the same "> " / ">" pair, never a per-original-line prefix
+ *    that no longer has anything to positionally correspond to.
+ *
+ * The callout header (if any) is reattached verbatim and unedited in
+ * cases 2 and 3 — the header is never part of `editedDisplayText` at all,
+ * since projectedDisplayText never included it either.
  */
 export function invertQuotePrefixProjection(
   projection: QuotePrefixProjection,
   editedDisplayText: string
 ): QuotePrefixProjectionInvertResult {
-  const editedLines = editedDisplayText.split("\n");
-  if (editedLines.length !== projection.lines.length) {
-    return { ok: false, reason: "line-count-changed" };
+  if (editedDisplayText === "") {
+    if (projection.kind === "blockquote") {
+      return { ok: false, reason: "blockquote-empty" };
+    }
+    return { ok: true, rawText: projection.header ?? "" };
   }
-  const rawBodyLines = projection.lines.map((mapping, i) => mapping.prefix + editedLines[i]);
+
+  const stripTrailingWhitespace = (prefix: string): string => prefix.replace(/[ \t]$/, "");
+
+  const editedLines = editedDisplayText.split("\n");
+  const rawBodyLines: string[] =
+    editedLines.length === projection.lines.length
+      ? projection.lines.map((mapping, i) => {
+          const content = editedLines[i];
+          if (content === "" && mapping.content !== "") {
+            // Actively cleared by this edit — normalize, never keep a
+            // now-orphaned trailing space that would round-trip as
+            // `> ` (see this function's own doc comment, case 2).
+            return stripTrailingWhitespace(mapping.prefix);
+          }
+          return mapping.prefix + content;
+        })
+      : (() => {
+          const basePrefix = stripTrailingWhitespace(projection.lines[0].prefix);
+          return editedLines.map((content) =>
+            content === "" ? basePrefix : basePrefix + " " + content
+          );
+        })();
+
   const rawLines =
     projection.kind === "callout" ? [projection.header ?? "", ...rawBodyLines] : rawBodyLines;
   return { ok: true, rawText: rawLines.join("\n") };

@@ -858,7 +858,25 @@ export class PartialEditView extends ItemView {
   async onClose(): Promise<void> {
     // Intentionally no auto-save here: per the Phase 3B design, Close
     // (like Cancel) never applies pending edits — only the Apply button
-    // does. Nothing to clean up beyond the DOM itself.
+    // does.
+    //
+    // 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
+    // バグ修正"): explicitly clears every target/snapshot/draft field via
+    // resetLoadedState() — see that method's own doc comment. Previously
+    // this method cleared only `closed` and the DOM, leaving nodeId/
+    // nodeKind/originalText/quoteProjection/label/sourcePath/ancestors/
+    // directChildren/siblingState/syncState sitting at whatever they were
+    // when this pane was last loaded. Per this ticket's own requirement
+    // 3.2 ("明示的にpaneをClose/Delete/Disposeした場合は、未適用draftを
+    // 保存・再利用しない"), an explicitly closed pane must never let a
+    // later session reuse its draft/target — this now holds as a real
+    // invariant of this method, not merely an assumption about whether
+    // Obsidian happens to destroy and recreate this View instance on the
+    // next open. (It does not, in at least one already-existing code
+    // path this plugin itself uses: activatePartialEditView's
+    // `openInNewWindow` branch calls `workspace.moveLeafToPopout(leaf)`
+    // on an existing leaf, which moves this same View instance into a
+    // popout window WITHOUT calling onClose/onOpen again.)
     //
     // Phase 5A-1: `closed` is checked at the top of every method that
     // might still run after this point (a pending vault.cachedRead
@@ -867,7 +885,50 @@ export class PartialEditView extends ItemView {
     // registerEvent's automatic unregistration alone isn't enough to make
     // those paths inert.
     this.closed = true;
+    this.resetLoadedState();
     this.contentEl.empty();
+  }
+
+  /**
+   * 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
+   * バグ修正"): the single place every "this pane has nothing loaded, and
+   * holds no leftover target/snapshot/draft from a previous session" is
+   * enforced — shared by onClose above (an explicit Close/Delete/Dispose)
+   * and renderEmptyState below (onOpen's own "nothing loaded yet"
+   * baseline, and the state every requestLoadNode/
+   * requestLoadParagraphAtCursor/requestLoadComposite call implicitly
+   * starts a fresh load from). Clears every field
+   * loadNodeInternal/loadParagraphInternal/loadCompositeInternal ever
+   * writes, so neither onClose nor renderEmptyState can leave a stale
+   * target/snapshot/draft field behind for a later load to accidentally
+   * inherit.
+   *
+   * Investigation note: renderEmptyState previously reset ancestors/
+   * directChildren/siblingState/sourcePath/syncState/paragraphAnchor/
+   * compositeAnchor/quoteProjection inline, but NOT nodeId/nodeKind/
+   * originalText/label — a gap this ticket's own investigation found.
+   * That gap was harmless for renderEmptyState's own caller (onOpen calls
+   * it once, on a brand-new instance whose nodeId/originalText/label are
+   * already at their class-field defaults), but left onClose with
+   * nothing at all to reuse this shared reset from once onClose also
+   * needed one. Consolidating both call sites onto this single method
+   * closes that gap for both at once, rather than fixing renderEmptyState
+   * alone and hand-duplicating a second, easy-to-drift-out-of-sync copy
+   * for onClose.
+   */
+  private resetLoadedState(): void {
+    this.nodeId = null;
+    this.nodeKind = null;
+    this.paragraphAnchor = null;
+    this.compositeAnchor = null;
+    this.originalText = "";
+    this.quoteProjection = null;
+    this.label = "";
+    this.sourcePath = null;
+    this.ancestors = [];
+    this.directChildren = [];
+    this.siblingState = { previous: null, next: null };
+    this.syncState = "synced";
   }
 
   /**
@@ -994,6 +1055,16 @@ export class PartialEditView extends ItemView {
   private loadNodeInternal(nodeId: string): void {
     const view = this.activeMarkdownView.get();
     if (!view) {
+      // 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
+      // バグ修正", requirement 3.3/3.4): every failure return below this
+      // point now calls renderEmptyState() before the Notice, so a
+      // failed attempt to switch this pane's target NEVER leaves it
+      // showing whatever it happened to have loaded before this call —
+      // "解決不能なら...編集フォームを開かない／Apply不可状態にする" per
+      // this ticket's own explicit requirement. This does not change the
+      // already-existing "no active note" Notice text/behavior in any
+      // other way.
+      this.renderEmptyState();
       new Notice(this.plugin.t("partialEdit.noActiveNote"));
       return;
     }
@@ -1002,6 +1073,9 @@ export class PartialEditView extends ItemView {
     const extracted = extractSubtreeText(doc, nodeId);
     if (!extracted.ok || !extracted.kind) {
       const reasonKey = ("reason." + (extracted.reason ?? "resolve-failed")) as TranslationKey;
+      // 2026-09-09: see this method's own "no active note" branch above
+      // for why renderEmptyState() now runs before every failure Notice.
+      this.renderEmptyState();
       new Notice(this.plugin.t(reasonKey));
       return;
     }
@@ -1019,6 +1093,20 @@ export class PartialEditView extends ItemView {
     if (extracted.kind === "callout" || extracted.kind === "blockquote") {
       const built = buildQuotePrefixProjection(extracted.text, extracted.kind);
       if (!built.ok && built.reason === "nested") {
+        // 2026-09-09 investigation note: deliberately NOT calling
+        // renderEmptyState() here, unlike this method's other failure
+        // branches. This gate runs strictly BEFORE any field on this pane
+        // is mutated (see the comment above), so a "nested" refusal while
+        // switching from an already-loaded target A to an unsupported
+        // target B must leave A's display exactly as it was — a
+        // pre-existing Phase 5D-0.5 contract this ticket's own scope does
+        // not touch (this ticket's "stale snapshot on reopen" bug is about
+        // a target that DOES resolve but shows outdated content, not about
+        // this refusal path). Calling renderEmptyState() here would wipe
+        // A's still-valid, still-displayed content out from under the
+        // user for an unrelated target B's refusal — see
+        // tests/quotePrefixPartialEditViewWiring.test.ts's own test name
+        // for this exact invariant.
         new Notice(this.plugin.t("partialEdit.quoteNestedUnsupported"));
         return;
       }
@@ -1099,6 +1187,10 @@ export class PartialEditView extends ItemView {
   private loadParagraphInternal(cursorLine: number): void {
     const view = this.activeMarkdownView.get();
     if (!view) {
+      // 2026-09-09: see loadNodeInternal's identical "no active note"
+      // branch for why renderEmptyState() now runs before every failure
+      // Notice in this pane's load* methods.
+      this.renderEmptyState();
       new Notice(this.plugin.t("partialEdit.noActiveNote"));
       return;
     }
@@ -1107,6 +1199,7 @@ export class PartialEditView extends ItemView {
     const resolved = resolveParagraphAtCursor(doc, cursorLine);
     if (!resolved.paragraph) {
       const reasonKey = ("reason." + (resolved.reason ?? "no-paragraph")) as TranslationKey;
+      this.renderEmptyState();
       new Notice(this.plugin.t(reasonKey));
       return;
     }
@@ -1168,6 +1261,10 @@ export class PartialEditView extends ItemView {
   private loadCompositeInternal(snapshot: CompositeBlockSnapshot): void {
     const view = this.activeMarkdownView.get();
     if (!view) {
+      // 2026-09-09: see loadNodeInternal's identical "no active note"
+      // branch for why renderEmptyState() now runs before every failure
+      // Notice in this pane's load* methods.
+      this.renderEmptyState();
       new Notice(this.plugin.t("partialEdit.noActiveNote"));
       return;
     }
@@ -1179,6 +1276,11 @@ export class PartialEditView extends ItemView {
       // Phase 5D-2A: see the Apply-time branch's identical use of
       // compositePartialEditReasonText below for why this is not a plain
       // "reason." + extracted.reason concatenation.
+      //
+      // 2026-09-09: see loadNodeInternal's identical "no active note"
+      // branch above for why renderEmptyState() now runs before every
+      // failure Notice.
+      this.renderEmptyState();
       new Notice(compositePartialEditReasonText(this.plugin.t.bind(this.plugin), extracted.reason));
       return;
     }
@@ -1211,31 +1313,22 @@ export class PartialEditView extends ItemView {
   }
 
   private renderEmptyState(): void {
+    // 2026-09-09: now routed through the same resetLoadedState() onClose
+    // uses — see that method's own doc comment. This also closes a gap
+    // this ticket's own investigation found: the inline resets this
+    // method used to do covered ancestors/directChildren/siblingState/
+    // sourcePath/syncState/paragraphAnchor/compositeAnchor/quoteProjection
+    // but NOT nodeId/nodeKind/originalText/label — harmless here (onOpen
+    // only ever calls this once, on a brand-new instance where those four
+    // are already at their class-field defaults), but a real gap once
+    // onClose needed the exact same "nothing loaded" reset too.
+    this.resetLoadedState();
     this.titleEl.setText(this.plugin.t("partialEdit.viewName"));
     this.textareaEl.value = "";
     this.textareaEl.disabled = true;
     this.applyButtonEl.disabled = true;
     this.cancelButtonEl.disabled = true;
     this.textareaEl.setAttribute("placeholder", this.plugin.t("partialEdit.emptyPlaceholder"));
-    this.ancestors = [];
-    this.directChildren = [];
-    this.siblingState = { previous: null, next: null };
-    // Phase 5C-4: reset alongside the other per-load fields above — see
-    // the class field's own doc comment.
-    this.sourcePath = null;
-    // Phase 5A-1: an empty pane has nothing to be stale/unavailable about
-    // — see the `syncState` field's own doc comment.
-    this.syncState = "synced";
-    // Phase 5P-2: reset alongside nodeId/nodeKind — this method already
-    // implicitly leaves nodeId/nodeKind at their initial null values (never
-    // set here), so paragraphAnchor is cleared explicitly to match.
-    this.paragraphAnchor = null;
-    // Phase 5D-2A: reset alongside paragraphAnchor above — see the class
-    // field's own doc comment on the three-way exclusivity.
-    this.compositeAnchor = null;
-    // Phase 5D-0.5: reset alongside paragraphAnchor above — see the class
-    // field's own doc comment.
-    this.quoteProjection = null;
     this.renderBreadcrumb();
     this.renderSiblingNav();
     this.renderSubtreeNavigator();
@@ -1984,18 +2077,24 @@ export class PartialEditView extends ItemView {
     // Phase 5D-0.5: for a projecting callout/blockquote, the textarea
     // holds prefix-stripped display text — invert it back to raw Markdown
     // BEFORE handing anything to the raw-text splice call below (unmodified
-    // by this ticket — it only ever knows about raw text). A
-    // line-count-changed edit (add/remove/newline-split a line) is refused
-    // right here, with its own dedicated Notice, and never reaches that
-    // splice call at all — no partial/best-effort splice is attempted.
-    // Every other kind (quoteProjection === null) is untouched: newRawText
-    // is simply whatever the textarea already held, exactly as before
-    // this ticket.
+    // by this ticket — it only ever knows about raw text). Every other
+    // kind (quoteProjection === null) is untouched: newRawText is simply
+    // whatever the textarea already held, exactly as before this ticket.
+    //
+    // Phase 5D-1.5 ("単独 Callout / Blockquote Partial Edit Pane の可変長
+    // 本文編集"): invertQuotePrefixProjection itself now accepts an edit
+    // that adds, removes, or splits/joins body lines — see that
+    // function's own doc comment for the full reconstruction policy. The
+    // only remaining refusal here is "blockquote-empty" (the body was
+    // fully cleared, and a blockquote — unlike a callout — has no header
+    // to fall back to), with its own dedicated Notice; it never reaches
+    // the splice call below, and no partial/best-effort splice is
+    // attempted.
     let newRawText = this.textareaEl.value;
     if (this.quoteProjection) {
       const inverted = invertQuotePrefixProjection(this.quoteProjection, this.textareaEl.value);
       if (!inverted.ok) {
-        new Notice(this.plugin.t("partialEdit.quoteLineCountChanged"));
+        new Notice(this.plugin.t("partialEdit.quoteBodyEmptyUnsupported"));
         return false;
       }
       newRawText = inverted.rawText;
@@ -2053,6 +2152,39 @@ export class PartialEditView extends ItemView {
         }
         const bodyOnlyLines = newRawText.split("\n").slice(1);
         newRawText = [reconstructed.header, ...bodyOnlyLines].join("\n");
+      }
+
+      // Phase 5D-1.5, step 6 of the approved implementation plan: a
+      // variable-length body edit has no per-line positional guarantee
+      // left (see invertQuotePrefixProjection's own doc comment), so
+      // before this candidate ever reaches applySubtreeEdit below, re-
+      // verify it against the CURRENT parser/scanner — in ISOLATION
+      // (parsed on its own, never spliced into the live document; this
+      // only needs to know whether the candidate itself still forms one
+      // clean, fully-supported block of the expected kind, never
+      // anything about surrounding content, so there is no need to
+      // resolve the real document-level range first). This is the safety
+      // net for cases invertQuotePrefixProjection's own simpler "nested"
+      // check does not fully cover — e.g. edited body content that itself
+      // looks like a callout header (`[!type]`) once re-prefixed with
+      // `>`, which parser/complexBlocks.ts's own hasEmbeddedCalloutMarker
+      // detection downgrades a run's editability for. A same-line-count
+      // edit (unchanged from before this ticket) is included here too,
+      // for defense-in-depth — it should always already validate cleanly,
+      // since it only ever reuses prefixes that were already valid.
+      const candidateDoc = parseDocument(newRawText);
+      const candidateBlock = scanComplexBlocks(candidateDoc).blocks.find(
+        (b) => b.kind === this.quoteProjection!.kind
+      );
+      const expectedEndLine = newRawText.split("\n").length - 1;
+      const structurallyValid =
+        !!candidateBlock &&
+        candidateBlock.range.startLine === 0 &&
+        candidateBlock.range.endLine === expectedEndLine &&
+        candidateBlock.editability === "supported";
+      if (!structurallyValid) {
+        new Notice(this.plugin.t("partialEdit.quoteEditStructureInvalid"));
+        return false;
       }
     }
 

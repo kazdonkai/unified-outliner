@@ -155,7 +155,7 @@ describe("quote-prefix projection Apply pipeline: standalone callout", () => {
     expect(outcome.lines.join("\n")).toBe(FIXTURE);
   });
 
-  it("a line-count-changing edit is refused by invertQuotePrefixProjection BEFORE applySubtreeEdit is ever called — zero-byte-change", () => {
+  it("Phase 5D-1.5: a line-count-changing edit (a new line ADDED to the body) now succeeds all the way through applySubtreeEdit, touching only the callout's own range", () => {
     const doc = parseDocument(FIXTURE);
     const id = calloutId(doc);
     const extracted = extractSubtreeText(doc, id);
@@ -168,10 +168,29 @@ describe("quote-prefix projection Apply pipeline: standalone callout", () => {
       "a brand new line",
     ].join("\n");
     const inverted = invertQuotePrefixProjection(built.projection, editedWithExtraLine);
-    expect(inverted).toEqual({ ok: false, reason: "line-count-changed" });
-    // The View returns false right here without ever calling
-    // applySubtreeEdit — confirmed structurally by
-    // quotePrefixPartialEditViewWiring.test.ts's static source check.
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(
+      ["> [!note] My Callout", "> line one", "> line two", "> a brand new line"].join("\n")
+    );
+    const outcome = applySubtreeEdit(doc, id, extracted.text, inverted.rawText);
+    expect(outcome.changed).toBe(true);
+    if (!outcome.changed) return;
+    expect(outcome.lines.join("\n")).toBe(
+      [
+        "# Notes",
+        "- an unrelated list item",
+        "> [!note] My Callout",
+        "> line one",
+        "> line two",
+        "> a brand new line",
+        "",
+        "> a blockquote line one",
+        "> a blockquote line two",
+        "# Next section",
+        "still here",
+      ].join("\n")
+    );
   });
 });
 
@@ -360,8 +379,9 @@ function applyProjected(
   newMarkerValue: "" | "+" | "-",
   newTitleValue: string
 ):
-  | { applied: false; stage: "invert"; reason: "line-count-changed" }
+  | { applied: false; stage: "invert"; reason: "blockquote-empty" }
   | { applied: false; stage: "reconstruct"; reason: "newline" | "invalid-marker" | "invalid-type" }
+  | { applied: false; stage: "revalidate" }
   | { applied: true; outcome: ReturnType<typeof applySubtreeEdit>; newRawText: string } {
   const inverted = invertQuotePrefixProjection(projection, editedBodyDisplay);
   if (!inverted.ok) {
@@ -376,6 +396,21 @@ function applyProjected(
     }
     const bodyOnlyLines = newRawText.split("\n").slice(1);
     newRawText = [reconstructed.header, ...bodyOnlyLines].join("\n");
+  }
+  // Phase 5D-1.5: mirrors applyEdit's own re-verification of the
+  // candidate against the CURRENT parser/scanner, in isolation, before it
+  // is ever handed to applySubtreeEdit — see that method's own doc
+  // comment in view/PartialEditView.ts.
+  const candidateDoc = parseDocument(newRawText);
+  const candidateBlock = scanComplexBlocks(candidateDoc).blocks.find((b) => b.kind === projection.kind);
+  const expectedEndLine = newRawText.split("\n").length - 1;
+  const structurallyValid =
+    !!candidateBlock &&
+    candidateBlock.range.startLine === 0 &&
+    candidateBlock.range.endLine === expectedEndLine &&
+    candidateBlock.editability === "supported";
+  if (!structurallyValid) {
+    return { applied: false, stage: "revalidate" };
   }
   const outcome = applySubtreeEdit(doc, id, extractedText, newRawText);
   return { applied: true, outcome, newRawText };

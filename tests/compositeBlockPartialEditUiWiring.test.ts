@@ -96,10 +96,19 @@ describe("view/PartialEditView.ts: three-way nodeId/paragraphAnchor/compositeAnc
     expect(body).toContain("this.compositeAnchor = extracted.resolvedSnapshot;");
   });
 
-  it("renderEmptyState resets compositeAnchor alongside paragraphAnchor", () => {
-    const body = bodyOf(viewTs, "private renderEmptyState(): void {", "renderEmptyState");
-    expect(body).toContain("this.paragraphAnchor = null;");
-    expect(body).toContain("this.compositeAnchor = null;");
+  it("renderEmptyState resets compositeAnchor alongside paragraphAnchor (via the shared resetLoadedState helper)", () => {
+    // 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
+    // バグ修正"): renderEmptyState's field resets — including
+    // paragraphAnchor/compositeAnchor — were consolidated into a new
+    // shared resetLoadedState() method (also called from onClose, so an
+    // explicitly closed pane can't leak a stale target/draft into its
+    // next session). renderEmptyState no longer resets these fields
+    // inline; it delegates to resetLoadedState() instead.
+    const emptyStateBody = bodyOf(viewTs, "private renderEmptyState(): void {", "renderEmptyState");
+    expect(emptyStateBody).toContain("this.resetLoadedState();");
+    const resetBody = bodyOf(viewTs, "private resetLoadedState(): void {", "resetLoadedState");
+    expect(resetBody).toContain("this.paragraphAnchor = null;");
+    expect(resetBody).toContain("this.compositeAnchor = null;");
   });
 
   it("applyEdit's top guard refuses when none of nodeId/paragraphAnchor/compositeAnchor is set", () => {

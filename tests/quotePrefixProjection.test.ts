@@ -43,7 +43,16 @@ describe("buildQuotePrefixProjection + projectedDisplayText: blockquote", () => 
     expect(inverted.rawText).toBe(raw);
   });
 
-  it("emptying an existing body line still round-trips with its own original prefix", () => {
+  it("emptying an existing body line round-trips as its BARE original prefix, with trailing whitespace stripped (Phase 5D-1.5 update)", () => {
+    // Phase 5D-1.5 ("単独 Callout / Blockquote Partial Edit Pane の可変長
+    // 本文編集"): this ticket's own explicit worked example (6-2, "Callout
+    // の行削除") requires a blank body line — same line count as loaded,
+    // an EXISTING line's content simply cleared — to reconstruct as the
+    // bare prefix alone (e.g. `>`), never `> ` with a trailing space. This
+    // updates the pre-5D-1.5 expectation below (which kept the original
+    // prefix's trailing whitespace verbatim) to match: "空の編集行は...
+    // `>` のみの行へ正規化する" applies to ANY blank line the edit
+    // produces, not only ones introduced by a line-count change.
     const raw = ["> keep this", "> erase this one"].join("\n");
     const built = buildQuotePrefixProjection(raw, "blockquote");
     expect(built.ok).toBe(true);
@@ -52,9 +61,10 @@ describe("buildQuotePrefixProjection + projectedDisplayText: blockquote", () => 
     const inverted = invertQuotePrefixProjection(built.projection, editedDisplay);
     expect(inverted.ok).toBe(true);
     if (!inverted.ok) return;
-    // The erased line must reconstruct as its bare original prefix ("> "),
-    // never as an empty raw line or a line with no `>` at all.
-    expect(inverted.rawText).toBe(["> keep this", "> "].join("\n"));
+    // The erased line must reconstruct as its bare original prefix (">"),
+    // never as an empty raw line, a line with no `>` at all, or `> ` with
+    // a trailing space.
+    expect(inverted.rawText).toBe(["> keep this", ">"].join("\n"));
   });
 
   it("preserves list-item-owned leading indentation before the `>` marker", () => {
@@ -156,35 +166,105 @@ describe("buildQuotePrefixProjection + projectedDisplayText: callout", () => {
   });
 });
 
-describe("invertQuotePrefixProjection: line-count-changed refusal", () => {
-  it("rejects an added line with reason 'line-count-changed'", () => {
+// Phase 5D-1.5 ("単独 Callout / Blockquote Partial Edit Pane の可変長本文
+// 編集"): supersedes the old "line-count-changed refusal" describe block
+// this replaces — invertQuotePrefixProjection now RECONSTRUCTS a variable-
+// length edit instead of refusing it outright. See that function's own
+// doc comment for the exact algorithm (same-count: per-line original
+// prefix reuse, unchanged; different-count: one canonical prefix derived
+// from the projection's own first line, blank lines normalized to the
+// bare prefix).
+describe("invertQuotePrefixProjection: variable-length body edits (Phase 5D-1.5)", () => {
+  it("an added line succeeds, reconstructing every line — kept and new alike — under one canonical prefix", () => {
     const raw = ["> line one", "> line two"].join("\n");
     const built = buildQuotePrefixProjection(raw, "blockquote");
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const edited = ["line one", "line two", "a brand new third line"].join("\n");
     const inverted = invertQuotePrefixProjection(built.projection, edited);
-    expect(inverted).toEqual({ ok: false, reason: "line-count-changed" });
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(
+      ["> line one", "> line two", "> a brand new third line"].join("\n")
+    );
   });
 
-  it("rejects a removed line with reason 'line-count-changed'", () => {
+  it("a removed line succeeds, dropping only the removed line", () => {
     const raw = ["> line one", "> line two"].join("\n");
     const built = buildQuotePrefixProjection(raw, "blockquote");
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const edited = "line one";
     const inverted = invertQuotePrefixProjection(built.projection, edited);
-    expect(inverted).toEqual({ ok: false, reason: "line-count-changed" });
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe("> line one");
   });
 
-  it("rejects a line split via an embedded newline with reason 'line-count-changed'", () => {
+  it("a line split via an embedded newline (paste, or pressing Enter mid-line) succeeds", () => {
     const raw = "> a single body line";
     const built = buildQuotePrefixProjection(raw, "blockquote");
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     const edited = ["a single", "body line"].join("\n");
     const inverted = invertQuotePrefixProjection(built.projection, edited);
-    expect(inverted).toEqual({ ok: false, reason: "line-count-changed" });
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(["> a single", "> body line"].join("\n"));
+  });
+
+  it("blank lines inserted by a variable-length edit normalize to the bare prefix alone, never a trailing space", () => {
+    const raw = ["> A", "> B"].join("\n");
+    const built = buildQuotePrefixProjection(raw, "blockquote");
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const edited = ["A", "new", "", "C"].join("\n");
+    const inverted = invertQuotePrefixProjection(built.projection, edited);
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(["> A", "> new", ">", "> C"].join("\n"));
+  });
+
+  it("preserves list-item-owned leading indentation in the canonical prefix used for a variable-length edit", () => {
+    const raw = ["  > line one", "  > line two"].join("\n");
+    const built = buildQuotePrefixProjection(raw, "blockquote");
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const edited = ["line one", "a new indented line"].join("\n");
+    const inverted = invertQuotePrefixProjection(built.projection, edited);
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(["  > line one", "  > a new indented line"].join("\n"));
+  });
+
+  it("a callout's variable-length body edit reconstructs the header verbatim, unedited, as the first line", () => {
+    const raw = ["> [!note]+ Title", "> A", "> B"].join("\n");
+    const built = buildQuotePrefixProjection(raw, "callout");
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const edited = ["X", "Y", "Z"].join("\n");
+    const inverted = invertQuotePrefixProjection(built.projection, edited);
+    expect(inverted.ok).toBe(true);
+    if (!inverted.ok) return;
+    expect(inverted.rawText).toBe(["> [!note]+ Title", "> X", "> Y", "> Z"].join("\n"));
+  });
+
+  it("fully emptying a callout's body succeeds, reconstructing as the header line ALONE", () => {
+    const raw = ["> [!note]+ Title", "> A", "> B"].join("\n");
+    const built = buildQuotePrefixProjection(raw, "callout");
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const inverted = invertQuotePrefixProjection(built.projection, "");
+    expect(inverted).toEqual({ ok: true, rawText: "> [!note]+ Title" });
+  });
+
+  it("fully emptying a blockquote's body is refused with reason 'blockquote-empty' — a blockquote has no header to fall back to", () => {
+    const raw = ["> line one", "> line two"].join("\n");
+    const built = buildQuotePrefixProjection(raw, "blockquote");
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    const inverted = invertQuotePrefixProjection(built.projection, "");
+    expect(inverted).toEqual({ ok: false, reason: "blockquote-empty" });
   });
 });
 
