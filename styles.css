@@ -165,6 +165,60 @@ settings:
   color: var(--uo-text-color);
 }
 
+/* UI-only follow-up (2026-09-08, "Outline Treeのリスト項目のインデント幅
+ * (字下げ量)"): this plugin has never overridden how deeply
+ * `.tree-item-children` (Obsidian's own nesting container — see the
+ * comment near `.unified-outliner-list-text` below) indents each level, so
+ * both "見出し直下の第1階層の開始位置" and "ネスト1段あたりのステップ幅"
+ * have always come entirely from Obsidian core's own theme defaults.
+ * Real-device review found both read as noticeably deeper than needed for
+ * a compact sidebar Tree, consuming width that becomes significant once a
+ * few levels of nesting are visible at once.
+ *
+ * Rather than fighting `.tree-item-children`'s own padding/margin
+ * directly (whose exact property — logical `padding-inline-start` vs.
+ * physical `padding-left`, and any additional calc() Obsidian's theme may
+ * apply — is not something this repository can read, since Obsidian
+ * core's own compiled CSS is not vendored here), this redefines the two
+ * CSS custom properties Obsidian's own public API already exposes for
+ * exactly this purpose: `--nav-item-children-padding-start` and
+ * `--nav-item-children-margin-start` ("Nav item children `start`
+ * padding"/"`start` margin" — https://docs.obsidian.md/Reference/CSS+
+ * variables/Components/Navigation). Because these are read once per
+ * `.tree-item-children` element and `.tree-item-children` nests once per
+ * indentation level, redefining the variable's VALUE (rather than the
+ * property) here automatically applies the same, smaller step at every
+ * nesting depth without this file needing a level-by-level selector — and
+ * because CSS custom properties inherit down the DOM, scoping the
+ * redefinition to `.unified-outliner-tree-root` (this panel's own root,
+ * already used as the scoping selector for the `data-section-highlight`/
+ * `data-list-highlight` rules further below) keeps every OTHER Obsidian
+ * tree-based panel (File Explorer, core Outline, other plugins' own
+ * sidebars) completely unaffected — the redefinition never leaks outside
+ * this one panel's own DOM subtree.
+ *
+ * The indentation guide line itself (`--nav-indentation-guide-width`/
+ * `--nav-indentation-guide-color`) is deliberately left untouched: it is
+ * drawn relative to this same padding/margin, so it repositions on its
+ * own as a natural consequence of the smaller step, and this ticket was
+ * not asked to change the guide line's own appearance. The fold/collapse
+ * chevron and the drag handle both live inside `.tree-item-self` (the
+ * ROW), never inside `.tree-item-children` (the nested-children
+ * CONTAINER) — this redefinition touches only the latter, so neither
+ * icon's own position within its row is affected; only how far each
+ * child row's whole subtree is shifted right relative to its parent
+ * changes. Obsidian's own exact default pixel value for either variable
+ * is not documented and cannot be read from this repository, so — same
+ * reasoning as this ticket's own line-height/padding/min-height
+ * precedents — the values below are a deliberate, explicit, moderate
+ * replacement (roughly 14px combined per level, within the requested
+ * 12px–16px range) rather than a delta off an unknown base, and are
+ * expected to be fine-tuned after real-device confirmation. */
+.unified-outliner-tree-root {
+  --nav-item-children-padding-start: 8px;
+  --nav-item-children-margin-start: 6px;
+}
+
 .unified-outliner-tree-empty {
   padding: 8px 12px;
   color: var(--uo-muted-text-color);
@@ -327,13 +381,46 @@ settings:
  * (not just the icon's own box) is what gives touch a target comfortably
  * larger than the visible glyph, per the ticket's "見た目より十分広く" — the
  * icon itself stays visually small/muted so the handle doesn't compete
- * with the row's actual content. */
+ * with the row's actual content.
+ *
+ * 2026-09-08 amendment ("段落行とリスト行のテキスト開始位置の差を縮める",
+ * explicitly authorized "二重調整"): a plain list row's drag handle is the
+ * one structural reason a list row's own text starts further right than a
+ * sibling paragraph row at the exact same tree depth — a paragraph row is
+ * always `readOnly` with `isComposite` false, so renderNode never creates
+ * one for it (see `if (!readOnly || isComposite)` above the call site),
+ * while an ordinary list row always gets one.
+ *
+ * 2026-09-09 correction (live-DOM console inspection after the amendment
+ * above shipped with zero visible effect): the FIRST attempt at this half
+ * of the two-part adjustment only shrank this element's own `padding`
+ * (`4px`→`2px` per side) while leaving `width: 28px` untouched. That was a
+ * no-op in practice — `justify-content: center` centers the 14px svg
+ * glyph inside the box regardless of how much (symmetric) padding
+ * surrounds it, and a fixed `width` still reserves the exact same 28px
+ * slot in the row's flex layout either way, so nothing after this element
+ * (the list marker, the text) ever actually moved left. The real,
+ * load-bearing change is `width: 28px` → `24px` below: shrinking the
+ * BOX ITSELF (not its interior padding) is what shortens the slot this
+ * element occupies in the row, pulling everything after it 4px left.
+ * `min-height: 28px` (the row's own vertical tap-target floor, see the
+ * list-row density ticket) is deliberately left untouched — only the
+ * horizontal footprint changes. 24px is a modest, bounded trim (~14%)
+ * from the real-device-verified 28px floor (UXP-01/three prior tickets),
+ * matching the ticket's own "大幅に破壊しない範囲で…数px詰め" — not a
+ * general license to keep shrinking it further, and real-device
+ * drag/tap operability at 24px still needs the developer's own
+ * confirmation (Claude cannot perform that check). The other half of the
+ * two-part adjustment, pushing paragraph rows right instead, is
+ * `.tree-item-self[data-kind="paragraph"]`'s own `padding-left` further
+ * below — that half WAS already confirmed live (via getComputedStyle) to
+ * apply correctly, so it is unchanged here. */
 .unified-outliner-drag-handle {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 28px;
+  width: 24px;
   height: 100%;
   min-height: 28px;
   padding: 0 4px;
@@ -366,19 +453,124 @@ settings:
   opacity: 0.7;
 }
 
+/* 2026-09-08 ("段落行とリスト行のインデント差（テキスト開始位置のズレ）",
+ * explicitly authorized "二重調整" — half 1 of 2, half 2 is the
+ * `.unified-outliner-drag-handle` `width: 24px;` change above — see that
+ * rule's own 2026-09-09 comment for why the box's `width` itself, not its
+ * interior `padding`, is what actually moves anything): a paragraph row
+ * (`data-kind="paragraph"`) is always `readOnly` with `isComposite` false
+ * (see `collectReadOnlyOutlineNodeIds` / `renderNode`'s
+ * `if (!readOnly || isComposite)` drag-handle condition), so it never gets
+ * a drag handle — while an ordinary list row at the exact same tree depth
+ * always does (~24-28px wide). That structural asymmetry, not anything
+ * about `.tree-item-children` per-level indent (already tuned separately,
+ * see the `--nav-item-children-*` block above), is what makes a paragraph
+ * row's own text start noticeably left of a sibling list row's text.
+ *
+ * 2026-09-09 second amendment ("段落行とリスト行第一階層は同じレベルの
+ * はずなので、ほとんど同じ位置に見えるようにしてほしい" — explicitly
+ * superseding this rule's own earlier "not pixel-perfect equality" framing
+ * with a near-equality target instead): a `12px` first attempt was
+ * confirmed live (`getBoundingClientRect` on `.unified-outliner-
+ * paragraph-label` vs. the sibling row's own `.unified-outliner-list-
+ * label`, actual on-screen CSS px — NOT a screenshot pixel count, which
+ * this investigation separately found to read ~2x too large under this
+ * device's own display scaling) to leave a real, remaining 33px gap. Since
+ * a paragraph and the list item beside it are genuinely the same tree
+ * depth (both direct children of the same parent — see the drag-handle
+ * comment above), `padding-left: 45px` (`12px` + the measured `33px`
+ * shortfall) is what actually closes that live-measured gap down to
+ * approximately 0px, so the two now start at essentially the same x
+ * position rather than merely "closer than before". Scoped to
+ * `[data-kind="paragraph"]` only — section/list/composite/complex-member
+ * rows are untouched by this rule. */
+.tree-item-self[data-kind="paragraph"] {
+  padding-left: 45px;
+}
+
 /* Phase 3B: Partial Edit Pane. Same plugin-owned colors/font-size as the
  * Outline Tree View above (--uo-bg-color / --uo-text-color / --uo-font-size)
  * — this pane is not exempt from the "don't inherit the Obsidian theme's
- * own colors" policy just because it's a different view. */
+ * own colors" policy just because it's a different view.
+ *
+ * 2026-09-09 (Partial Edit Pane 上部余白調整): `gap` replaces what used to
+ * be a `margin-bottom: 8px` declared individually on each of this
+ * container's flex-item rows (header / sync-status / breadcrumb /
+ * sibling-nav / subtree-nav / quote-header — see each rule below). A
+ * single `gap` here is the one source of truth for the row-to-row rhythm
+ * instead of six duplicated declarations, and — like the margin-bottom
+ * approach it replaces — automatically contributes zero space around any
+ * row currently hidden via toggleVisibility (a `display: none` element is
+ * not a flex item and never participates in `gap`), so an empty/hidden
+ * row still cannot leave a stray gap behind. The value itself was tuned
+ * down from 8px to 6px so the common cases land inside the ticket's own
+ * "8px〜12px程度" target: header+textarea alone (nothing else shown) is a
+ * single 6px gap, and header+sibling-nav+textarea (the next most common
+ * case) is two gaps = 12px. See renderSiblingNav's own 2026-09-09 doc
+ * comment in PartialEditView.ts for the companion fix that stops the
+ * sibling-nav row itself from rendering as an always-present-but-useless
+ * row when a loaded node (e.g. a CompositeBlock) has no sibling in either
+ * direction — the main contributor to the reported "vast blank space"
+ * for 拡張ブロック edits specifically. */
 .unified-outliner-partial-edit-view {
   display: flex;
   flex-direction: column;
   height: 100%;
   box-sizing: border-box;
   padding: 8px;
+  gap: 6px;
   background-color: var(--uo-bg-color);
   color: var(--uo-text-color);
   font-size: var(--uo-font-size, 14px);
+}
+
+/* 2026-09-09 (Partial Edit Pane 上部余白調整、第2弾 — 実機コンソール確認で
+ * 確定した根本原因への対処): Obsidian's own toggleVisibility(false) /
+ * hide() sets inline `style="visibility: hidden;"` on the target element
+ * — NOT `display: none`, despite what the .d.ts's isShown() doc comment
+ * implied. `visibility: hidden` makes an element invisible but leaves it
+ * fully participating in layout: its own content height, its `padding`,
+ * and its share of this pane's `gap` (see .unified-outliner-partial-edit-
+ * view above) all still apply exactly as if it were shown.
+ *
+ * Confirmed via live device console measurement on a plain paragraph edit
+ * (where sync-status/breadcrumb/sibling-nav/subtree-nav/quote-header are
+ * ALL supposed to be hidden): the "hidden" sync-status/sibling-nav/quote-
+ * header rows still reported real getBoundingClientRect() heights (38px /
+ * 30px / 42px respectively, driven by their own padding plus persistent
+ * child content — e.g. the sync-status row's Reload button and the
+ * sibling-nav row's Previous/Next buttons are never removed from the DOM,
+ * only individually visibility-toggled, so they keep reserving their own
+ * box even while invisible). Six gap boundaries × 6px (header → each of
+ * the five optional rows → textarea, all still counted as in-flow flex
+ * items since none of them were actually `display: none`) plus those
+ * three rows' own heights: 6×6 + 38 + 0 + 30 + 0 + 42 = 146px — the exact
+ * header→textarea gap the pane was reporting. This is the true, dominant
+ * cause of the originally-reported "vast blank space" — RESOLVED-earlier
+ * this same date's renderSiblingNav() change (which only affects whether
+ * toggleVisibility(false) gets CALLED for a given load) could never fix
+ * this by itself, since the call was always being made correctly; the
+ * call's own visual effect was the part that wasn't collapsing space.
+ *
+ * Fix: force any of these five rows Obsidian marked hidden this way
+ * (matched on its own inline `style` text, since CSS has no selector for
+ * "this element's own visibility is hidden") out of layout entirely.
+ * `!important` is defensive, not strictly required — `[style*="..."]`
+ * already outranks this file's own plain-class `display: flex` on each
+ * selector by specificity — but guarantees this always wins regardless of
+ * any future rule ordering. Deliberately scoped to exactly the five rows
+ * this bug was measured on; header/textarea are never hidden this way
+ * (out of scope), and the quote-header row's own INTERNAL child toggles
+ * (quoteTypeInputEl/quoteMarkerSelectEl/quoteTitleInputEl/etc.) are a
+ * separate, narrower instance of the same underlying pattern — worth
+ * knowing about, but left untouched here since they were not part of
+ * what this ticket's real-device report and measurement covered. */
+.unified-outliner-partial-edit-sync-status[style*="visibility: hidden"],
+.unified-outliner-partial-edit-breadcrumb[style*="visibility: hidden"],
+.unified-outliner-partial-edit-sibling-nav[style*="visibility: hidden"],
+.unified-outliner-partial-edit-subtree-nav[style*="visibility: hidden"],
+.unified-outliner-partial-edit-quote-header[style*="visibility: hidden"] {
+  display: none !important;
 }
 
 .unified-outliner-partial-edit-header {
@@ -386,7 +578,6 @@ settings:
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
   flex-shrink: 0;
 }
 
@@ -432,7 +623,6 @@ settings:
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 8px;
   padding: 4px 8px;
   border-radius: 4px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
@@ -468,7 +658,6 @@ settings:
   align-items: center;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 8px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
   color: var(--uo-text-color);
   opacity: 0.75;
@@ -499,7 +688,12 @@ settings:
  * the ancestor breadcrumb and the Subtree Navigator, holding two buttons for
  * the loaded node's previous/next sibling (see PartialEditView.ts's onOpen /
  * renderSiblingNav). Unlike the breadcrumb and Subtree Navigator rows, this
- * one stays visible whenever any node is loaded.
+ * one stays visible whenever the loaded node has a sibling in at least one
+ * direction, even if the other direction has none (see renderSiblingNav's
+ * own doc comment) — 2026-09-09: it is now hidden along with the other two
+ * when the loaded node has NO sibling in either direction (e.g. a
+ * CompositeBlock, which never has one), instead of always showing a row of
+ * two permanently-disabled buttons in that case.
  *
  * Real-device follow-up: originally `justify-content: space-between`, which
  * pinned "next" all the way to the pane's right edge — on a wide pane (or a
@@ -512,7 +706,6 @@ settings:
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 8px;
-  margin-bottom: 8px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
   flex-shrink: 0;
 }
@@ -581,7 +774,6 @@ settings:
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
   color: var(--uo-text-color);
   flex-shrink: 0;
@@ -671,7 +863,6 @@ settings:
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  margin-bottom: 8px;
   padding: 6px 8px;
   border-radius: 4px;
   background-color: rgba(128, 128, 128, 0.08);
@@ -708,11 +899,19 @@ settings:
  * type specifically). Sized like quote-marker-select beside it (compact,
  * content-driven via flex-shrink: 0) rather than flexing to fill space
  * like the title input further along the row — it is a short keyword,
- * not free-form prose. */
+ * not free-form prose.
+ *
+ * 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善): `width`
+ * trimmed from 8em to 6em and `max-width` from 45% to 32% — real-device
+ * feedback was that type input + marker select together were leaving
+ * quoteTitleInputEl (`flex: 1 1 auto`, further below) too little room on
+ * a narrow pane. 6em still comfortably fits common type names ("tip",
+ * "warning", "important"); a longer custom type simply scrolls within
+ * the input rather than being clipped, same as before this change. */
 .unified-outliner-partial-edit-quote-type-input {
   flex-shrink: 0;
-  width: 8em;
-  max-width: 45%;
+  width: 6em;
+  max-width: 32%;
   border: none;
   background: transparent;
   color: var(--uo-text-color);
@@ -735,10 +934,24 @@ settings:
  * PartialEditView.ts). Deliberately compact (fixed, content-driven
  * width via `flex-shrink: 0` rather than flexing to fill space like the
  * title input beside it) so it reads as a small inline control, not a
- * competing text field. */
+ * competing text field.
+ *
+ * 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善): this
+ * rule previously had no explicit `width` at all, so the browser sized
+ * the <select> to its OWN longest <option> text — with the original
+ * fully-descriptive option labels ("Foldable, expanded by default" etc.,
+ * see i18n.ts's own 2026-09-09 doc comment on quoteFoldMarkerNone/
+ * Expand/Collapse), that made this control far wider than a fold-marker
+ * picker needs to be, on top of the separate `max-width: 45%` cap. Now
+ * that the option labels are compact symbol-forward text ("固定"/"+
+ * 展開"/"- 収納" or "Fixed"/"+ Expand"/"- Collapse"), an explicit `width`
+ * keeps this control's footprint small and predictable across themes/
+ * locales instead of depending on option-text length; `max-width` is
+ * tightened accordingly from 45% to 28% as a narrow-pane safety net. */
 .unified-outliner-partial-edit-quote-marker-select {
   flex-shrink: 0;
-  max-width: 45%;
+  width: 5em;
+  max-width: 28%;
   background-color: var(--uo-bg-color);
   color: var(--uo-text-color);
   font-size: inherit;
@@ -757,7 +970,17 @@ settings:
  * PartialEditView.ts). Matches the textarea's own color/font variables
  * so the title reads as part of the same edited document rather than as
  * unrelated UI chrome, but stripped of a full input's default chrome
- * (border/background) so it sits flush inside the shared header row. */
+ * (border/background) so it sits flush inside the shared header row.
+ *
+ * 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善): `flex: 1
+ * 1 auto` here was already correct — this input was always meant to take
+ * whatever space its row neighbors leave behind. It was reading as
+ * cramped only because those neighbors (the raw "> [!"/"]" punctuation,
+ * the 8em/45%-capped type input, and the no-explicit-width marker
+ * select) were together consuming far more of the row than they needed
+ * to. See quote-header-label/quote-type-input/quote-marker-select's own
+ * 2026-09-09 comments above for what actually changed to free up the
+ * room this rule already knew how to use. */
 .unified-outliner-partial-edit-quote-title-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -819,6 +1042,73 @@ settings:
 
 .unified-outliner-heading-level-modal-cancel {
   margin-top: 8px;
+}
+
+/* UI-only follow-up (2026-09-08, "通常list行の縦方向の余白を適切に縮める",
+ * updated same day after real-device video review): this plugin has never
+ * overridden `.tree-item-self`'s own vertical padding for any row kind
+ * (see the bare `.tree-item-self { color: ...; }` rule near the top of
+ * this file) — row height for every kind has always come entirely from
+ * Obsidian core's own default `.tree-item-self` CSS. Real-device review
+ * found plain list rows (not section/paragraph/callout/blockquote/
+ * CompositeBlock rows) read as noticeably more "間延び" (loose/airy) than
+ * their neighbors once several appear in a row, so this rule tightens
+ * ONLY their own top/bottom padding (and, see below, their min-height) —
+ * left/right padding, and every other row kind's padding, stay exactly as
+ * Obsidian's theme provides.
+ *
+ * `[data-kind="list"]` alone is not enough: a CompositeBlock's own
+ * list-item member (its `children[0]`, always `kind: "list"` — see
+ * tree/buildOutlineTree.ts's own doc comments) also carries
+ * `data-kind="list"`, and so does every further-nested list row under a
+ * CompositeBlock member. `:not([data-composite-group="true"])` excludes
+ * all of those, so this rule can never touch a row that also participates
+ * in the CompositeBlock group-indicator tiers above — this ticket does
+ * not touch, and must not affect, that indicator's own visual contract.
+ *
+ * Root cause of the REMAINING gap after the padding-only version of this
+ * rule (confirmed by re-reading view/OutlineTreeView.ts's renderNode,
+ * unchanged): a CompositeBlock member row (the list-item member AND the
+ * callout/blockquote complex-member) is always `readOnly` — inherited
+ * from its composite parent, which is `readOnly` by its own `kind` — and
+ * `isComposite` (the only thing that would otherwise force a handle onto
+ * a `readOnly` row) is true ONLY for the composite's own parent row, never
+ * for a member. Since the drag handle is only created when
+ * `!readOnly || isComposite`, a plain list row (not `readOnly`) gets one,
+ * but NEITHER CompositeBlock member row ever does. `.unified-outliner-
+ * drag-handle` (below, UXP-01) carries its own `min-height: 28px;`
+ * real-device-verified vertical tap target
+ * (docs/uxp-01-ipad-drag-context-menu.md — its `width` was originally
+ * 28px too, but a later, unrelated ticket, 2026-09-09, shrank `width` to
+ * `24px`; `min-height`, which is what this rule's own floor below is
+ * matched to, is untouched by that) — present as a flex child of
+ * every plain list row's `.tree-item-self` but of no CompositeBlock member
+ * row's — so a plain list row's own natural (auto) height has always had
+ * a 28px floor a member row's never had, and no amount of `.tree-item-
+ * self`'s own padding/min-height tuning here can make a list row shorter
+ * than that floor without shrinking the handle itself, which this ticket
+ * must not do.
+ *
+ * `min-height: 28px` below is a NEW, explicit addition alongside the
+ * existing padding tightening: it does not lower the effective floor
+ * (28px matches the drag handle's own already-accepted minimum exactly,
+ * never smaller), but it does cap out any larger min-height Obsidian's own
+ * theme CSS might otherwise be contributing to `.tree-item-self` beyond
+ * what the drag handle alone requires — this repository has no access to
+ * Obsidian core's own compiled CSS to read that value directly, so this
+ * is an explicit, known-safe replacement rather than a delta off an
+ * unknown base, same reasoning as the padding values already in place.
+ * `line-height` is deliberately left untouched: `.unified-outliner-list-
+ * text` and `.unified-outliner-composite-text`/`.unified-outliner-
+ * complex-member-text` (below) already share the exact same font-size/
+ * font-weight and neither declares its own line-height, so text glyph
+ * height was never the source of the discrepancy, and adding a line-height
+ * only to list rows would introduce a NEW mismatch rather than remove
+ * one. */
+.tree-item-self[data-kind="list"]:not([data-composite-group="true"]) {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  min-height: 28px;
 }
 
 /* Phase 3C: list nodes in the Outline Tree View (opt-in via
@@ -899,6 +1189,149 @@ settings:
 .unified-outliner-composite-prefix,
 .unified-outliner-complex-member-prefix {
   color: var(--uo-current-color);
+}
+
+/* UI-only follow-up (2026-09-08, "Outline Tree の CompositeBlock 視認性改
+ * 善"): a CompositeBlock's own left-accent-border + tint group indicator
+ * (view/OutlineTreeView.ts's renderNode — `[data-composite-group="true"]`
+ * on the parent row AND every one of its descendant rows, including a
+ * further-nested list item under a member — plus its own real
+ * `.unified-outliner-composite-accent` child, never a ::before/::after
+ * pseudo-element of `.tree-item-self` itself; see that call site's own doc
+ * comment for why: `.tree-item-self`'s ::before/::after are already used
+ * by the drag-and-drop indicator classes
+ * (.unified-outliner-drop-before/-after/-inside above), and a CompositeBlock
+ * parent row IS a valid D&D target/source (Phase 5D-4C/5D-4D), so both can
+ * legitimately need to render on the SAME row at once — a real, separate
+ * child element cannot collide with those pseudo-elements' own properties
+ * the way reusing the same ::before/::after slot would.
+ *
+ * `position: relative` is scoped to `[data-composite-group="true"]` only
+ * (never unconditionally on `.tree-item-self`), matching this file's own
+ * existing convention for the drop-indicator classes just above — inert
+ * for every row that isn't part of a CompositeBlock.
+ *
+ * Reuses `--uo-current-color` (already the composite/complex-member
+ * prefix's own color, see `.unified-outliner-composite-prefix` above —
+ * "the row reads as a distinct, grouped unit") rather than introducing a
+ * new themeable variable, both to keep this a genuinely small follow-up and
+ * because it is exactly the color this codebase already uses for "this row
+ * is part of a grouped, structural unit". This is a SEPARATE visual channel
+ * from the current-row indicator: `.unified-outliner-current` (this file,
+ * above) only ever sets the row's TEXT color/weight, never a background —
+ * the actual current-row BACKGROUND tint is Obsidian core's own
+ * `.tree-item-self.is-active` styling (outside this plugin's CSS
+ * entirely), which paints as `.tree-item-self`'s own box background and is
+ * therefore always UNDER this accent's translucent overlay in paint order
+ * — see the low opacity below, chosen so that background stays clearly
+ * visible through the tint rather than being covered by it.
+ *
+ * CSS-only refinement (2026-09-08, real-device follow-up): the first
+ * shipped version above gave every CompositeBlock row — parent and every
+ * descendant member alike — the exact same accent (same border-left
+ * width, same tint, same opacity), which real-device review found reads
+ * as one uniform pale band rather than a legible parent/member/end
+ * structure. The rules below still use only this same real DOM child
+ * element, the same `--uo-current-color`/`color-mix()` fallback pattern,
+ * and the same two existing `data-composite-group`/
+ * `data-composite-group-end` attributes — nothing new is added on the
+ * TypeScript side. Only the declarations are now tiered by role, purely
+ * through selector specificity on attributes/classes that were already
+ * being set: `[data-kind="composite"]` picks out the parent/"header" row,
+ * the plain undecorated selector below is every other member row's
+ * baseline, and `[data-composite-group-end="true"]` remains the terminus
+ * row. Per this refinement's own "背景色を主役にせず、左端アクセントを主役
+ * にする" instruction, the left-accent border is the tier that varies most
+ * (width 2px → 3px, plus a bottom border on the terminus row) while the
+ * background tint stays the secondary, more restrained cue at every
+ * tier. */
+.tree-item-self[data-composite-group="true"] {
+  position: relative;
+}
+
+/* Baseline tier: every CompositeBlock row that is neither the parent
+ * ("header") row nor the group's terminus row — i.e. an ordinary member
+ * row. Deliberately the most restrained tier of the three: its tint must
+ * never read as stronger than a plain row's own current-row/selected-row
+ * background (see the priority rule at the very end of this section). */
+.unified-outliner-composite-accent {
+  position: absolute;
+  inset: 0;
+  border-left: 2px solid var(--uo-current-color);
+  background-color: rgba(91, 87, 209, 0.05);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+@supports (background-color: color-mix(in srgb, red 5%, transparent)) {
+  .unified-outliner-composite-accent {
+    background-color: color-mix(in srgb, var(--uo-current-color) 5%, transparent);
+  }
+}
+
+/* Parent ("header") row tier (`data-kind="composite"`, always paired with
+ * `data-composite-group="true"` on that same row): a thicker left-accent
+ * and a slightly stronger tint than the baseline member tier above, plus
+ * a top-only rounded corner. Pairing this top-only corner with the
+ * terminus rule's bottom-only corner below lets the parent and last-member
+ * rows read as the visual top/bottom edges of one connected block, even
+ * though each row is still painted by its own independent
+ * `.unified-outliner-composite-accent` element — no wrapper element, no
+ * change to the Tree's DOM hierarchy. */
+.tree-item-self[data-composite-group="true"][data-kind="composite"] .unified-outliner-composite-accent {
+  border-left-width: 3px;
+  background-color: rgba(91, 87, 209, 0.1);
+  opacity: 0.85;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+@supports (background-color: color-mix(in srgb, red 10%, transparent)) {
+  .tree-item-self[data-composite-group="true"][data-kind="composite"] .unified-outliner-composite-accent {
+    background-color: color-mix(in srgb, var(--uo-current-color) 10%, transparent);
+  }
+}
+
+/* Group terminus (the last rendered row of a CompositeBlock's own
+ * subtree — view/OutlineTreeView.ts's `compositeGroupEnd`/
+ * `data-composite-group-end`): the tint intentionally stays at the
+ * baseline member tier's own strength (opacity is nudged up only
+ * slightly, still well under the parent tier's) — a terminus must never
+ * outrank an ordinary member row's own background — but a bottom-only
+ * border plus a bottom-only rounded corner (rather than a new border side
+ * or extra spacing applied unconditionally, either of which would change
+ * every member row's geometry) mark specifically this row as where the
+ * group visually closes, so the terminus no longer depends on opacity
+ * alone to read as distinct. */
+.tree-item-self[data-composite-group-end="true"] .unified-outliner-composite-accent {
+  opacity: 0.7;
+  border-bottom: 2px solid var(--uo-current-color);
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* Current-row / keyboard-selected priority: when a CompositeBlock row is
+ * ALSO the current row (`.unified-outliner-current`, paired with
+ * Obsidian core's own `.tree-item-self.is-active` background) or the
+ * keyboard-selected row (`.unified-outliner-selected`'s own
+ * `background-color` above), that row's own background must stay the
+ * more visually prominent signal — the accent's tint would otherwise sit
+ * on top of it (see `position: absolute` above) and dull it. Only
+ * `background-color` is suppressed here; the left-accent border is
+ * deliberately left alone, since the border (not the tint) is this
+ * indicator's own primary signal, and losing it entirely would make an
+ * active CompositeBlock row look like it had silently left the group. The
+ * `[data-kind="composite"]`-qualified selectors below are listed
+ * explicitly, rather than relying on this rule simply being declared last
+ * in the file, so this rule always outranks the parent-tier rule above on
+ * selector specificity alone (both target the exact same two attributes
+ * plus `.unified-outliner-composite-accent`, plus one more class here),
+ * regardless of any future reordering of this file. */
+.tree-item-self[data-composite-group="true"].unified-outliner-current .unified-outliner-composite-accent,
+.tree-item-self[data-composite-group="true"].unified-outliner-selected .unified-outliner-composite-accent,
+.tree-item-self[data-composite-group="true"][data-kind="composite"].unified-outliner-current .unified-outliner-composite-accent,
+.tree-item-self[data-composite-group="true"][data-kind="composite"].unified-outliner-selected .unified-outliner-composite-accent {
+  background-color: transparent;
 }
 
 /* Phase 5P-3 ("本文 paragraph の任意 Outline Tree 表示"): a body-paragraph

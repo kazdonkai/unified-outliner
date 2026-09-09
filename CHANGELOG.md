@@ -4,6 +4,23 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-09
+
+### Changed
+
+- Outline Tree: CompositeBlock ("extended block") rows now show a three-tier visual treatment — a left-edge accent border and subtle background tuned by row role (parent header, intermediate member row, terminating member row) — instead of one uniform accent, so the grouping reads clearly rather than as a single flat band.
+- Outline Tree: tightened vertical spacing on ordinary list rows (`padding-top`/`padding-bottom: 1px`, `min-height: 28px` matching the drag handle's own tap-target height), so they sit visually closer to CompositeBlock member rows, which have no drag handle of their own.
+- Outline Tree: equalized the text start position between paragraph rows (no drag handle) and list rows (drag handle) at the same nesting level — paragraph rows gained left padding and the drag handle narrowed slightly — so top-level and section-direct paragraph rows now start at very nearly the same horizontal position as list rows.
+- Outline Tree: adjusted the nested-list indent step (first-level start position and per-level step width) via Obsidian's own `--nav-item-children-padding-start` / `--nav-item-children-margin-start` custom properties, scoped to this plugin's own tree panel only — File Explorer and the core Outline panel are unaffected.
+- Partial Edit Pane: consolidated six per-row `margin-bottom` declarations into a single `gap` on the pane's flex container, and hid the sibling-navigation row whenever the loaded node has no sibling in either direction (previously it always rendered two permanently-disabled buttons and a row's worth of empty space).
+- Partial Edit Pane: the callout/blockquote editing header now shows the Outline Tree's own callout symbol ("▣") instead of raw Markdown punctuation (`> [!`), the closing `]` is no longer shown, and the fold-marker dropdown's option labels are more compact ("Fixed" / "+ Expand" / "- Collapse"), giving the title field more room to expand.
+- Settings: renamed and reworded "Show move result toast" to "Show notification after moving", replacing the jargon terms "toast" and the command names "Move block" / "Move section" with plain, outcome-focused wording.
+- Settings: the "List + Callout" and "List + Quote" extended-block descriptions now each include a concrete illustrative use case (an image/PDF embed with its OCR notes; a citation with its quoted text) instead of a purely structural description.
+
+### Fixed
+
+- Partial Edit Pane: an Obsidian-internal mechanism (`toggleVisibility(false)` sets `visibility: hidden`, not `display: none`) was leaving hidden optional rows (sync status, breadcrumb, sibling nav, Subtree Navigator, quote header) occupying their full layout height even while invisible, producing a large empty gap above the edit textarea. Hidden rows are now fully collapsed out of the layout.
+
 ## [0.5.1] - 2026-08-25
 
 ### Fixed

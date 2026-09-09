@@ -147,7 +147,11 @@ import {
 import type UnifiedOutlinerPlugin from "../main";
 import { parseDocument } from "../parser/parseDocument";
 import { applySubtreeEdit, extractSubtreeText, SubtreeKind } from "../edit/partialEdit";
-import { nodeDisplayLabel, standaloneComplexBlockLabel } from "../tree/buildOutlineTree";
+import {
+  nodeDisplayLabel,
+  standaloneComplexBlockLabel,
+  STANDALONE_CALLOUT_PREFIX,
+} from "../tree/buildOutlineTree";
 import { scanComplexBlocks } from "../parser/complexBlocks";
 import { ParsedDocument } from "../model/block";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
@@ -1361,24 +1365,52 @@ export class PartialEditView extends ItemView {
    * with the header row's own visual spacing coming from CSS layout
    * (flex gap) between the three DOM children instead.
    *
-   * Phase 5D-1C: `quoteHeaderLabelEl` now shows ONLY `titleSlot.quotePrefix
-   * + "[!"` — the type itself moved to `quoteTypeInputEl` (revealed/
-   * pre-filled in lockstep, same `titleSlot` gate) verbatim, with no
-   * case-folding/trimming/fallback-to-"note" of any kind. The literal
-   * closing `]` is rendered by `quoteTypeCloseLabelEl`, shown/hidden in
-   * the exact same lockstep.
+   * Phase 5D-1C: `quoteHeaderLabelEl` originally showed ONLY
+   * `titleSlot.quotePrefix + "[!"` — the type itself moved to
+   * `quoteTypeInputEl` (revealed/pre-filled in lockstep, same `titleSlot`
+   * gate) verbatim, with no case-folding/trimming/fallback-to-"note" of
+   * any kind. The literal closing `]` was rendered by
+   * `quoteTypeCloseLabelEl`, shown/hidden in the exact same lockstep.
+   *
+   * 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善):
+   * `quoteHeaderLabelEl` now shows the Outline Tree's own callout glyph
+   * (`STANDALONE_CALLOUT_PREFIX`, "▣ ") instead of the raw `quotePrefix +
+   * "[!"` text, and `quoteTypeCloseLabelEl`'s "]" is permanently dropped
+   * (left hidden/empty) — see this method's own inline comment for the
+   * full rationale. `quoteTypeInputEl` itself is unaffected: still shows
+   * `titleSlot.type` verbatim, still feeds `reconstructQuoteHeader`
+   * unchanged.
    */
   private renderQuoteHeader(): void {
     const titleSlot = this.quoteProjection?.titleSlot ?? null;
     if (titleSlot) {
       this.quoteHeaderEl.toggleVisibility(true);
-      this.quoteHeaderLabelEl.setText(titleSlot.quotePrefix + "[!");
+      // 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善):
+      // previously showed the raw `titleSlot.quotePrefix + "[!"` (e.g.
+      // "> [!"), with the matching literal "]" in quoteTypeCloseLabelEl
+      // right after quoteTypeInputEl below. Real-device feedback: this
+      // raw-Markdown punctuation read poorly and ate horizontal space
+      // that quoteTitleInputEl badly needed on a narrow pane. Replaced
+      // with STANDALONE_CALLOUT_PREFIX ("▣ ") — the exact same glyph the
+      // Outline Tree already uses for a callout row (buildOutlineTree.ts)
+      // — so a callout reads as the same kind of thing here as it does
+      // there. This is a display-only substitution: reconstructQuoteHeader
+      // (applyEdit, below) is fed `titleSlot` directly, never anything
+      // read from this label's text, so the original quotePrefix/type
+      // bracket are still reconstructed correctly on Apply regardless of
+      // what this label shows.
+      this.quoteHeaderLabelEl.setText(STANDALONE_CALLOUT_PREFIX);
       this.quoteTypeInputEl.toggleVisibility(true);
       this.quoteTypeInputEl.disabled = false;
       this.quoteTypeInputEl.value = titleSlot.type;
       this.refreshQuoteTypeDatalistOptions();
-      this.quoteTypeCloseLabelEl.toggleVisibility(true);
-      this.quoteTypeCloseLabelEl.setText("]");
+      // The literal closing "]" this label used to show is dropped along
+      // with the opening "> [!" above — always left hidden/empty now (see
+      // this branch's own doc comment). Kept as a real field/element
+      // rather than deleted outright, since nothing here needs a bigger
+      // structural change than "stop showing it".
+      this.quoteTypeCloseLabelEl.toggleVisibility(false);
+      this.quoteTypeCloseLabelEl.setText("");
       this.quoteMarkerSelectEl.toggleVisibility(true);
       this.quoteMarkerSelectEl.disabled = false;
       this.quoteMarkerSelectEl.value = titleSlot.marker;
@@ -1483,13 +1515,30 @@ export class PartialEditView extends ItemView {
    * DOM tree itself (no empty()/createSpan for the buttons) — the two
    * buttons, and their target-label spans, are created once in onOpen and
    * always exist; only `disabled` state, tooltip, and the target-label
-   * text/visibility change here. The row itself is hidden only when no node
-   * is loaded at all (`!this.nodeId`); once a node IS loaded, the row stays
-   * visible and each button disables itself independently when that
-   * direction has no sibling — deliberately different from the breadcrumb
-   * and Subtree Navigator's "hide the whole row when empty" policy, since a
-   * node with siblings on only one side should still make that one
-   * direction discoverable.
+   * text/visibility change here. Once a node is loaded AND it has a
+   * sibling in at least one direction, the row stays visible and each
+   * button disables itself independently when that direction has no
+   * sibling — deliberately different from the breadcrumb and Subtree
+   * Navigator's "hide the whole row when empty" policy, since a node with
+   * siblings on only one side should still make that one direction
+   * discoverable.
+   *
+   * 2026-09-09 (Partial Edit Pane 上部余白調整): the row is now ALSO hidden
+   * — same as the breadcrumb/Subtree Navigator's own "hide when empty"
+   * policy — when the loaded node has no sibling in EITHER direction.
+   * Previously this row stayed visible even then, showing two permanently-
+   * disabled buttons that could never lead anywhere. This was most visible
+   * for a CompositeBlock: loadCompositeInternal always resets
+   * `siblingState` to `{ previous: null, next: null }` (see its own "no
+   * breadcrumb / sibling nav / Subtree Navigator for a CompositeBlock"
+   * comment, Phase 5D-2A) — i.e. the intent was already documented there,
+   * but this function's own condition never actually enforced it, so the
+   * row rendered anyway for every CompositeBlock edit, contributing an
+   * always-empty row's worth of height directly above the textarea. This
+   * is the primary fix for the reported "vast blank space directly below
+   * the header" when editing an extended block (see styles.css's
+   * `.unified-outliner-partial-edit-view` doc comment for the accompanying
+   * spacing/gap tightening).
    *
    * Target-label preview: each button's *TargetEl span shows the
    * destination sibling's own displayLabel (same field the breadcrumb and
@@ -1502,7 +1551,7 @@ export class PartialEditView extends ItemView {
    * label for a disabled button, matching the button's own disabled state.
    */
   private renderSiblingNav(): void {
-    if (!this.nodeId) {
+    if (!this.nodeId || (!this.siblingState.previous && !this.siblingState.next)) {
       this.siblingNavEl.toggleVisibility(false);
       return;
     }

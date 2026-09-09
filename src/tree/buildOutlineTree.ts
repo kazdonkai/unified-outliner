@@ -1655,3 +1655,82 @@ export function collectReadOnlyOutlineNodeIds(tree: OutlineTreeNode[]): Set<stri
   walk(tree, false);
   return readOnlyIds;
 }
+
+/**
+ * UI-only follow-up (2026-09-08, "Outline Tree の CompositeBlock 視認性改善"):
+ * display-only grouping info for the Outline Tree's CompositeBlock
+ * left-accent-border + tint indicator (view/OutlineTreeView.ts's renderNode
+ * / styles.css's `.unified-outliner-composite-accent`) — deliberately a
+ * SEPARATE derived Set from `collectReadOnlyOutlineNodeIds` above, not a
+ * reuse of it: that function's `readOnlyIds` ALSO includes every
+ * `"paragraph"` row (Phase 5P-3), which is never a CompositeBlock member
+ * and must never get this visual treatment — conflating the two would
+ * incorrectly paint a plain paragraph row as if it were part of a grouped
+ * CompositeBlock. This function touches no parser/rule/range/snapshot/
+ * member-matching logic at all: it is a pure, read-only projection over an
+ * already-built `OutlineTreeNode[]` tree, exactly like
+ * `collectReadOnlyOutlineNodeIds` itself.
+ *
+ * `groupNodeIds`: every node id that is a CompositeBlock's own parent row
+ * (`kind === "composite"`), or any one of its descendant rows —
+ * `complex-member` rows (callout/blockquote members) and, recursively, any
+ * further-nested `list` row under one of those member rows (a list member
+ * can itself have nested list-item children, which are plain `"list"`
+ * nodes with no CompositeBlock-specific `kind` of their own — see
+ * `collectReadOnlyOutlineNodeIds`'s own "further-nested list item" test for
+ * the identical propagation shape this mirrors). A composite is never
+ * itself nested inside another composite in this codebase's current
+ * matcher (a composite's members are always list/callout/blockquote
+ * leaves, never a further CompositeBlockInfo), so `markDescendants` below
+ * does not special-case a nested "composite" kind — it only needs to ever
+ * fire from the top-level `walk`'s own `"composite"` branch.
+ *
+ * `groupEndNodeIds`: exactly one node id per composite — the single,
+ * deepest "last child of the last child of..." row, i.e. the last row
+ * `view/OutlineTreeView.ts`'s renderNode actually paints for that
+ * composite's subtree, in document order. Used to mark the visual
+ * "terminus" of a group (a bolder left accent) — computed structurally
+ * from `children` array order (already document order; see every other
+ * consumer of `OutlineTreeNode.children` in this file) rather than by any
+ * line-number comparison, so it stays correct regardless of how a member's
+ * own text is projected.
+ */
+export interface CompositeGroupInfo {
+  groupNodeIds: Set<string>;
+  groupEndNodeIds: Set<string>;
+}
+
+export function collectCompositeGroupInfo(tree: OutlineTreeNode[]): CompositeGroupInfo {
+  const groupNodeIds = new Set<string>();
+  const groupEndNodeIds = new Set<string>();
+
+  const markDescendants = (nodes: OutlineTreeNode[]): void => {
+    for (const node of nodes) {
+      groupNodeIds.add(node.id);
+      markDescendants(node.children);
+    }
+  };
+
+  // A composite's own `children` is never empty (OutlineTreeCompositeNode's
+  // own doc comment: "never empty (a CompositeBlockInfo always has >= 2
+  // members)"), so this always terminates on a real node id, never the
+  // composite's own id itself.
+  const lastDescendantId = (node: OutlineTreeNode): string => {
+    if (node.children.length === 0) return node.id;
+    return lastDescendantId(node.children[node.children.length - 1]);
+  };
+
+  const walk = (nodes: OutlineTreeNode[]): void => {
+    for (const node of nodes) {
+      if (node.kind === "composite") {
+        groupNodeIds.add(node.id);
+        markDescendants(node.children);
+        groupEndNodeIds.add(lastDescendantId(node));
+      } else {
+        walk(node.children);
+      }
+    }
+  };
+  walk(tree);
+  return { groupNodeIds, groupEndNodeIds };
+}

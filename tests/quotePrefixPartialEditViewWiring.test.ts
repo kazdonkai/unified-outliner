@@ -157,17 +157,26 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
     expect(body).toContain("this.quoteHeaderLabelEl.setText(header);");
   });
 
-  it("renderQuoteHeader (Phase 5D-1C): when quoteProjection.titleSlot is non-null, it shows the row, sets the label to quotePrefix + \"[!\", reveals+enables the type input pre-filled with the loaded type, shows the type close label as \"]\", reveals+enables the title input, and pre-fills it with the loaded title", () => {
+  it("renderQuoteHeader (Phase 5D-1C, superseded 2026-09-09 — see below): when quoteProjection.titleSlot is non-null, it shows the row, reveals+enables the type input pre-filled with the loaded type, reveals+enables the title input, and pre-fills it with the loaded title", () => {
     const body = bodyOf(viewTs, "private renderQuoteHeader(): void {", "renderQuoteHeader()");
-    expect(body).toContain('this.quoteHeaderLabelEl.setText(titleSlot.quotePrefix + "[!");');
     expect(body).toContain("this.quoteTypeInputEl.toggleVisibility(true);");
     expect(body).toContain("this.quoteTypeInputEl.disabled = false;");
     expect(body).toContain("this.quoteTypeInputEl.value = titleSlot.type;");
-    expect(body).toContain("this.quoteTypeCloseLabelEl.toggleVisibility(true);");
-    expect(body).toContain('this.quoteTypeCloseLabelEl.setText("]");');
     expect(body).toContain("this.quoteTitleInputEl.toggleVisibility(true);");
     expect(body).toContain("this.quoteTitleInputEl.disabled = false;");
     expect(body).toContain("this.quoteTitleInputEl.value = titleSlot.title;");
+  });
+
+  it("renderQuoteHeader (2026-09-09, Partial Edit Pane コールアウト編集ヘッダーUI改善): when titleSlot is non-null, the label is set to the Outline Tree's own STANDALONE_CALLOUT_PREFIX glyph instead of the raw quotePrefix + \"[!\" text, and quoteTypeCloseLabelEl's literal \"]\" is permanently dropped (kept hidden/empty even in this branch) — this legitimately supersedes this same file's earlier Phase 5D-1C assertion of the old raw-punctuation display, per this ticket's approved scope", () => {
+    const body = bodyOf(viewTs, "private renderQuoteHeader(): void {", "renderQuoteHeader()");
+    expect(body).toContain("this.quoteHeaderLabelEl.setText(STANDALONE_CALLOUT_PREFIX);");
+    expect(body).not.toContain('this.quoteHeaderLabelEl.setText(titleSlot.quotePrefix + "[!");');
+    // The old "reveal with `]`" call sites (toggleVisibility(true) +
+    // setText("]")) for quoteTypeCloseLabelEl no longer exist anywhere in
+    // this function — every remaining toggleVisibility call for that
+    // element is now `false`, in both branches.
+    expect(body).not.toContain("this.quoteTypeCloseLabelEl.toggleVisibility(true);");
+    expect(body).not.toContain('this.quoteTypeCloseLabelEl.setText("]");');
   });
 
   it("renderQuoteHeader (Phase 5D-1A): hides and clears the title input whenever titleSlot is null (blockquote, non-projecting, or a callout header with no title slot)", () => {
@@ -278,16 +287,26 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
       presentValueIndex
     );
     expect(presentRefreshIndex).toBeGreaterThan(-1);
+    // 2026-09-09: the old boundary marker here, quoteTypeCloseLabelEl's
+    // `toggleVisibility(true)` reveal, no longer exists in this branch
+    // (see this file's own 2026-09-09 test above) — quoteMarkerSelectEl's
+    // `toggleVisibility(true)` reveal is the next distinct, still-unique
+    // step in the titleSlot-present branch and serves the same purpose.
     expect(presentRefreshIndex).toBeLessThan(
-      body.indexOf("this.quoteTypeCloseLabelEl.toggleVisibility(true);")
+      body.indexOf("this.quoteMarkerSelectEl.toggleVisibility(true);")
     );
 
     const nullValueIndex = body.indexOf('this.quoteTypeInputEl.value = "";');
     expect(nullValueIndex).toBeGreaterThan(-1);
     const nullRefreshIndex = body.indexOf("this.refreshQuoteTypeDatalistOptions();", nullValueIndex);
     expect(nullRefreshIndex).toBeGreaterThan(-1);
+    // 2026-09-09: quoteTypeCloseLabelEl.toggleVisibility(false) now
+    // appears in BOTH branches (see this file's own 2026-09-09 test
+    // above), so the search must start from nullValueIndex to find the
+    // null-branch's own occurrence rather than the earlier, titleSlot-
+    // present branch's one.
     expect(nullRefreshIndex).toBeLessThan(
-      body.indexOf("this.quoteTypeCloseLabelEl.toggleVisibility(false);")
+      body.indexOf("this.quoteTypeCloseLabelEl.toggleVisibility(false);", nullValueIndex)
     );
   });
 

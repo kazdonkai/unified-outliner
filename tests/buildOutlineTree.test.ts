@@ -13,6 +13,7 @@ import { createTranslator } from "../src/i18n";
 import { buildNodeIdentityMap } from "../src/tree/foldIdentity";
 import {
   buildOutlineTree,
+  collectCompositeGroupInfo,
   collectReadOnlyOutlineNodeIds,
   complexMemberDisplayLabel,
   flattenOutlineTree,
@@ -1557,5 +1558,184 @@ describe("collectReadOnlyOutlineNodeIds (Phase 5P-3: paragraph)", () => {
     const readOnly = collectReadOnlyOutlineNodeIds(tree);
     const section = tree[0];
     expect(readOnly.has(section.id)).toBe(false);
+  });
+});
+
+describe("collectCompositeGroupInfo (UI-only follow-up, 2026-09-08: Outline Tree CompositeBlock visual grouping)", () => {
+  it("marks a list+callout composite's own parent id and BOTH of its member ids (the list-item member and the callout member) as group members, with the LAST member (the callout) as the group end", () => {
+    const text = ["- ![[scan.png]]", "> [!ocr]", "> body"].join("\n");
+    const tree = treeWithComposites(text, true);
+    const composite = tree[0];
+    if (!isOutlineCompositeNode(composite)) throw new Error("expected composite");
+    // Every composite has >= 2 members (its own list-item first member,
+    // plus the callout/blockquote member(s)) — see
+    // OutlineTreeCompositeNode's own doc comment.
+    expect(composite.children.length).toBeGreaterThanOrEqual(2);
+    const [firstMember, calloutMember] = composite.children;
+
+    const info = collectCompositeGroupInfo(tree);
+    expect(info.groupNodeIds.has(composite.id)).toBe(true);
+    expect(info.groupNodeIds.has(firstMember.id)).toBe(true);
+    expect(info.groupNodeIds.has(calloutMember.id)).toBe(true);
+    expect(info.groupEndNodeIds.has(calloutMember.id)).toBe(true);
+    // Neither the parent row nor the non-last member is also the group end.
+    expect(info.groupEndNodeIds.has(composite.id)).toBe(false);
+    expect(info.groupEndNodeIds.has(firstMember.id)).toBe(false);
+  });
+
+  it("marks a list+blockquote composite's own parent id and BOTH of its member ids as group members, with the LAST member (the blockquote) as the group end", () => {
+    const text = ["- source", "> quoted line"].join("\n");
+    const tree = treeWithComposites(text, true);
+    const composite = tree[0];
+    if (!isOutlineCompositeNode(composite)) throw new Error("expected composite");
+    expect(composite.ruleId).toBe("image-quote");
+    const [firstMember, blockquoteMember] = composite.children;
+
+    const info = collectCompositeGroupInfo(tree);
+    expect(info.groupNodeIds.has(composite.id)).toBe(true);
+    expect(info.groupNodeIds.has(firstMember.id)).toBe(true);
+    expect(info.groupNodeIds.has(blockquoteMember.id)).toBe(true);
+    expect(info.groupEndNodeIds.has(blockquoteMember.id)).toBe(true);
+  });
+
+  it("does NOT mark an ordinary, non-composite section/list as a group member", () => {
+    const text = ["# H", "- plain item"].join("\n");
+    const tree = treeWithComposites(text, true);
+    const info = collectCompositeGroupInfo(tree);
+    const section = tree[0];
+    expect(info.groupNodeIds.has(section.id)).toBe(false);
+    expect(info.groupNodeIds.has(section.children[0].id)).toBe(false);
+    expect(info.groupEndNodeIds.size).toBe(0);
+  });
+
+  it("does NOT mark a standalone (non-composite) callout/blockquote as a group member", () => {
+    const text = ["> [!note]", "> a standalone callout, not part of any composite"].join("\n");
+    const tree = buildOutlineTree(parseDocument(text), {
+      standaloneComplexBlocks: { blocks: scanComplexBlocks(parseDocument(text)).blocks },
+      t: createTranslator("en"),
+    });
+    const info = collectCompositeGroupInfo(tree);
+    for (const node of flattenOutlineTree(tree)) {
+      expect(info.groupNodeIds.has(node.id)).toBe(false);
+    }
+  });
+
+  it("does NOT mark a plain paragraph row as a group member, even though it IS marked read-only by collectReadOnlyOutlineNodeIds — the two Sets are deliberately independent", () => {
+    const text = ["# H", "a plain paragraph"].join("\n");
+    const { tree } = treeWithParagraphs(text);
+    const readOnly = collectReadOnlyOutlineNodeIds(tree);
+    const groupInfo = collectCompositeGroupInfo(tree);
+    const paraNode = flattenOutlineTree(tree).find(isOutlineParagraphNode);
+    if (!paraNode) throw new Error("expected a paragraph node");
+    expect(readOnly.has(paraNode.id)).toBe(true);
+    expect(groupInfo.groupNodeIds.has(paraNode.id)).toBe(false);
+  });
+
+  it("propagates group membership to a FURTHER-nested list item under a composite's list member, and treats that nested item as the group end (hand-built tree — see collectReadOnlyOutlineNodeIds's identical-shape test for why the real matcher cannot currently produce this nesting itself)", () => {
+    const nested: OutlineTreeNode = {
+      kind: "list",
+      id: "li-nested",
+      text: "nested",
+      prefix: null,
+      indentDepth: 1,
+      line: 2,
+      children: [],
+    };
+    const memberList: OutlineTreeNode = {
+      kind: "list",
+      id: "li-member",
+      text: "member",
+      prefix: null,
+      indentDepth: 0,
+      line: 1,
+      children: [nested],
+    };
+    const composite: OutlineTreeNode = {
+      kind: "composite",
+      id: "composite-1",
+      ruleId: "image-ocr",
+      label: "test",
+      prefix: "",
+      line: 1,
+      children: [memberList],
+    };
+    const info = collectCompositeGroupInfo([composite]);
+    expect(info.groupNodeIds.has(composite.id)).toBe(true);
+    expect(info.groupNodeIds.has(memberList.id)).toBe(true);
+    expect(info.groupNodeIds.has(nested.id)).toBe(true);
+    // The deepest last-child-chain descendant is the group end, not the
+    // intermediate member row.
+    expect(info.groupEndNodeIds.has(nested.id)).toBe(true);
+    expect(info.groupEndNodeIds.has(memberList.id)).toBe(false);
+  });
+
+  it("finds a composite nested arbitrarily deep under an unrelated section/list ancestor chain (hand-built tree, same rationale as the further-nested-list-item test above: this shape need not be producible by today's real matcher for this walk logic itself to be verified)", () => {
+    const composite: OutlineTreeNode = {
+      kind: "composite",
+      id: "composite-deep",
+      ruleId: "image-ocr",
+      label: "test",
+      prefix: "",
+      line: 3,
+      children: [
+        { kind: "list", id: "li-composite-first", text: "img", prefix: null, indentDepth: 2, line: 3, children: [] },
+        {
+          kind: "complex-member",
+          id: "cm-composite-member",
+          complexKind: "callout",
+          label: "ocr",
+          isStandalone: false,
+          line: 4,
+          children: [],
+        },
+      ],
+    };
+    const outerList: OutlineTreeNode = {
+      kind: "list",
+      id: "li-outer",
+      text: "outer item",
+      prefix: null,
+      indentDepth: 0,
+      line: 1,
+      children: [composite],
+    };
+    const section: OutlineTreeNode = {
+      kind: "section",
+      id: "sec-1",
+      headingLevel: 1,
+      headingText: "H",
+      line: 0,
+      children: [outerList],
+    };
+    const info = collectCompositeGroupInfo([section]);
+    expect(info.groupNodeIds.has(section.id)).toBe(false);
+    expect(info.groupNodeIds.has(outerList.id)).toBe(false);
+    expect(info.groupNodeIds.has(composite.id)).toBe(true);
+    for (const member of composite.children) {
+      expect(info.groupNodeIds.has(member.id)).toBe(true);
+    }
+    expect(info.groupEndNodeIds.has(composite.children[1].id)).toBe(true);
+  });
+
+  it("a document with multiple composites produces one independent group-end id per composite", () => {
+    const text = [
+      "- ![[scan1.png]]",
+      "> [!ocr]",
+      "> body1",
+      "- ![[scan2.png]]",
+      "> [!ocr]",
+      "> body2",
+    ].join("\n");
+    const tree = treeWithComposites(text, true);
+    const composites = flattenOutlineTree(tree).filter(isOutlineCompositeNode);
+    expect(composites).toHaveLength(2);
+    const info = collectCompositeGroupInfo(tree);
+    expect(info.groupEndNodeIds.size).toBe(2);
+    for (const c of composites) {
+      expect(info.groupNodeIds.has(c.id)).toBe(true);
+      expect(c.children.length).toBeGreaterThanOrEqual(2);
+      const lastMember = c.children[c.children.length - 1];
+      expect(info.groupEndNodeIds.has(lastMember.id)).toBe(true);
+    }
   });
 });

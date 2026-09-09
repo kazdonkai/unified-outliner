@@ -175,6 +175,8 @@ import {
   buildOutlineTree,
   BuildOutlineTreeOptions,
   collectReadOnlyOutlineNodeIds,
+  collectCompositeGroupInfo,
+  CompositeGroupInfo,
   headingPrefixText,
   isOutlineCompositeNode,
   isOutlineComplexMemberNode,
@@ -476,6 +478,18 @@ export class OutlineTreeView extends ItemView {
   // refuses rather than reaching a structural-edit code path for a
   // composite/member node.
   private readOnlyNodeIds: Set<string> = new Set();
+  // UI-only follow-up (2026-09-08, "Outline Tree の CompositeBlock 視認性改
+  // 善"): display-only grouping info for the CompositeBlock left-accent-
+  // border + tint indicator (renderNode's `compositeGroupMember`/
+  // `compositeGroupEnd` locals, styles.css's
+  // `.unified-outliner-composite-accent`) — rebuilt alongside
+  // readOnlyNodeIds/currentTree in refresh() via the pure
+  // tree/buildOutlineTree.ts#collectCompositeGroupInfo. Deliberately NOT
+  // derived from readOnlyNodeIds itself: that set also contains every
+  // "paragraph" row (Phase 5P-3), which must never get this visual
+  // treatment — see collectCompositeGroupInfo's own doc comment. Carries no
+  // edit-capability/read-only meaning of its own; purely a rendering input.
+  private compositeGroupInfo: CompositeGroupInfo = { groupNodeIds: new Set(), groupEndNodeIds: new Set() };
   // Phase 5C-1 ticket 3b: the CompositeBlockInfo[] and ComplexBlockScanResult
   // this refresh() cycle computed — mirrors this.currentTree's composite rows
   // one-to-one via id, WITHIN this one refresh cycle only. MENU-BUILD-TIME
@@ -887,6 +901,7 @@ export class OutlineTreeView extends ItemView {
       this.nodeById = new Map();
       this.parentIdById = new Map();
       this.readOnlyNodeIds = new Set();
+      this.compositeGroupInfo = { groupNodeIds: new Set(), groupEndNodeIds: new Set() };
       this.currentFilePath = null;
       this.nodeIdentityById = new Map();
       this.collapsedIds = new Set();
@@ -986,6 +1001,10 @@ export class OutlineTreeView extends ItemView {
     this.nodeById = buildNodeByIdMap(this.currentTree);
     this.parentIdById = buildParentIdMap(this.currentTree);
     this.readOnlyNodeIds = collectReadOnlyOutlineNodeIds(this.currentTree);
+    // UI-only follow-up (2026-09-08): see compositeGroupInfo's own field
+    // doc comment — a separate derived Set from readOnlyNodeIds above,
+    // display-only, never consulted for edit-capability decisions.
+    this.compositeGroupInfo = collectCompositeGroupInfo(this.currentTree);
 
     // Phase 4E: file path is the fold-state persistence key; null (no
     // backing file — practically never for a MarkdownView, but Editor
@@ -1361,6 +1380,15 @@ export class OutlineTreeView extends ItemView {
     // this.readOnlyNodeIds's own doc comment — tree/buildOutlineTree.ts's
     // collectReadOnlyOutlineNodeIds), so this is now a plain lookup.
     const readOnly = this.readOnlyNodeIds.has(node.id);
+    // UI-only follow-up (2026-09-08, "Outline Tree の CompositeBlock 視認性
+    // 改善"): display-only — never gates rename/drag-drop/context-menu/
+    // Move/Delete/Partial Edit (those all stay keyed off `readOnly`/
+    // `isComposite`/`isComplexMember` above, completely unchanged). See
+    // compositeGroupInfo's own field doc comment for why this is a
+    // SEPARATE set from readOnlyNodeIds (which also includes "paragraph"
+    // rows that must never get this treatment).
+    const compositeGroupMember = this.compositeGroupInfo.groupNodeIds.has(node.id);
+    const compositeGroupEnd = this.compositeGroupInfo.groupEndNodeIds.has(node.id);
 
     const itemEl = parentEl.createDiv({
       cls: "tree-item" + (isCollapsed ? " is-collapsed" : ""),
@@ -1409,6 +1437,34 @@ export class OutlineTreeView extends ItemView {
     // same "one data-* attribute, no color/behavior logic in this file"
     // convention as data-kind/data-readonly above.
     selfEl.setAttribute("data-platform", Platform.isMobile ? "mobile" : "desktop");
+    // UI-only follow-up (2026-09-08, "Outline Tree の CompositeBlock 視認性
+    // 改善"): a boolean data-* hook only — no ruleId or any other
+    // CompositeBlock-specific identifier is ever exposed as a CSS selector
+    // (same "one data-* attribute, no color/behavior logic in this file"
+    // convention as data-kind/data-readonly above). `.unified-outliner-
+    // composite-accent` (styles.css) is a REAL child element (not a
+    // ::before/::after pseudo-element of selfEl) specifically because
+    // selfEl's own ::before/::after slots are already claimed by the drag-
+    // and-drop indicator classes (.unified-outliner-drop-before/-after/
+    // -inside, above in this file) — a CompositeBlock PARENT row is a valid
+    // D&D source/target (Phase 5D-4C/5D-4D) and so CAN show a drop
+    // indicator at the same time this accent is shown; reusing the same
+    // pseudo-element slot would let one silently override the other's
+    // background-color/position properties (the exact class of bug
+    // styles.css's own .unified-outliner-drop-inside doc comment already
+    // documents for a different pair of rules). A separate real element has
+    // no such collision: it paints its own translucent tint/border,
+    // completely independent of selfEl's ::before/::after box.
+    if (compositeGroupMember) {
+      selfEl.setAttribute("data-composite-group", "true");
+      if (compositeGroupEnd) {
+        selfEl.setAttribute("data-composite-group-end", "true");
+      }
+      const compositeAccentEl = selfEl.createDiv({
+        cls: "unified-outliner-composite-accent",
+      });
+      compositeAccentEl.setAttribute("aria-hidden", "true");
+    }
     if (isSelected) {
       this.treeRootEl.setAttribute("aria-activedescendant", selfEl.id);
     }

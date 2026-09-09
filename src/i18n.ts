@@ -140,9 +140,15 @@ const en = {
   "settings.previewMoveTarget.name": "Preview move target in Outline Tree",
   "settings.previewMoveTarget.desc":
     "Briefly flash-highlight, in the Outline Tree, the block that Move block / Move section actually operated on.",
-  "settings.showMoveResultToast.name": "Show move result toast",
+  // 2026-09-09 (Settings タブ i18n リソース改善): renamed/reworded away
+  // from the jargon terms "toast" and "Move block / Move section" (command
+  // names not self-explanatory to a general user) toward plain, outcome-
+  // focused wording. No key name, type, or stored-value semantics changed —
+  // this remains a boolean toggle read/written under the same
+  // "showMoveResultToast" key.
+  "settings.showMoveResultToast.name": "Show notification after moving",
   "settings.showMoveResultToast.desc":
-    "Show a short notice naming what was moved (paragraph / list item / section) after Move block or Move section.",
+    "Displays a brief notice showing what was moved (paragraph, list item, or section) after executing a move command.",
 
   // ---- Phase 5D-0 / 5D-0.3: CompositeBlock rules -------------------------
   "settings.compositeBlocksHeading": "Extended blocks",
@@ -163,11 +169,22 @@ const en = {
   // en/ja deliberately share the identical English string — see
   // compositeBlock.imageOcr.displayName's own doc comment below for why.
   "settings.compositeBlockImageOcr.name": "List + Callout",
+  // 2026-09-09 (Settings タブ i18n リソース改善): adds a concrete,
+  // illustrative use case back into the description. This is a deliberate
+  // reversal of Phase 5D-1L's own removal of the "image + its OCR
+  // transcript" example (see that comment above, on
+  // settings.compositeBlocksIntro) — Phase 5D-1L's concern was that the
+  // example read as a required *condition* for the rule to match; here the
+  // wording is written to stay unambiguously illustrative ("e.g. ...")
+  // rather than definitional, so it does not reintroduce that ambiguity.
+  // The underlying match itself is still purely structural and unchanged
+  // (see model/compositeBlock.ts's DEFAULT_COMPOSITE_BLOCK_RULES).
   "settings.compositeBlockImageOcr.desc":
-    "Group a one-line list item immediately followed by a callout, with no blank line between them.",
+    "Groups a single-line list item followed immediately by a callout without empty lines. (e.g. embedding an image/PDF in the list item and writing OCR text/notes in the callout)",
   "settings.compositeBlockImageQuote.name": "List + Quote",
+  // 2026-09-09: same rationale as compositeBlockImageOcr.desc above.
   "settings.compositeBlockImageQuote.desc":
-    "Group a one-line list item immediately followed by a blockquote, with no blank line between them.",
+    "Groups a single-line list item followed immediately by a blockquote without empty lines. (e.g. writing source/citation in the list item and quoted text in the blockquote)",
   // Phase 5D-1L: generalized display label for the Outline Tree's
   // CompositeBlock parent row (see model/compositeBlock.ts's
   // compositeBlockDisplayLabel) and ConfirmCompositeDeleteModal — was
@@ -405,12 +422,22 @@ const en = {
   "partialEdit.quoteTitleNewlineUnsupported":
     "Unified Outliner: the callout title cannot contain a line break.",
   // Phase 5D-1B: tooltip/aria-label for the fold-marker <select> itself
-  // (see view/PartialEditView.ts's onOpen). The three option labels below
-  // are the user-approved exact wording for this ticket.
+  // (see view/PartialEditView.ts's onOpen).
   "partialEdit.quoteFoldMarkerLabel": "Callout fold behavior",
-  "partialEdit.quoteFoldMarkerNone": "Not foldable",
-  "partialEdit.quoteFoldMarkerExpand": "Foldable, expanded by default",
-  "partialEdit.quoteFoldMarkerCollapse": "Foldable, collapsed by default",
+  // 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善): these
+  // three <option> labels were originally the long, fully-descriptive
+  // "Not foldable" / "Foldable, expanded by default" / "Foldable,
+  // collapsed by default" — real-device feedback was that the <select>'s
+  // own intrinsic width (driven by its longest option text, since the
+  // element had no explicit `width` — see styles.css's
+  // .unified-outliner-partial-edit-quote-marker-select) was eating space
+  // quoteTitleInputEl needed. Shortened to compact, symbol-forward labels
+  // that still read correctly next to their marker VALUE ("", "+", "-",
+  // unchanged) — the full description lives on in
+  // quoteFoldMarkerLabel's own tooltip, unaffected by this change.
+  "partialEdit.quoteFoldMarkerNone": "Fixed",
+  "partialEdit.quoteFoldMarkerExpand": "+ Expand",
+  "partialEdit.quoteFoldMarkerCollapse": "- Collapse",
   // Phase 5D-1C: tooltip/aria-label for the type combobox (see
   // view/PartialEditView.ts's onOpen), and the Notice shown when
   // reconstructQuoteHeader refuses with reason "invalid-type" (empty, or
@@ -883,33 +910,61 @@ const ja: Record<TranslationKey, string> = {
   "settings.outlineTreeSidebarPosition.optionRight": "右サイドバー",
   "settings.outlineTreeSidebarPosition.optionLeft": "左サイドバー",
   "settings.listPrefixStyle.name": "アウトラインツリーのリストmarker",
+  // 2026-09-09（設定画面 文体統一）: 「です・ます調」を、画面内の他の説明
+  // 文と揃える形で「である調」（表示する。）へ統一した。文面の意味・内容
+  // は変更していない。
   "settings.listPrefixStyle.desc":
-    "リスト項目の先頭に、Markdownで使われている marker（-、*、+、1. など）を表示します。",
+    "リスト項目の先頭に、Markdownで使われている marker（-、*、+、1. など）を表示する。",
   "settings.listPrefixStyle.optionNone": "表示しない",
   "settings.listPrefixStyle.optionMarker": "Markdown marker",
   "settings.previewMoveTarget.name": "アウトラインツリーで移動先をプレビュー",
   "settings.previewMoveTarget.desc":
     "Move block / Move section が実際に操作したブロックを、アウトラインツリー上で一瞬フラッシュ表示して強調する。",
-  "settings.showMoveResultToast.name": "移動結果のトーストを表示",
+  // 2026-09-09（Settings タブ i18n リソース改善）: 一般ユーザーには分かり
+  // にくい専門用語「トースト」「Move block / Move section」（コマンド名で
+  // あり自明ではない）を、平易で結果重視の文言へ変更した。キー名・型・保
+  // 存値のセマンティクスは変更していない（引き続き "showMoveResultToast"
+  // という同一キーのブール値設定である）。
+  "settings.showMoveResultToast.name": "移動結果の通知を表示",
+  // 2026-09-09（設定画面 文体統一）: 発注元から指定された当初の文面は
+  // 「です・ます調」であったが、画面内の他の説明文（である調）との統一を
+  // 図るため、続報の指示によりである調（表示する。）へ変更した。
   "settings.showMoveResultToast.desc":
-    "Move block または Move section の実行後、何が移動したか（段落／リスト項目／セクション）を短い通知で表示する。",
+    "ブロックやセクションを移動した際、何が移動したか（段落・リスト項目・見出し）を画面に短い通知（ポップアップ）で表示する。",
 
   // ---- Phase 5D-0 / 5D-0.3: CompositeBlock 規則 --------------------------
   "settings.compositeBlocksHeading": "拡張ブロック",
   // Phase 5D-1L: 「（例: 画像 + その OCR 転記）」という代表例表現を除去し、
   // 構造条件（空行なしで隣接する1行完結の list item と callout/blockquote）
   // のみを説明する文言へ変更。ユーザー承認済みの指定文言をそのまま採用。
+  // 2026-09-09（設定画面 文体統一）: 「です・ます調」を、画面内の他の説明
+  // 文と揃える形で「である調」へ統一した。文面の意味・内容は変更していな
+  // い。
   "settings.compositeBlocksIntro":
-    "空行を挟まず隣接する1行で完結する list item と callout または blockquote を、Outline Tree上で1つの折りたたみ可能な単位としてまとめる規則です。この設定を無効にしてもMarkdown本文は変更されません。対象となるlist item、callout、blockquoteは、それぞれ通常の表示規則に従って個別に表示されます。",
+    "空行を挟まず隣接する1行で完結する list item と callout または blockquote を、Outline Tree上で1つの折りたたみ可能な単位としてまとめる規則である。この設定を無効にしてもMarkdown本文は変更されない。対象となるlist item、callout、blockquoteは、それぞれ通常の表示規則に従って個別に表示される。",
   // Phase 5D-1L: 「画像+OCR」/「画像+引用」から汎用化。日本語訳ではなく
   // en辞書と同一の英語文字列 "List + Callout" / "List + Quote" を採用
   // （ユーザー承認済み）。
   "settings.compositeBlockImageOcr.name": "List + Callout",
+  // 2026-09-09（Settings タブ i18n リソース改善）: 具体的な利用シーン
+  // （ユースケース）の例示を説明文に追加した。これは Phase 5D-1L が
+  // 「画像 + その OCR 転記」という例示を意図的に除去した判断（上記
+  // settings.compositeBlocksIntro のコメント参照）を、発注元の新たな明示
+  // 指示により部分的に反転させたものである。Phase 5D-1L の懸念は当該例示
+  // が規則適用の必須条件であるかのように読めてしまう点にあったため、本
+  // 文言は「例:」という表現で明確に例示に留め、必須条件と誤読されないよ
+  // う配慮している。マッチング自体は引き続き純粋に構造的であり変更して
+  // いない（model/compositeBlock.ts の DEFAULT_COMPOSITE_BLOCK_RULES 参
+  // 照）。
+  // 2026-09-09（設定画面 文体統一・追記）: 発注元から指定された当初の文面
+  // は「です・ます調」であったが、画面内の他の説明文（である調）との統一
+  // を図るため、続報の指示によりである調（表示する。）へ変更した。
   "settings.compositeBlockImageOcr.desc":
-    "1行で完結する list項目の直後に、空行を挟まず callout が続く場合にまとめて表示する。",
+    "1行で完結するリスト項目の直後に空行を挟まずコールアウトが続く場合にまとめて表示する。（例: リスト行に画像やPDFを埋め込み、コールアウトにOCRテキストや解説を記入する場合など）",
   "settings.compositeBlockImageQuote.name": "List + Quote",
+  // 2026-09-09: 上記 compositeBlockImageOcr.desc と同様の理由による変更。
   "settings.compositeBlockImageQuote.desc":
-    "1行で完結する list項目の直後に、空行を挟まず blockquote が続く場合にまとめて表示する。",
+    "1行で完結するリスト項目の直後に空行を挟まず引用（blockquote）が続く場合にまとめて表示する。（例: リスト行に出典・書誌情報を記入し、引用ブロックに引用本文を記入する場合など）",
   "compositeBlock.imageOcr.displayName": "List + Callout",
   "compositeBlock.imageQuote.displayName": "List + Quote",
 
@@ -1060,11 +1115,19 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.quoteTitleLabel": "コールアウトのタイトル",
   "partialEdit.quoteTitleNewlineUnsupported":
     "Unified Outliner: コールアウトのタイトルには改行を含められない。",
-  // Phase 5D-1B: ユーザー承認済みの厳密な文言をそのまま使用する。
   "partialEdit.quoteFoldMarkerLabel": "コールアウトの折りたたみ設定",
-  "partialEdit.quoteFoldMarkerNone": "固定（折りたたみなし）",
-  "partialEdit.quoteFoldMarkerExpand": "展開可能（初期状態: 展開）",
-  "partialEdit.quoteFoldMarkerCollapse": "展開可能（初期状態: 折りたたみ）",
+  // 2026-09-09 (Partial Edit Pane コールアウト編集ヘッダーUI改善):
+  // 元は「固定（折りたたみなし）」「展開可能（初期状態: 展開）」「展開可能
+  // （初期状態: 折りたたみ）」という完全説明形式だったが、実機確認により、
+  // これらの長文がselect要素自体の横幅（明示widthが無く、最長option文言
+  // に引きずられていた — styles.css の
+  // .unified-outliner-partial-edit-quote-marker-select 参照）を過剰に広
+  // げ、タイトル入力欄を圧迫していたため、記号中心のコンパクトな表現に短
+  // 縮した（value自体は既存の ""/"+"/"-" を維持）。詳細な説明は
+  // quoteFoldMarkerLabel のツールチップに引き続き残っている。
+  "partialEdit.quoteFoldMarkerNone": "固定",
+  "partialEdit.quoteFoldMarkerExpand": "+ 展開",
+  "partialEdit.quoteFoldMarkerCollapse": "- 収納",
   // Phase 5D-1C: ユーザー承認済みの厳密な文言をそのまま使用する。
   "partialEdit.quoteTypeLabel": "コールアウトの種類",
   "partialEdit.quoteTypeInvalidUnsupported":
