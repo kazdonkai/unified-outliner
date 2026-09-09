@@ -4,6 +4,21 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-09
+
+### Fixed
+
+- Standalone callout Partial Edit Pane: closing the pane, editing the note body, and reopening the same callout could show stale, pre-edit content instead of the current body. The pane's loaded state (target, snapshot, draft, and displayed form) is now fully reset on close and whenever the pane falls back to its empty state, so reopening always reloads from the current note body.
+- Fixed cases where a Partial Edit target could not be resolved (e.g. the block was deleted or no longer matches a supported structure) but the previously loaded editing form remained visible instead of the pane clearing itself.
+
+### Changed
+
+- Standalone callout and blockquote Partial Edit Panes now support adding, deleting, joining, and pasting body lines, instead of only editing the content of existing lines in place.
+- Blank lines inside callout and blockquote bodies are safely preserved as quote continuation lines (a bare `>`) rather than becoming bare blank lines that would break the block.
+- An emptied callout body can now be saved as a header-only callout (type/fold marker/title preserved, no body).
+- Emptying a blockquote's body is rejected with a clear notice instead of being silently allowed, since that would amount to an implicit deletion of the whole block.
+- Callout and blockquote edits are structurally re-validated against the current parser immediately before Apply, so an edit that would break the callout/blockquote structure is rejected and the note is left unchanged.
+
 ## [0.6.0] - 2026-09-09
 
 ### Changed
