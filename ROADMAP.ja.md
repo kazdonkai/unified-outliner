@@ -24,6 +24,30 @@ Unified Outliner は、構造単位の移動・レベル変更コマンド（セ
 - ノート横断のブロック分類・検索（Phase 6: BlockIndexによるYAML継承・inline property統合）。
 - 構造図とダイアログによる編集（Phase 7）。
 
+## 設計原則
+
+### Callout / Blockquote の行継続に関する安全境界
+
+Unified Outliner は、callout および blockquote の編集可能範囲を、
+Markdown 上で quote prefix `>` が明示された連続行だけに限定する。
+
+Obsidian のレンダリング上、callout header または quote 行に空行なしで続く
+prefixなしの通常テキストが、視覚的に callout / blockquote の内部に表示される場合がある。
+しかし Unified Outliner は、その表示上の継続を callout / blockquote の構文的な一部として
+推測・補完・再直列化しない。
+
+したがって、prefixなし継続行は以下のように扱う。
+
+- callout / blockquote の編集対象範囲には含めない
+- Partial Edit Pane には読み込まない
+- Apply 時に `> ` prefix を自動付与しない
+- Tree 上の callout / blockquote member として投影しない
+- CompositeBlock の member range に含めない
+- 通常の paragraph または既存 parser が決定する別の block として扱う
+
+対象 range が prefixなし継続行を含むため安全に一意決定できない場合は、
+Partial Edit を拒否し、本文を変更しない。
+
 ## 意図的に対象外とするもの
 
 Unified Outlinerは、汎用全文検索、タスク管理、Dataview型の集計、AIによる書き換えを置き換えることを目指さない。Markdownノートの信頼できる構造編集に集中する。

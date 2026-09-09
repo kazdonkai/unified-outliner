@@ -24,6 +24,25 @@ Body paragraphs can now be optionally shown in the Outline Tree and edited there
 - Cross-note block classification and search (Phase 6: a BlockIndex unifying YAML inheritance and inline properties).
 - Structural diagrams and dialog-based editing (Phase 7).
 
+## Design Principles
+
+### Safety boundary for callout / blockquote line continuation
+
+Unified Outliner limits the editable range of a callout or blockquote to only the contiguous lines where the Markdown itself carries an explicit quote prefix (`>`).
+
+In Obsidian's rendering, ordinary prefix-less text that immediately follows a callout header or a quote line with no blank line in between can visually appear to continue inside the callout/blockquote. Unified Outliner does not infer, complete, or re-serialize that visual continuation as part of the callout/blockquote's syntax.
+
+Accordingly, a prefix-less continuation line is handled as follows:
+
+- Not included in the callout/blockquote's editable range.
+- Not loaded into the Partial Edit Pane.
+- Never given an automatic `> ` prefix on Apply.
+- Not projected as a callout/blockquote member in the Tree.
+- Not included in a CompositeBlock's member range.
+- Treated as an ordinary paragraph, or whatever other block kind the existing parser determines.
+
+When the target range cannot be safely and uniquely resolved because it would include a prefix-less continuation line, Partial Edit is refused and the note body is left unchanged.
+
 ## Deliberate Non-goals
 
 Unified Outliner does not aim to replace general full-text search, task management, Dataview-style aggregation, or AI rewriting. It remains focused on reliable structural editing of Markdown notes.
