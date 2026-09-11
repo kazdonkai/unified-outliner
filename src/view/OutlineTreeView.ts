@@ -190,6 +190,7 @@ import {
   paragraphTreeLabel,
   standaloneComplexBlockLabel,
 } from "../tree/buildOutlineTree";
+import { canCollapseOutlineNode } from "../tree/hasFoldableContent";
 import { complexBlockDepth, scanComplexBlocks } from "../parser/complexBlocks";
 import {
   evaluateCompositeBlockDeletability,
@@ -1284,11 +1285,11 @@ export class OutlineTreeView extends ItemView {
 
     const node = this.currentDoc?.nodes.get(nodeId);
     if (!node) return;
-    // Nothing below the node's own first line to fold (e.g. a heading with
-    // an empty body and no children reachable this way in practice, since
-    // callers only ever invoke this for nodes that have children — see the
-    // call sites' own hasChildren/children.length guards — but checked
-    // defensively here too rather than relying on that).
+    // Nothing below the node's own first line to fold — an empty heading.
+    // canCollapseOutlineNode applies this same test before a row is given
+    // a fold affordance at all, so in practice this is unreachable; kept as
+    // the defensive guard it has always been, and as the single definition
+    // of "has something to fold" that the affordance is derived from.
     if (node.range.endLine <= node.range.startLine) return;
 
     const cm = getEditorCmView(view.editor);
@@ -1354,6 +1355,14 @@ export class OutlineTreeView extends ItemView {
    */
   private renderNode(node: OutlineTreeNode, parentEl: HTMLElement): void {
     const hasChildren = node.children.length > 0;
+    // Whether to offer a fold toggle — a broader question than "does this
+    // row have child rows", since folding also folds the document section
+    // itself. See canCollapseOutlineNode's doc comment. The two are kept
+    // separate deliberately: `canCollapse` gates the chevron and its aria
+    // state, `hasChildren` still gates whether there is a child list to
+    // render at all (a childless collapsed row simply has nothing below it
+    // in the tree, while its body is folded in the editor).
+    const canCollapse = canCollapseOutlineNode(node, this.currentDoc);
     const isCollapsed = this.collapsedIds.has(node.id);
     const isHighlighted = node.id === this.highlightedId;
     // Selection highlight only while this view's own root actually has DOM
@@ -1419,7 +1428,7 @@ export class OutlineTreeView extends ItemView {
     selfEl.setAttribute("data-kind", node.kind);
     selfEl.setAttribute("role", "treeitem");
     selfEl.setAttribute("aria-selected", isSelected ? "true" : "false");
-    if (hasChildren) {
+    if (canCollapse) {
       selfEl.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
     }
     // 2026-08-12 amendment §A: an EXPLICIT read-only marker (not just the
@@ -1472,10 +1481,10 @@ export class OutlineTreeView extends ItemView {
     const collapseEl = selfEl.createDiv({
       cls:
         "tree-item-icon collapse-icon" +
-        (hasChildren ? "" : " unified-outliner-collapse-spacer") +
+        (canCollapse ? "" : " unified-outliner-collapse-spacer") +
         (isCollapsed ? " is-collapsed" : ""),
     });
-    if (hasChildren) {
+    if (canCollapse) {
       setIcon(collapseEl, "right-triangle");
       collapseEl.addEventListener("click", (evt) => {
         evt.stopPropagation();
@@ -2550,15 +2559,25 @@ export class OutlineTreeView extends ItemView {
   /**
    * Right arrow: standard tree widget behavior — expand a collapsed node
    * in place, or (already expanded) step selection into its first child.
-   * No-op on a leaf node (nothing to expand or step into).
+   * No-op on an expanded leaf node (nothing to step into). A *collapsed*
+   * leaf is not a no-op: a childless heading with a body can be folded
+   * (canCollapseOutlineNode), so it has to be unfoldable from here too.
    */
   private expandSelectionOrGoToFirstChild(): void {
     this.ensureSelection();
     if (!this.selectedId) return;
     const node = this.nodeById.get(this.selectedId);
-    if (!node || node.children.length === 0) return;
+    if (!node) return;
+    // A collapsed row expands whether or not it has child rows — a
+    // childless heading can now be collapsed (see canCollapseOutlineNode),
+    // so it must be re-expandable by the same key that expands any other
+    // row. Only the "step into first child" branch below still requires
+    // actual children.
     if (this.collapsedIds.has(node.id)) {
+      if (!canCollapseOutlineNode(node, this.currentDoc)) return;
       this.setNodeCollapsed(node.id, false);
+    } else if (node.children.length === 0) {
+      return;
     } else {
       const previousId = this.selectedId;
       this.selectedId = node.children[0].id;
@@ -2572,15 +2591,17 @@ export class OutlineTreeView extends ItemView {
 
   /**
    * Left arrow: standard tree widget behavior — collapse an expanded node
-   * in place, or (already collapsed, or a leaf) step selection out to its
-   * parent. No-op at the root of the tree.
+   * in place, or (already collapsed, or nothing to collapse) step selection
+   * out to its parent. No-op at the root of the tree. "Expanded node" is
+   * canCollapseOutlineNode's sense of it — a heading whose body is only
+   * prose or a code block collapses here as well, matching the chevron.
    */
   private collapseSelectionOrGoToParent(): void {
     this.ensureSelection();
     if (!this.selectedId) return;
     const node = this.nodeById.get(this.selectedId);
     if (!node) return;
-    if (node.children.length > 0 && !this.collapsedIds.has(node.id)) {
+    if (canCollapseOutlineNode(node, this.currentDoc) && !this.collapsedIds.has(node.id)) {
       this.setNodeCollapsed(node.id, true);
       this.renderTree();
       this.scrollSelectedIntoView();

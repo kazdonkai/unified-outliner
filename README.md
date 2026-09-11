@@ -217,6 +217,7 @@ Open **Settings → Community plugins → Unified Outliner** to configure, group
 - **Normalize ordered list markers to `1.`**: normalizes ordered-list markers after structural edits.
 - **Follow keyboard selection into body editor**: keeps the body editor synchronized while navigating the tree with the keyboard.
 - **Sync Outline Tree folding to editor**: folding or unfolding a node in the tree also folds or unfolds the matching content in the active Markdown editor.
+  Any node with something to fold gets a toggle — including a heading whose body is only text, a table or a code block, with no sub-heading under it. A heading with an empty body does not.
 - **Show no-op notices**: explains why an unavailable operation made no change.
 
 Settings are organized into two tabs, **General** (grouped above by category, with dividers between each group) and **Extended blocks** — the latter enables or disables the plugin's built-in **List + Callout** and **List + Quote** grouping rules (see "Work with callouts, blockquotes, and extended blocks" above). Turning a rule off only stops that grouping display; the underlying Markdown, and the list item and callout/blockquote it contains, are never changed.
