@@ -1855,21 +1855,23 @@ export class OutlineTreeView extends ItemView {
       // opt-in `allowComposedMember: true` argument — see
       // parser/compositeBlocks.ts#evaluateStandaloneComplexBlockMovability's
       // doc comment for the full design. This menu (renamed
-      // showComplexMemberMenu, since it is no longer Partial-Edit-only) is
-      // still deliberately NOT a bare call to showStandaloneComplexBlockMenu:
-      // that method always passes allowComposedMember's implicit default
-      // (false), so it would keep rejecting a composite member with reason
-      // "composite-member" — this menu instead computes movability itself,
-      // passing true, so member Move can succeed when a genuine standalone
-      // sibling exists while the moving-target-only, opt-in nature of the
-      // parameter leaves the adjacent-candidate side (still standalone-
-      // only) and every other standalone Tree Move call site completely
-      // unaffected. The two Partial Edit items themselves call the exact
-      // same activatePartialEditView(nodeId) entry point as the standalone
-      // row, which re-resolves the target fresh via extractSubtreeText at
-      // click/Apply time regardless of whether nodeId happens to belong to
-      // a standalone or a composite-member block — no member-specific
-      // loader or Apply path exists or is needed.
+      // showComplexMemberMenu by Phase 5D-3B) is still deliberately NOT a
+      // bare call to showStandaloneComplexBlockMenu: that method always
+      // passes allowComposedMember's implicit default (false), so it would
+      // keep rejecting a composite member with reason "composite-member"
+      // — this menu instead computes movability itself, passing true, so
+      // member Move can succeed when a genuine standalone sibling exists
+      // while the moving-target-only, opt-in nature of the parameter
+      // leaves the adjacent-candidate side (still standalone-only) and
+      // every other standalone Tree Move call site completely unaffected.
+      //
+      // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection") REMOVED the
+      // two "Open in Partial Edit" items this menu used to offer — see
+      // showComplexMemberMenu's own doc comment for why a CompositeBlock
+      // member must never be independently editable. This menu now only
+      // ever offers Move up/down; editing this member happens exclusively
+      // through the CompositeBlock's own parent-row menu
+      // (showCompositeCommandMenu -> activatePartialEditViewForComposite).
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showComplexMemberMenu(evt, node.id);
@@ -3375,17 +3377,25 @@ export class OutlineTreeView extends ItemView {
   /**
    * Phase 5D-0.4: the composite-member counterpart of
    * showStandaloneComplexBlockMenu above — for a callout/blockquote row
-   * that IS a CompositeBlock member (node.isStandalone === false). Offers
-   * the two Partial Edit items, both reusing the exact same
-   * activatePartialEditView(nodeId[, opts]) entry point and
-   * tree.menu.openPartialEditPane(NewWindow) i18n keys as every other
-   * "Open in Partial Edit" item in this file (section/list/standalone
-   * complex-member) — no member-specific loader, Apply path, or i18n text
-   * is introduced. activatePartialEditView's own re-parse (via
-   * PartialEditView's extractSubtreeText call) re-verifies fresh, at click
-   * time, that nodeId still resolves to a supported callout/blockquote —
-   * exactly like the standalone menu's own doc comment already explains —
-   * so no eligibility re-check is needed here either.
+   * that IS a CompositeBlock member (node.isStandalone === false).
+   *
+   * Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection") REMOVED the two
+   * "Open in Partial Edit" items this menu used to offer here — opening a
+   * CompositeBlock member as its OWN, independent Partial Edit session let
+   * a caller Apply just the list row, or just the callout/blockquote row,
+   * in complete isolation, which directly breaks this ticket's "one
+   * CompositeBlock, one session, one snapshot, one Apply" atomicity
+   * requirement. Editing this member now only ever happens through the
+   * CompositeBlock's OWN parent-row menu (showCompositeCommandMenu below
+   * -> activatePartialEditViewForComposite), which loads and Applies the
+   * list member and this trailing member together as one atomic unit —
+   * see view/PartialEditView.ts#loadCompositeInternal/applyEdit's own doc
+   * comments for how that pane internally reuses this exact member's
+   * existing quote-prefix-projection UI without duplicating it. A
+   * genuinely STANDALONE callout/blockquote (node.isStandalone === true)
+   * is unaffected — showStandaloneComplexBlockMenu above still offers
+   * Partial Edit, since a standalone block carries no atomicity
+   * constraint of its own.
    *
    * Phase 5D-3B ("Composite Member Move Menu Parity") RENAMED this method
    * from showComplexMemberPartialEditMenu (it is no longer Partial-Edit-
@@ -3419,20 +3429,15 @@ export class OutlineTreeView extends ItemView {
    */
   private showComplexMemberMenu(evt: MouseEvent, nodeId: string): void {
     const menu = new Menu();
-    menu.addItem((item) =>
-      item
-        .setTitle(this.plugin.t("tree.menu.openPartialEditPane"))
-        .setIcon("edit-3")
-        .onClick(() => void this.plugin.activatePartialEditView(nodeId))
-    );
-    menu.addItem((item) =>
-      item
-        .setTitle(this.plugin.t("tree.menu.openPartialEditPaneNewWindow"))
-        .setIcon("picture-in-picture-2")
-        .onClick(() =>
-          void this.plugin.activatePartialEditView(nodeId, { openInNewWindow: true })
-        )
-    );
+
+    // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): the two
+    // standalone "Open in Partial Edit" items that used to live here were
+    // REMOVED — see this method's own doc comment above for why a
+    // CompositeBlock member must never be opened as its own, independent
+    // Partial Edit session. Move up/down (below) are UNAFFECTED by this
+    // removal — they operate on this member's own raw range as a
+    // unit-move, never on its internal content, so they carry no
+    // atomicity conflict of their own.
 
     const doc = this.currentDoc;
     const complexScan = this.currentComplexScan;

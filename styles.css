@@ -558,18 +558,58 @@ settings:
  * `!important` is defensive, not strictly required — `[style*="..."]`
  * already outranks this file's own plain-class `display: flex` on each
  * selector by specificity — but guarantees this always wins regardless of
- * any future rule ordering. Deliberately scoped to exactly the five rows
+ * any future rule ordering. Originally scoped to exactly the five rows
  * this bug was measured on; header/textarea are never hidden this way
  * (out of scope), and the quote-header row's own INTERNAL child toggles
  * (quoteTypeInputEl/quoteMarkerSelectEl/quoteTitleInputEl/etc.) are a
  * separate, narrower instance of the same underlying pattern — worth
  * knowing about, but left untouched here since they were not part of
- * what this ticket's real-device report and measurement covered. */
+ * what this ticket's real-device report and measurement covered.
+ *
+ * Phase 5L-6 ("Parent List Item Structured Partial Edit"): the new
+ * parent-child-preview / parent-child-preview-truncated rows are also
+ * individually toggleVisibility()'d (never removed from the DOM), so the
+ * exact same layout-space bug applies to them — added to this selector
+ * list rather than left to reintroduce the identical blank-space issue
+ * for every non-parent-item load.
+ *
+ * 2026-09-15 (11インチ iPad 実機報告 — 「子リストが表示されない」/
+ * デスクトップと13インチ iPad では正常表示): root cause was NOT the new
+ * parent-child-preview rows above (already covered) but three OLDER rows
+ * that predate this selector list entirely — composite-list-row (Phase
+ * 5D-2B), task-checkbox-row (Phase 5L-2), ordered-number-row (Phase
+ * 5L-3) — each toggleVisibility()'d exactly like every row above, but
+ * never added to this list, so each one hidden this way still reserved
+ * its own padding + content height + margin-bottom exactly as measured
+ * in the 2026-09-09 investigation above. A parent list item whose
+ * own-text is an ordered/task line (Phase 5L-6's own new eligibility)
+ * shows exactly one of these three rows and hides the other two — two
+ * full phantom rows of wasted height stacked directly above the shared
+ * textarea. On desktop and on a 13-inch iPad's taller viewport this
+ * phantom space is merely extra empty margin above visible content; on
+ * an 11-inch iPad's shorter viewport it was enough to push the textarea
+ * and the child-subtree preview below the fold entirely, reproducing
+ * exactly as an apparently-blank pane. Same fix as every row above:
+ * force `display: none` once Obsidian's own inline
+ * `style="visibility: hidden"` marks the row hidden.
+ *
+ * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+ * Edit Pane"): child-inline-editor is toggleVisibility()'d exactly like
+ * every row above (hidden whenever no child is currently selected for
+ * inline editing), so it is added here too, up front, rather than
+ * waiting for a fourth real-device report of the identical phantom-space
+ * bug. */
 .unified-outliner-partial-edit-sync-status[style*="visibility: hidden"],
 .unified-outliner-partial-edit-breadcrumb[style*="visibility: hidden"],
 .unified-outliner-partial-edit-sibling-nav[style*="visibility: hidden"],
 .unified-outliner-partial-edit-subtree-nav[style*="visibility: hidden"],
-.unified-outliner-partial-edit-quote-header[style*="visibility: hidden"] {
+.unified-outliner-partial-edit-quote-header[style*="visibility: hidden"],
+.unified-outliner-partial-edit-parent-child-preview[style*="visibility: hidden"],
+.unified-outliner-partial-edit-parent-child-preview-truncated[style*="visibility: hidden"],
+.unified-outliner-partial-edit-composite-list-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-task-checkbox-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-ordered-number-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"] {
   display: none !important;
 }
 
@@ -1001,6 +1041,115 @@ settings:
   opacity: 0.6;
 }
 
+/* Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): the structured
+ * composite session's own list-member row — sits directly above the
+ * REUSED quote-header/textarea pair below (see PartialEditView.ts's
+ * compositeListRowEl field doc comment for the exact condition that
+ * shows this row). Mirrors quote-header's own flex-row/background/
+ * font conventions so the two rows read as one continuous editor
+ * chrome, never as two visually unrelated widgets. */
+.unified-outliner-partial-edit-composite-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  font-family: var(--font-monospace, monospace);
+  margin-bottom: 6px;
+}
+
+/* Phase 5D-2B: the list member's own editable single-line input — mirrors
+ * quote-title-input's own transparent/flex-filling styling so it reads
+ * as part of the same edited document rather than unrelated UI chrome. */
+.unified-outliner-partial-edit-composite-list-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--uo-text-color);
+  font-size: inherit;
+  font-family: inherit;
+  padding: 0 0 0 4px;
+}
+
+.unified-outliner-partial-edit-composite-list-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.unified-outliner-partial-edit-composite-list-input:disabled {
+  opacity: 0.6;
+}
+
+/* Phase 5L-2 ("Task List Marker-Free Partial Edit"): the standalone
+ * task-list item's own checkbox row — sits directly above the shared
+ * textarea below (see PartialEditView.ts's taskCheckboxRowEl field doc
+ * comment for the exact condition that shows this row). Deliberately
+ * lighter-weight than composite-list-row above (no monospace font, no
+ * flex-filling input) — this row's only content is a single checkbox
+ * control, never editable text of its own. */
+.unified-outliner-partial-edit-task-checkbox-row {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.unified-outliner-partial-edit-task-checkbox-input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-task-checkbox-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): the standalone
+ * ordered-list item's own number row — sits directly above the shared
+ * textarea below (see PartialEditView.ts's orderedNumberRowEl field doc
+ * comment for the exact condition that shows this row). Mirrors
+ * task-checkbox-row's own lightweight flex-row conventions immediately
+ * above, but holds a single-line text input (the item's number) rather
+ * than a checkbox. */
+.unified-outliner-partial-edit-ordered-number-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+/* Phase 5L-3: the number input itself — deliberately narrow (this field
+ * only ever holds digits, never the item's body text) rather than
+ * flex-filling like composite-list-input above. */
+.unified-outliner-partial-edit-ordered-number-input {
+  width: 4em;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: inherit;
+  font-family: var(--font-monospace, monospace);
+  padding: 2px 6px;
+}
+
+.unified-outliner-partial-edit-ordered-number-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.unified-outliner-partial-edit-ordered-number-input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .unified-outliner-partial-edit-textarea {
   flex: 1 1 auto;
   width: 100%;
@@ -1018,6 +1167,576 @@ settings:
 
 .unified-outliner-partial-edit-textarea:disabled {
   opacity: 0.6;
+}
+
+/* Phase 5L-6 ("Parent List Item Structured Partial Edit"): the read-only
+ * child-subtree preview shown directly below the shared textarea above,
+ * when the pane is editing a parent list item's own text
+ * (PartialEditView.ts's parentChildPreviewEl/renderParentChildPreview).
+ * Deliberately visually distinct from the editable textarea immediately
+ * above it — a subdued background and a left accent bar mark this region
+ * as non-interactive at a glance, never inviting a click/focus the way the
+ * textarea does. Actually editing a child still goes through the existing
+ * Outline Tree/Subtree Navigator navigation paths (subtree-nav above),
+ * unmodified by this ticket. */
+.unified-outliner-partial-edit-parent-child-preview {
+  flex-shrink: 0;
+  margin-top: 6px;
+  padding: 6px 8px 6px 10px;
+  border-left: 3px solid rgba(128, 128, 128, 0.3);
+  border-radius: 2px;
+  background-color: rgba(128, 128, 128, 0.06);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.unified-outliner-partial-edit-parent-child-preview-label {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--uo-text-color);
+  opacity: 0.6;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"): the
+ * "Add child item" control, placed in the SAME row as the read-only
+ * preview's own label above (§10's own "child-preview header" placement).
+ * A plain icon button, kept small/subdued like every other affordance in
+ * this preview area — never a prominent primary action, since Apply
+ * itself remains the one real "save" action for this whole pane. */
+.unified-outliner-partial-edit-parent-child-preview-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.unified-outliner-partial-edit-parent-child-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0.6;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--uo-text-color);
+}
+
+.unified-outliner-partial-edit-parent-child-add-button:hover:not(:disabled) {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.18);
+}
+
+.unified-outliner-partial-edit-parent-child-add-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-parent-child-add-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.unified-outliner-partial-edit-parent-child-add-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+ * B"): the "add a first child" row for a STANDALONE leaf item — sits
+ * directly below the shared body textarea/checkbox/number rows (see
+ * leafFirstChildAddRowEl's own field doc comment in
+ * view/PartialEditView.ts). A SEPARATE row from
+ * unified-outliner-partial-edit-parent-child-preview-label above (that
+ * one only ever becomes visible once the node is already a real parent),
+ * but its own button reuses the EXACT same small/subdued icon-button look
+ * as parent-child-add-button above — same size, same hover/focus/disabled
+ * states — since the two are, visually, the same affordance applied to
+ * two different moments in this pane's own lifecycle. */
+.unified-outliner-partial-edit-leaf-first-child-add-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.unified-outliner-partial-edit-leaf-first-child-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0.6;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--uo-text-color);
+}
+
+.unified-outliner-partial-edit-leaf-first-child-add-button:hover:not(:disabled) {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.18);
+}
+
+.unified-outliner-partial-edit-leaf-first-child-add-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-leaf-first-child-add-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.unified-outliner-partial-edit-leaf-first-child-add-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Phase 5L-9: the delete affordance — a THIRD row-level control, visually
+ * distinct from both the navigation row itself and the pencil edit-start
+ * affordance (parent-child-inline-edit-button above): same small/subdued
+ * treatment, but its own hover color leans toward Obsidian's own error/
+ * warning tone rather than the neutral grey every other row affordance
+ * uses, so an accidental click reads as visibly more consequential before
+ * the confirmation modal even opens. Sits inside the shared actions group
+ * alongside the edit button (see preview-row-actions above), never
+ * replacing it.
+ *
+ * Touch-target sizing (this rule, its own svg rule below, and the
+ * matching pair for inline-edit-button/reorder-button further down) was
+ * enlarged after real-device feedback that the original fixed 12px icon
+ * + 1px/4px padding was too small to comfortably tap on an 11-inch iPad.
+ * Rather than a bigger FIXED size, padding and icon size are both
+ * expressed in `em` — deliberately with no `font-size` declared on
+ * these rules themselves, so they inherit the child-preview area's own
+ * `font-size: var(--uo-font-size, 14px)` (preview-body above) exactly
+ * like the row's own text already does. This means the whole tap target
+ * (icon plus its padding) scales automatically with the "Font Size"
+ * slider this plugin already exposes to the Style Settings community
+ * plugin (see the @settings block at the very top of this file) — a
+ * user who needs a larger touch target on a phone/tablet gets one simply
+ * by raising that one existing setting, with no separate control needed
+ * just for these buttons. */
+.unified-outliner-partial-edit-parent-child-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 1;
+  border-radius: 3px;
+  padding: 0.5em;
+}
+
+.unified-outliner-partial-edit-parent-child-delete-button:hover {
+  opacity: 1;
+  background-color: color-mix(in srgb, var(--text-error, #e93147) 20%, transparent);
+  color: var(--text-error, #e93147);
+}
+
+.unified-outliner-partial-edit-parent-child-delete-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-parent-child-delete-button svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit Pane"):
+ * the up/down reorder affordance — a FOURTH row-level control, genuinely
+ * separate from navigation, the pencil edit-start affordance, and the
+ * delete affordance (parent-child-delete-button above). Both buttons
+ * live in one small right-floated group so they read as a single "move
+ * this row" unit rather than two unrelated icons; neutral/muted like the
+ * edit affordance (never the delete affordance's error tone — a reorder
+ * is reversible via Cancel, not a destructive action). Padding (not just
+ * the 12px glyph box) is what gives touch a target comfortably larger
+ * than the visible arrow, mirroring unified-outliner-drag-handle's own
+ * "見た目より十分広く" tap-target rationale above, since this ticket's own
+ * §3 explicitly requires "iPad: 十分な大きさの tap target" without being
+ * visually confused with the nav-click/edit-button/delete-button (a
+ * distinct icon shape plus this dedicated grouping already accomplishes
+ * that separation). */
+.unified-outliner-partial-edit-parent-child-reorder-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+}
+
+.unified-outliner-partial-edit-parent-child-reorder-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 1;
+  border-radius: 3px;
+  padding: 0.5em;
+}
+
+.unified-outliner-partial-edit-parent-child-reorder-button:hover {
+  opacity: 1;
+  background-color: var(--background-modifier-hover);
+}
+
+.unified-outliner-partial-edit-parent-child-reorder-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-parent-child-reorder-button svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* First/last-position buttons — moveChildInPendingReorder's own
+ * "at-boundary" refusal, mirrored here via `canMove`/`tabindex="-1"`/
+ * `aria-disabled="true"` (renderParentChildPreview's own makeReorderButton) —
+ * dimmed and inert, never removed from the DOM (keeps the two-button
+ * group's own width/alignment stable across rows). */
+.unified-outliner-partial-edit-parent-child-reorder-button-disabled {
+  opacity: 0.2;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial Edit
+ * Pane"): the indent/outdent affordances — a FIFTH/SIXTH row-level
+ * control, appended into the SAME shared rowActionsEl flex group as
+ * edit/delete/reorder above (renderParentChildPreview's own explicit
+ * reuse of that group — see this ticket's own "整合性を持たせて"
+ * precedent from Phase 5L-10's own real-device follow-up). Neutral/muted
+ * like the edit/reorder affordances (never the delete affordance's error
+ * tone — an indent/outdent is reversible via Cancel, not a destructive
+ * action), and sized/padded the SAME em-based way as every other row
+ * button here (see parent-child-delete-button's own doc comment above
+ * for the full "scales with the Style Settings Font Size slider"
+ * rationale) so these two new buttons stay visually and behaviorally
+ * consistent with the pre-existing four rather than introducing a
+ * second sizing convention. */
+.unified-outliner-partial-edit-parent-child-indent-button,
+.unified-outliner-partial-edit-parent-child-outdent-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 1;
+  border-radius: 3px;
+  padding: 0.5em;
+}
+
+.unified-outliner-partial-edit-parent-child-indent-button:hover,
+.unified-outliner-partial-edit-parent-child-outdent-button:hover {
+  opacity: 1;
+  background-color: var(--background-modifier-hover);
+}
+
+.unified-outliner-partial-edit-parent-child-indent-button:focus-visible,
+.unified-outliner-partial-edit-parent-child-outdent-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-parent-child-indent-button svg,
+.unified-outliner-partial-edit-parent-child-outdent-button svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* Phase 5L-9: a preview row currently marked pending-deletion — non-
+ * interactive (no nav/edit/delete re-trigger — see renderParentChildPreview's
+ * own `isPendingDeletionRow` guard), visually struck through and dimmed so
+ * it reads as "about to go away" without being fully hidden (the user can
+ * still see WHAT will be removed, and undo via the pane-level Cancel). */
+/* Phase 5L-10 fix: text-decoration on a flex container (preview-row
+ * is now display: flex — see its own doc comment) is not reliably
+ * propagated into its flex-item children the way it is into plain
+ * inline/block descendants, so the strikethrough is now also
+ * declared explicitly on the row's own text span, not just the row
+ * itself — opacity still only needs to live on the row, since it
+ * dims the whole flex container (text span AND actions group)
+ * uniformly regardless of display type. */
+.unified-outliner-partial-edit-parent-child-preview-row-pending-deletion {
+  opacity: 0.45;
+}
+
+.unified-outliner-partial-edit-parent-child-preview-row-pending-deletion
+  .unified-outliner-partial-edit-parent-child-preview-row-text {
+  text-decoration: line-through;
+}
+
+/* Phase 5L-9: the pending new-child's own inline editor — a modifier
+ * class applied ALONGSIDE child-inline-editor's own base class (never a
+ * replacement — see newChildEditorEl's own field doc comment), so it
+ * inherits that panel's "nested inside the read-only preview" visual
+ * language exactly, with no override rules of its own needed today. */
+
+/* Read-only child-subtree lines, one row per raw source line — `white-space:
+ * pre` preserves each line's own leading indentation exactly as it appears
+ * in the note, and the monospace font matches partial-edit-textarea's own
+ * font-family so a child row visually lines up with the own-text field(s)
+ * above it. */
+.unified-outliner-partial-edit-parent-child-preview-body {
+  font-family: var(--font-monospace, monospace);
+  font-size: var(--uo-font-size, 14px);
+  color: var(--uo-text-color);
+  opacity: 0.75;
+}
+
+.unified-outliner-partial-edit-parent-child-preview-row {
+  /* Phase 5L-10 fix history (both found via real-device iPad testing,
+   * 2026-09-17): this row hosts up to THREE trailing affordances (the
+   * Phase 5L-8 edit pencil, the Phase 5L-9 delete trash, and this
+   * ticket's own up/down reorder-button pair). They originally each
+   * floated independently (float: right on each), which had two
+   * separate failure modes. (1) None of them is guaranteed to be
+   * exactly as tall as a single text line, and a row with no Block
+   * Formatting Context of its own does not count its floated children
+   * toward its own height at all — a float even slightly taller than
+   * the text line bled down into the NEXT sibling row's box, and with
+   * several rows doing this in sequence the bleed compounded into a
+   * visible left/down drift, row after row. A first fix added
+   * `overflow: hidden` here to give the row its own BFC, containing
+   * that bleed. (2) That first fix did not address a SEPARATE problem:
+   * three independently-floated elements can also independently WRAP
+   * onto their own line once the text plus all three no longer fit
+   * side-by-side (a long child line, or a narrow pane) — confirmed
+   * on-device, the reorder buttons alone dropped to a visually separate
+   * line below the pencil/trash pair, breaking the "these four controls
+   * always read together, left to right" contract. The real, complete
+   * fix replaces floats entirely: this row is now a flex row with
+   * exactly two children — the text span (preview-row-text below,
+   * flexible, clips rather than wrapping/overflowing) and ONE grouped
+   * actions span (preview-row-actions below, fixed-width, never
+   * shrinks) that always holds all three controls together as a single
+   * unit. A flex item cannot independently wrap away from its own flex
+   * container the way a float could, so both failure modes above are
+   * now structurally impossible rather than separately patched.
+   */
+  display: flex;
+  align-items: center;
+}
+
+/* Phase 5L-10 fix (see preview-row's own doc comment immediately above):
+ * the row's own raw source line, exactly as before (white-space: pre
+ * preserves its leading indentation) — now living in its own flex-item
+ * span instead of directly on the row, so it can shrink/clip on its own
+ * without ever squeezing preview-row-actions below out of a single
+ * line. flex: 1 1 auto + min-width: 0 lets it shrink all the way to 0
+ * width in the (unrealistic) case the pane is narrower than the actions
+ * group itself; overflow: hidden clips rather than horizontally
+ * overflowing the pane on an ordinarily-long child line.
+ */
+.unified-outliner-partial-edit-parent-child-preview-row-text {
+  white-space: pre;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Phase 5L-10 fix: the ONE shared group every eligible row's edit-
+ * pencil/delete-trash/reorder-buttons controls are appended into (see
+ * renderParentChildPreview's own rowActionsEl) — flex-shrink: 0 is
+ * exactly what guarantees they are ALWAYS laid out together on the
+ * row's one line, in this same relative order, regardless of the child
+ * line's own length or the pane's own width; only preview-row-text
+ * above ever gives up width to make room. flex-direction: row-reverse
+ * preserves this group's pre-existing visual order (reorder buttons
+ * leftmost, then delete, then edit rightmost — the same right-to-left
+ * stacking the three individual `float: right` rules used to produce)
+ * while keeping DOM/tab order as edit → delete → reorder-down →
+ * reorder-up, unchanged from before this fix. An empty actions span (a
+ * row with none of the three controls) has zero visual footprint.
+ */
+.unified-outliner-partial-edit-parent-child-preview-row-actions {
+  display: flex;
+  align-items: center;
+  flex-direction: row-reverse;
+  flex-shrink: 0;
+  gap: 0.3em;
+}
+
+/* Phase 5L-7 ("Read-Only Child Subtree Preview Navigation"): the modifier
+ * class view/PartialEditView.ts's renderParentChildPreview adds ONLY to a
+ * row childPreviewRowTargets identifies a safe navigation target for
+ * (never to every row — a row with no resolvable target, e.g. a blank
+ * continuation line, stays exactly as inert/static as it already was in
+ * Phase 5L-6). Kept deliberately subtle/muted rather than looking like a
+ * full interactive list row (this preview is still fundamentally a
+ * read-only VIEW of the child subtree, not an editable list of its own —
+ * see parentChildPreviewEl's own field doc comment) — cursor/hover/focus
+ * feedback only, no border or background change that would visually
+ * compete with the own-text editor above it. */
+.unified-outliner-partial-edit-parent-child-preview-row-navigable {
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.unified-outliner-partial-edit-parent-child-preview-row-navigable:hover {
+  background-color: rgba(128, 128, 128, 0.12);
+}
+
+/* Same focus ring as .unified-outliner-partial-edit-subtree-nav-chip's own
+ * :focus-visible rule above — this preview's navigation affordance and the
+ * pane's pre-existing Subtree Navigator chips deliberately share one
+ * visual "this is a keyboard-focusable navigation control" language. */
+.unified-outliner-partial-edit-parent-child-preview-row-navigable:focus-visible {
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -2px;
+}
+
+.unified-outliner-partial-edit-parent-child-preview-truncated {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--uo-text-color);
+  opacity: 0.6;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+ * Edit Pane"): the pencil-icon edit-start affordance rendered on an
+ * eligible direct child's own first preview row (see
+ * renderParentChildPreview's own "eligibleFirstRowById" comment). A
+ * GENUINELY separate control from the row's own navigation click handler
+ * (parent-child-preview-row-navigable above) — never the same span, never
+ * the same interaction. Kept small and subdued, at the row's trailing
+ * edge, so the preview still reads primarily as read-only text with an
+ * unobtrusive "you can also edit this one inline" hint, rather than
+ * looking like a full editable list row. */
+.unified-outliner-partial-edit-parent-child-inline-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 1;
+  border-radius: 3px;
+  padding: 0.5em;
+}
+
+.unified-outliner-partial-edit-parent-child-inline-edit-button:hover {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.18);
+}
+
+.unified-outliner-partial-edit-parent-child-inline-edit-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: -1px;
+}
+
+.unified-outliner-partial-edit-parent-child-inline-edit-button svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* The currently-selected child's own row within the read-only preview
+ * (see renderParentChildPreview's "eligibleChildId === this
+ * .childInlineSession?.childNodeId" branch) — never both this class AND
+ * the edit-start button on the same row; a row is either the live target
+ * of the inline editor below, or it offers the pencil affordance to
+ * become one, never both at once. Uses the accent color at low opacity
+ * (rather than the neutral grey every other preview-row state uses) so
+ * this one row visually reads as "this is what the panel below is
+ * editing," distinct from parent-child-preview-row-navigable's own
+ * neutral hover state above. */
+.unified-outliner-partial-edit-parent-child-preview-row-editing {
+  background-color: var(--interactive-accent, #7c3aed);
+  background-color: color-mix(in srgb, var(--interactive-accent, #7c3aed) 14%, transparent);
+  border-radius: 2px;
+}
+
+/* Phase 5L-8: the single inline structured editor for the currently-
+ * selected direct child (PartialEditView.ts's childInlineEditorEl /
+ * renderChildInlineEditor). Deliberately nested visually one level
+ * "inside" the read-only parent-child-preview region immediately above
+ * it (own left border + background one shade further from neutral than
+ * the preview's own, plus a small left margin) so it reads as "the child
+ * item selected in the preview above, now open for editing" rather than
+ * a second, unrelated editor competing with the pane's own textarea at
+ * the top of the view. Hidden (display: none via toggleVisibility) via
+ * childInlineEditorEl.toggleVisibility(false) at rest — see
+ * renderChildInlineEditor's own doc comment for exactly when it is shown. */
+.unified-outliner-partial-edit-child-inline-editor {
+  flex-shrink: 0;
+  margin-top: 6px;
+  margin-left: 10px;
+  padding: 8px;
+  border-left: 3px solid var(--interactive-accent, #7c3aed);
+  border-left-color: color-mix(in srgb, var(--interactive-accent, #7c3aed) 55%, transparent);
+  border-radius: 2px;
+  background-color: rgba(128, 128, 128, 0.1);
+}
+
+.unified-outliner-partial-edit-child-inline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.unified-outliner-partial-edit-child-inline-label {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--uo-text-color);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mirrors sibling-nav-button's own small-outlined-button look immediately
+ * above (Sibling前後移動 block) — this ticket's own "stop editing this
+ * child" control is, structurally, exactly that same kind of small
+ * secondary action button. */
+.unified-outliner-partial-edit-child-inline-stop {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: none;
+  color: var(--uo-text-color);
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-child-inline-stop:hover {
+  background-color: rgba(128, 128, 128, 0.12);
+}
+
+.unified-outliner-partial-edit-child-inline-stop:focus-visible {
+  outline: 2px solid var(--interactive-accent, #7c3aed);
+  outline-offset: 1px;
+}
+
+/* Modifier applied ALONGSIDE task-checkbox-row/ordered-number-row's own
+ * base classes above (never a replacement for them — see
+ * childInlineTaskCheckboxRowEl/childInlineOrderedNumberRowEl's own field
+ * doc comments) — tightens the vertical spacing slightly to fit this
+ * smaller, nested panel rather than the top-level pane's own roomier
+ * layout. */
+.unified-outliner-partial-edit-child-inline-row {
+  margin-bottom: 4px;
+  padding: 2px 4px;
+}
+
+/* Modifier applied ALONGSIDE partial-edit-textarea's own base class above
+ * (never a replacement) — a deliberately much shorter min-height than the
+ * pane's own top-level textarea, since this field only ever holds one
+ * child leaf item's own text, never a whole subtree. */
+.unified-outliner-partial-edit-child-inline-textarea {
+  min-height: 60px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
 }
 
 /* Phase 5B: DiscardChangesModal's Apply/Discard/Cancel row

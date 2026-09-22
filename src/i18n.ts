@@ -424,6 +424,308 @@ const en = {
   // draft is left untouched, same as every other Apply-time refusal here.
   "partialEdit.quoteEditStructureInvalid":
     "Unified Outliner: this edit can't be applied — it would break the callout/blockquote structure.",
+  // Phase 5D-2C ("CompositeBlock single-line-list member marker-free
+  // projection"): applyEdit's own invertListMarkerProjection refusal — the
+  // marker-free list-member body contains a newline. A single-line-list
+  // item is, by definition, exactly one raw line (no continuation lines,
+  // no nested child list — see parser/compositeBlocks.ts's own
+  // classification), so a body edit that introduces a newline can never
+  // be safely reconstructed as one. Rejects the WHOLE Apply (list body
+  // AND any trailing member edit together), zero-byte-change — same
+  // "genuine safety error, not a grouping-rule concern" refusal class as
+  // quoteEditStructureInvalid above, never confused with the separate,
+  // NON-rejecting "this edit no longer matches the CompositeBlock rule"
+  // notice (compositeRuleNoLongerMatches below) — see
+  // edit/listMarkerProjection.ts's own top doc comment.
+  "partialEdit.listBodyNewlineUnsupported":
+    "Unified Outliner: a list item's body can't contain a line break here.",
+  // Phase 5L-2 ("Task List Marker-Free Partial Edit"): the task-list
+  // counterpart of listBodyNewlineUnsupported immediately above — shown
+  // when a standalone task-list item's marker-free/checkbox-free body
+  // edit would introduce a line break, which (mirroring
+  // edit/taskListProjection.ts's own "multiline-body" refusal exactly)
+  // can never be safely reconstructed as the item's own single raw line.
+  "partialEdit.taskBodyNewlineUnsupported":
+    "Unified Outliner: a task list item's body can't contain a line break here.",
+  // Phase 5L-2: tooltip for the standalone task-list item's own checkbox
+  // control (view/PartialEditView.ts's taskCheckboxInputEl) — the small
+  // checkbox that carries the item's completion state once its `[ ]`/
+  // `[x]` syntax is hidden from the shared textarea.
+  "partialEdit.taskCheckboxLabel": "Task completed",
+  // Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): the
+  // ordered-list counterpart of listBodyNewlineUnsupported/
+  // taskBodyNewlineUnsupported above — shown when a standalone
+  // ordered-list item's marker-free body edit would introduce a line
+  // break, which (mirroring edit/orderedListProjection.ts's own
+  // "multiline-body" refusal exactly) can never be safely reconstructed
+  // as the item's own single raw line.
+  "partialEdit.orderedBodyNewlineUnsupported":
+    "Unified Outliner: an ordered list item's body can't contain a line break here.",
+  // Phase 5L-3: applyEdit's own invertOrderedListProjection refusal —
+  // the number input's current text fails
+  // edit/orderedListProjection.ts's own isValidOrderedListNumberText
+  // (empty, zero, negative, decimal, exponential, non-ASCII-digit, or
+  // whitespace-padded). Rejects the WHOLE Apply (number and any body
+  // edit together), zero-byte-change, with every draft left exactly as
+  // the user had it — see that module's own top doc comment's "The
+  // number field" section for the exhaustive rejection-case rationale.
+  "partialEdit.orderedNumberInvalid":
+    "Unified Outliner: this ordered list item's number must be a positive whole number.",
+  // Phase 5L-3: tooltip/label for the standalone ordered-list item's
+  // own number control (view/PartialEditView.ts's
+  // orderedNumberInputEl) — the small text input that carries the
+  // item's ordered-list number once its `N.`/`N)` marker is hidden
+  // from the shared textarea. The `.`/`)` delimiter itself is never
+  // editable this phase — see edit/orderedListProjection.ts's own top
+  // doc comment.
+  "partialEdit.orderedNumberLabel": "List item number",
+  // Phase 5L-4 ("Multi-Line Leaf List Item Partial Edit Projection"):
+  // applyEdit's own invertMultiLineListItemProjection "unsafe-structure"
+  // refusal — the freshly reconstructed multi-line candidate would, once
+  // re-parsed, introduce a nested child list item or a callout/
+  // blockquote/fenced-code/table/thematic-break block (see
+  // edit/multiLineListItemProjection.ts's own
+  // validateMultiLineListItemCandidate doc comment for the exhaustive
+  // check list). Rejects the WHOLE Apply, zero-byte-change, with every
+  // draft (checkbox/number control AND the full multi-line body) left
+  // exactly as the user had it.
+  "partialEdit.multiLineListStructureInvalid":
+    "Unified Outliner: this edit would change the list item's own Markdown structure and can't be applied here.",
+  // Phase 5L-6 ("Parent List Item Structured Partial Edit"): applyEdit's own
+  // invertParentListItemProjection "own-text-unsafe-structure" refusal — the
+  // freshly reconstructed OWN-TEXT-ALONE candidate (marker/checkbox/number/
+  // body/continuation) would, once re-parsed in isolation, introduce a
+  // nested child list item or a callout/blockquote/fenced-code/table/
+  // thematic-break block — the parent-item counterpart of
+  // multiLineListStructureInvalid above, scoped to own-text only (the child
+  // subtree is never touched by this rejection). Rejects the WHOLE Apply,
+  // zero-byte-change, with every draft left exactly as the user had it.
+  "partialEdit.parentOwnTextStructureInvalid":
+    "Unified Outliner: this edit would change the parent item's own Markdown structure and can't be applied here.",
+  // Phase 5L-6: the second-stage safety-net refusal — the edited own-text
+  // candidate, once spliced back together with the ORIGINAL child-subtree
+  // snapshot and re-parsed as a whole, no longer yields a single parent
+  // list item that safely owns exactly the same child subtree (see
+  // edit/parentListItemProjection.ts#invertParentListItemProjection's own
+  // "child-subtree-detached"/"child-subtree-changed" reasons). Deliberately
+  // a distinct key from parentOwnTextStructureInvalid above — that one is
+  // about the own-text candidate failing ALONE; this one is about the
+  // splice with the child subtree failing. Rejects the WHOLE Apply,
+  // zero-byte-change.
+  "partialEdit.parentChildSubtreeStructureInvalid":
+    "Unified Outliner: this edit can't be applied — it would break the parent item's relationship with its child items.",
+  // Phase 5L-6: label for the read-only child-subtree preview shown below a
+  // parent list item's own editable own-text fields (view/PartialEditView.ts's
+  // renderParentChildPreview) — the preview itself is never editable here;
+  // existing Outline Tree/Subtree Navigator navigation remains the path for
+  // actually editing a child.
+  "partialEdit.parentChildPreviewLabel": "Child items",
+  // Phase 5L-6: truncation indicator shown when the child-subtree preview
+  // exceeds PartialEditView.PARENT_CHILD_PREVIEW_MAX_LINES lines — mirrors
+  // the existing moreChip/moreCount {count} interpolation pattern above.
+  "partialEdit.parentChildPreviewTruncated": "{count} more line(s) not shown",
+  // Phase 5L-7 ("Read-Only Child Subtree Preview Navigation"): tooltip/
+  // aria-label for a child-preview row that HAS a resolvable navigation
+  // target (view/PartialEditView.ts's renderParentChildPreview) — read
+  // together with the row's own already-present aria-readonly="true", so
+  // this is accessibly announced as "read-only, but activating it opens
+  // this child item", never as if the row itself became editable.
+  "partialEdit.parentChildPreviewRowOpenLabel": "Open this child item",
+  // Phase 5L-7: shown instead of navigating whenever
+  // resolveParentChildPreviewNavigationTarget refuses a child-preview
+  // row's activation (parent no longer eligible, target no longer found,
+  // target reassigned elsewhere, or target content changed since this
+  // preview was last built/reloaded — see that function's own reason type
+  // doc comment). The pane stays on its current node with its current
+  // draft completely untouched; this Notice never distinguishes the exact
+  // reason, since every one of them leads to the identical safe outcome.
+  "partialEdit.parentChildPreviewNavigationFailed":
+    "Unified Outliner: couldn't open that child item — it may have changed. The parent item you're editing is unaffected.",
+  // Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+  // Edit Pane"): tooltip/aria-label for the small edit-start affordance
+  // shown on an ELIGIBLE direct child's own preview row — a genuinely
+  // separate control from the row's own navigation click/Enter/Space
+  // handling (see partialEdit.parentChildPreviewRowOpenLabel above).
+  "partialEdit.parentChildInlineEditStartLabel": "Edit this child item inline",
+  // Phase 5L-8: label for the "stop editing this child" button in the
+  // child inline editor panel's own header row — discards ONLY the
+  // child's own draft (never the parent's) on confirmation, or closes
+  // immediately when the child draft is already clean.
+  "partialEdit.parentChildInlineEditStopLabel": "Stop editing",
+  // Phase 5L-8: the child inline editor panel's own header label,
+  // interpolating the selected child's own first raw line so it's
+  // unambiguous which child is currently being edited.
+  "partialEdit.parentChildInlineEditPanelLabel": "Editing child: {text}",
+  // Phase 5L-8: shown when buildParentChildInlineEditSession itself
+  // refuses to open a child's inline editor (the row's own eligibility
+  // changed since this preview was last built/reloaded), or when the
+  // active note/editor can't be resolved at all — a safe refusal, no
+  // editor opens, no draft touched.
+  "partialEdit.parentChildInlineEditFailed":
+    "Unified Outliner: couldn't open that child item for inline editing — it may have changed.",
+  // Phase 5L-8: applyParentChildCombinedEdit's own success Notice — shown
+  // after a combined parent+child Apply actually saves, mirroring
+  // partialEdit.listSubtreeUpdated's own identical role for the
+  // single-range case.
+  "partialEdit.parentChildInlineEditApplied": "Unified Outliner: parent and child item updated.",
+  // Phase 5L-8: invertAndValidateParentChildCombinedEdit's own
+  // "child-unsafe-structure" refusal — the edited child candidate, once
+  // re-parsed (alone, or spliced back among its own unedited siblings),
+  // would introduce a nested grandchild list item or a callout/
+  // blockquote/fenced-code/table/thematic-break block. Rejects the WHOLE
+  // Apply (parent AND child drafts both preserved), zero-byte-change.
+  "partialEdit.parentChildInlineEditChildStructureInvalid":
+    "Unified Outliner: this edit would change the child item's own Markdown structure and can't be applied here.",
+  // Phase 5L-8: invertAndValidateParentChildCombinedEdit's own combined-
+  // candidate safety-net refusal ("candidate-structure-invalid"/
+  // "child-count-changed"/"child-no-longer-leaf"/"sibling-changed") — the
+  // edited child, once re-spliced back among its siblings under the
+  // parent, no longer yields the same number of direct children with
+  // every sibling byte-for-byte preserved and the target still a leaf at
+  // its own position. Rejects the WHOLE Apply, zero-byte-change.
+  "partialEdit.parentChildInlineEditCandidateInvalid":
+    "Unified Outliner: this edit can't be applied — it would change the parent item's relationship with its child items.",
+  // Phase 5L-8: applyParentChildInlineEditToDocument's own "parent-conflict"/
+  // "child-conflict" refusal — the document changed externally, in the
+  // SPECIFIC range this Apply was about to write, since this session's own
+  // snapshot was taken. Rejects the WHOLE Apply, zero-byte-change, both
+  // drafts preserved.
+  "partialEdit.parentChildInlineEditConflict":
+    "Unified Outliner: the note changed since this item was loaded — reload before applying this edit.",
+  // Phase 5L-8: applyParentChildInlineEditToDocument's own structural
+  // re-resolution refusal ("parent-resolve-failed"/"child-resolve-failed"/
+  // "not-direct-child"/"child-has-children"/"child-unsafe-indent"/
+  // "range-overlap") — the parent or the selected child no longer resolves
+  // the way this session expects against the CURRENT document (moved,
+  // deleted, gained a grandchild, ...). Rejects the WHOLE Apply,
+  // zero-byte-change, both drafts preserved.
+  "partialEdit.parentChildInlineEditResolveFailed":
+    "Unified Outliner: couldn't apply this edit — the parent or child item's structure has changed.",
+  // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+  // invertAndValidateParentChildAddDeleteEdit's own "new-child-unsafe-
+  // structure" refusal — the pending new child's own edited body would
+  // introduce a second (more deeply indented) line. Rejects the WHOLE
+  // Apply, zero-byte-change, every draft preserved.
+  "partialEdit.parentChildNewChildStructureInvalid":
+    "Unified Outliner: this new item's text can't include a line break and can't be applied here.",
+  // Phase 5L-9: tooltip for the "Add child item" control in the
+  // child-preview header — see parentChildAddButtonEl's own field doc
+  // comment (view/PartialEditView.ts) for its exact placement.
+  "partialEdit.parentChildAddButtonLabel": "Add child item",
+  // Phase 5L-9: tooltip for the SAME control while it is disabled because
+  // a new-child draft is already pending — this ticket's own "prevent
+  // double-add" requirement (§6/§10).
+  "partialEdit.parentChildAddButtonAlreadyPendingLabel": "A new child item is already pending — apply or cancel it first",
+  // Phase 5L-9: header label for the pending new-child's own inline
+  // editor panel (newChildEditorEl).
+  "partialEdit.parentChildNewChildPanelLabel": "New child item",
+  // Phase 5L-9: label for the close button in the pending new-child
+  // editor panel's own header row — mirrors
+  // partialEdit.parentChildInlineEditStopLabel's own identical role for
+  // the EXISTING-child slot (same clean-closes-immediately /
+  // dirty-shows-the-3-choice-DiscardChangesModal behavior), and now uses
+  // the EXACT SAME text as that control too — the two panels are
+  // functionally identical "close this child editor" actions, so there
+  // is no reason for their labels to differ. (Originally worded "Cancel
+  // new item", which read as a pure discard action even though pressing
+  // it can just as well lead to Apply via the 3-choice modal.)
+  "partialEdit.parentChildNewChildStopLabel": "Stop editing",
+  // Phase 5L-9: tooltip/aria-label for a child-preview row currently
+  // marked pending-deletion — read together with that row's own
+  // aria-readonly="true", so this is accessibly announced as "read-only,
+  // and will be removed on Apply", never as if the row simply vanished.
+  "partialEdit.parentChildPendingDeletionLabel": "Will be deleted when you apply",
+  // Phase 5L-9: tooltip/aria-label for the delete affordance shown on an
+  // ELIGIBLE direct child's own preview row — a genuinely separate
+  // control from both the row's own navigation and the pencil edit-start
+  // affordance (see partialEdit.parentChildInlineEditStartLabel above).
+  "partialEdit.parentChildDeleteButtonLabel": "Delete this child item",
+  // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+  // Pane"): tooltip/aria-label for the up/down reorder affordance shown
+  // on an ELIGIBLE direct child's own preview row — a FOURTH genuinely
+  // separate control from the row's own navigation, the pencil edit-start
+  // affordance, and the trash delete affordance (see
+  // partialEdit.parentChildInlineEditStartLabel/parentChildDeleteButtonLabel
+  // above). Each button's own disabled state (first/last child, or a
+  // non-eligible/pending-deletion neighbor) is a plain HTML disabled
+  // control, so no separate "why is this disabled" wording is needed —
+  // the same "no edit-pencil/delete-trash affordance at all" convention
+  // this whole preview already follows for a non-eligible row.
+  "partialEdit.parentChildReorderUpLabel": "Move this child item up",
+  "partialEdit.parentChildReorderDownLabel": "Move this child item down",
+  // Phase 5L-10: shown when handleReorderChild itself refuses to move a
+  // child (the active note/editor can't be resolved, the parent no
+  // longer resolves, or the move itself is refused by
+  // moveChildInPendingReorder — reachable only if eligibility changed
+  // since the button was last rendered). A safe refusal, nothing
+  // reordered — mirrors partialEdit.parentChildDeleteFailed's own
+  // identical "safe refusal" contract.
+  "partialEdit.parentChildReorderFailed":
+    "Unified Outliner: couldn't move that child item — it may have changed.",
+  // Phase 5L-9: shown when handleRequestAddChild itself refuses to start
+  // a new-child draft (the active note/editor can't be resolved, or the
+  // parent no longer resolves) — a safe refusal, no draft created.
+  "partialEdit.parentChildAddChildFailed":
+    "Unified Outliner: couldn't start adding a new child item — the parent item may have changed.",
+  // Phase 5L-9: shown when handleRequestDeleteChild/commitPendingDeletion
+  // itself refuses to mark (or re-confirm) a pending deletion — the row's
+  // own eligibility changed since it was last rendered, or the active
+  // note/editor can't be resolved. A safe refusal, nothing marked.
+  "partialEdit.parentChildDeleteFailed":
+    "Unified Outliner: couldn't mark that child item for deletion — it may have changed.",
+  // Phase 5L-9: applyParentChildAddDeleteCombinedEdit's own success
+  // Notice — shown after a combined Apply that included an add and/or a
+  // delete (and possibly the parent's own text and/or an existing
+  // child's own edit too) actually saves. Deliberately a distinct key
+  // from partialEdit.parentChildInlineEditApplied above (that one's own
+  // "parent and child item updated" phrasing doesn't fit an add-only or
+  // delete-only Apply).
+  "partialEdit.parentChildAddDeleteApplied": "Unified Outliner: parent item's child items updated.",
+  // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+  // Edit Pane"): tooltip for the "Add child item" control while it is
+  // disabled because a pending indent/outdent is already in flight —
+  // the indent/outdent counterpart of
+  // partialEdit.parentChildAddButtonAlreadyPendingLabel above (§6's own
+  // "at most one pending structural transformation" scope limit).
+  "partialEdit.parentChildIndentOutdentPendingOtherDisabledLabel":
+    "An indent/outdent is already pending — apply or cancel it first",
+  // Phase 5L-11: tooltip/aria-label for the indent affordance shown on
+  // an eligible DIRECT child's own preview row — appended into the same
+  // shared actions group as the edit-pencil/delete-trash/reorder
+  // controls (see partialEdit.parentChildInlineEditStartLabel/
+  // parentChildDeleteButtonLabel/parentChildReorderUpLabel above).
+  "partialEdit.parentChildIndentButtonLabel": "Indent this child item under the previous item",
+  // Phase 5L-11: tooltip/aria-label for the outdent affordance shown on
+  // an eligible NESTED (exactly-one-level-deep) child's own preview row
+  // — a different row population from every other affordance above (all
+  // direct-children-only).
+  "partialEdit.parentChildOutdentButtonLabel": "Outdent this child item to the parent level",
+  // Phase 5L-11: shown when handleRequestIndentChild itself refuses to
+  // start a pending indent (the active note/editor can't be resolved,
+  // or the target's own eligibility changed since the button was last
+  // rendered) — a safe refusal, nothing marked pending. Mirrors
+  // partialEdit.parentChildReorderFailed's own identical "safe refusal"
+  // contract.
+  "partialEdit.parentChildIndentFailed":
+    "Unified Outliner: couldn't indent that child item — it may have changed.",
+  // Phase 5L-11: the outdent counterpart of parentChildIndentFailed
+  // immediately above — shown when handleRequestOutdentChild itself
+  // refuses to start a pending outdent.
+  "partialEdit.parentChildOutdentFailed":
+    "Unified Outliner: couldn't outdent that child item — it may have changed.",
+  // Phase 5L-9: ChildDeleteConfirmModal's own title/body/confirm-button
+  // text — §5's own "a real Obsidian-style Modal with at minimum
+  // '削除する'/'キャンセル' choices" requirement. Confirmation is shown
+  // regardless of whether the target child's own body is empty. Wording
+  // revised (post-Phase-5L-9 follow-up) to make explicit that this marks
+  // the item as pending deletion only — the actual removal from the note
+  // happens when the user later presses Apply — since the original
+  // wording read as if this dialog's own confirm button deletes
+  // immediately.
+  "partialEdit.parentChildDeleteConfirmTitle": "Mark this child item for deletion?",
+  "partialEdit.parentChildDeleteConfirmBody":
+    "It will actually be removed from the note when you press Apply.",
+  "partialEdit.parentChildDeleteConfirmButton": "Delete",
   // Phase 5D-1A: placeholder/tooltip label for the callout title input
   // (see view/PartialEditView.ts's onOpen/renderQuoteHeader).
   "partialEdit.quoteTitleLabel": "Callout title",
@@ -462,8 +764,28 @@ const en = {
   "partialEdit.quoteTypeInvalidUnsupported":
     'Unified Outliner: the callout type must not be empty or contain "]" or a line break.',
   "partialEdit.unsavedChangesTitle": "Unified Outliner: unsaved changes",
+  // Button-row consolidation (2026-09-16 ticket): DiscardChangesModal's
+  // visible buttons went from three (Apply/Discard/Cancel) to two
+  // (Apply/Cancel), to match the Partial Edit Pane's own top-level
+  // Apply/Cancel bar and remove the semantic collision between this
+  // modal's "Cancel" (previously: stay, do nothing) and the pane's own
+  // "Cancel" (discard and close). The internal DiscardChangesChoice type
+  // and onClose()'s x/Escape/outside-click fallback to "cancel" are
+  // UNCHANGED -- see DiscardChangesModal's own doc comment in
+  // PartialEditView.ts. Body text now describes exactly the two visible
+  // choices, plus a short note that closing the dialog keeps editing here
+  // (the only remaining way to reach the internal "cancel" choice).
   "partialEdit.unsavedChangesBody":
-    "This node has unapplied edits. Apply them before switching, discard them, or stay here.",
+    "This node has unapplied edits. Apply them before switching, or Cancel to discard them and switch anyway. Close this dialog to keep editing here.",
+  // New key (2026-09-16 ticket): the discard button's new default label,
+  // replacing the previous bare "common.discard" fallback so it reads
+  // "Cancel" -- matching the Partial Edit Pane's own top-level Cancel
+  // button's wording, since this button now IS this modal's de facto
+  // Cancel action (internal choice remains "discard" -- see
+  // DiscardChangesModalOptions#discardButtonKey in PartialEditView.ts).
+  // common.cancel itself is deliberately left untouched, since it is
+  // shared by several unrelated modals/buttons.
+  "partialEdit.unsavedChangesDiscardButtonLabel": "Cancel",
   "partialEdit.previousSibling": "Previous",
   "partialEdit.nextSibling": "Next",
   "partialEdit.noPreviousSibling": "No previous sibling",
@@ -684,6 +1006,23 @@ const en = {
   "reason.compositePartialEditConflict":
     "Unified Outliner: this extended block changed since the edit was loaded — apply was cancelled to avoid discarding that change.",
 
+  // ---- Parent List Item Structured Partial Edit reasons (Phase 5L-6,
+  // edit/parentListItemProjection.ts's ApplyParentListItemOwnTextReason).
+  // "resolve-failed" and "unsafe-indent" deliberately reuse the existing
+  // generic reason.resolve-failed / reason.unsafe-indent keys above
+  // (operation-neutral wording, safe to share — same reasoning as
+  // compositePartialEditRangeInvalid's own sibling "resolve-failed" reuse
+  // noted above). There is no pre-existing generic "reason.conflict" key
+  // this ticket could reuse for the own-text conflict case either (same gap
+  // compositePartialEditConflict's own comment above already notes), so a
+  // dedicated key is added, scoped explicitly to the parent item's OWN TEXT
+  // only — an external change to the child subtree alone can never produce
+  // this reason (see applyParentListItemOwnTextEdit's own doc comment).
+  "reason.parent-own-text-range-unresolvable":
+    "Unified Outliner: this parent item's own text could no longer be safely separated from its child items — apply was cancelled for safety.",
+  "reason.parent-own-text-conflict":
+    "Unified Outliner: this item's own text changed since the edit was loaded — apply was cancelled to avoid discarding that change.",
+
   // ---- CompositeBlock cursor/selection-driven move reasons
   // (move/resolveCompositeSelectionTarget.ts's CompositeSelectionRejectionReason,
   // Phase 5C-1 ticket 4-5). "multiple-selections" deliberately reuses the
@@ -855,6 +1194,32 @@ const en = {
   // so the insert is refused before any line is built.
   "reason.paragraphInsertUnsafeIndent":
     "Unified Outliner: this list item's indentation mixes tabs and spaces, so a paragraph can't be safely inserted there.",
+
+  // Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+  // B"): tooltip for the "add a first child" control shown on a
+  // STANDALONE leaf item (childIds.length === 0) once it is projected by
+  // one of the four Phase 5L-1〜5L-5 standalone leaf projections — the
+  // Mode B counterpart of partialEdit.parentChildAddButtonLabel above,
+  // which only ever applies once a node is ALREADY a real parent.
+  "partialEdit.leafFirstChildAddButtonLabel": "Add first child item",
+  // Phase 5L-9b: tooltip for the SAME control while it is disabled
+  // because a first-child draft is already pending — mirrors
+  // partialEdit.parentChildAddButtonAlreadyPendingLabel's own identical
+  // "prevent double-add" wording.
+  "partialEdit.leafFirstChildAddButtonAlreadyPendingLabel":
+    "A new first child item is already pending — apply or cancel it first",
+  // Phase 5L-9b: shown when handleRequestAddLeafFirstChild itself
+  // refuses to start a Mode B draft (the active note/editor can't be
+  // resolved, or the leaf no longer resolves as an eligible standalone
+  // leaf) — a safe refusal, no draft created. Also reused by
+  // applyLeafFirstChildEdit's own defensive "no standalone leaf
+  // projection is active" branch.
+  "partialEdit.leafFirstChildAddFailed":
+    "Unified Outliner: couldn't add a first child item here — this item may have changed.",
+  // Phase 5L-9b: applyLeafFirstChildEdit's own success Notice — shown
+  // after this leaf successfully gained its first direct child and was
+  // reloaded as a real parent item.
+  "partialEdit.leafFirstChildAdded": "Unified Outliner: added a first child item to this list item.",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -1134,6 +1499,159 @@ const ja: Record<TranslationKey, string> = {
   // 場合の拒否。
   "partialEdit.quoteEditStructureInvalid":
     "Unified Outliner: この編集はコールアウト／引用ブロックの構造を崩すため適用できない。",
+  // Phase 5D-2C: marker-free な list member 本文の編集に改行が含まれる
+  //場合の拒否。single-line-list は定義上1行のみのため、改行を含む編集は
+  // 安全に1行の raw Markdown へ復元できない。CompositeBlock の grouping
+  // rule に再マッチしなくなるだけの場合（compositeRuleNoLongerMatches、
+  // 既存の方針A・保存自体は成功する）とは別物であり、こちらは Apply 自体
+  // を拒否する「真の安全性エラー」である。
+  "partialEdit.listBodyNewlineUnsupported":
+    "Unified Outliner: リスト項目の本文に改行を含めることはできない。",
+  // Phase 5L-2（task list marker-free Partial Edit）: 直上の
+  // listBodyNewlineUnsupported の task list 版。standalone task list 項目の
+  // marker-free / checkbox-free 本文編集に改行が含まれる場合の拒否。
+  "partialEdit.taskBodyNewlineUnsupported":
+    "Unified Outliner: タスクリスト項目の本文に改行を含めることはできない。",
+  // Phase 5L-2: standalone task list 項目自身の checkbox control（
+  // view/PartialEditView.ts の taskCheckboxInputEl）のツールチップ。
+  "partialEdit.taskCheckboxLabel": "完了",
+  // Phase 5L-3（ordered list marker-free Partial Edit）: 直上の
+  // listBodyNewlineUnsupported / taskBodyNewlineUnsupported の
+  // ordered list 版。standalone ordered list 項目の marker-free 本文
+  // 編集に改行が含まれる場合の拒否。
+  "partialEdit.orderedBodyNewlineUnsupported":
+    "Unified Outliner: 番号付きリスト項目の本文に改行を含めることはできない。",
+  // Phase 5L-3: applyEdit 自身の invertOrderedListProjection による拒否。
+  // number input の現在のテキストが
+  // edit/orderedListProjection.ts の isValidOrderedListNumberText を
+  // 満たさない場合（空、ゼロ、負数、小数、指数表記、非ASCII数字、
+  // 前後の空白を含む、など）に表示する。Apply全体（number と本文の編集を
+  // 合わせて）を拒否し、変更はゼロバイトであり、各 draft はユーザーが
+  // 入力したままの状態で保持される。
+  "partialEdit.orderedNumberInvalid":
+    "Unified Outliner: この番号付きリスト項目の番号は正の整数でなければならない。",
+  // Phase 5L-3: standalone ordered list 項目自身の番号 control（
+  // view/PartialEditView.ts の orderedNumberInputEl）のツールチップ・
+  // ラベル。`.`/`)` の区切り文字自体はこのフェーズでは編集不可のまま
+  // 保持される（edit/orderedListProjection.ts 自身の冒頭のdocコメント
+  // を参照）。
+  "partialEdit.orderedNumberLabel": "リスト項目の番号",
+  // Phase 5L-4（Multi-Line Leaf List Item Partial Edit Projection）:
+  // applyEdit 自身の invertMultiLineListItemProjection による
+  // "unsafe-structure" 拒否。再構成した複数行のcandidateを再解析した結果、
+  // 子リストやcallout/blockquote/fenced-code/table/thematic-breakなどの
+  // 別ブロックが生成されてしまう場合に表示する（詳細は
+  // edit/multiLineListItemProjection.ts の
+  // validateMultiLineListItemCandidate 自身のdocコメントを参照）。
+  // Apply全体を拒否し、変更はゼロバイトであり、各draft（checkbox/number
+  // controlおよび複数行本文全体）はユーザーが入力したままの状態で保持
+  // される。
+  "partialEdit.multiLineListStructureInvalid":
+    "Unified Outliner: この編集はリスト項目自体のMarkdown構造を変えてしまうため適用できない。",
+  // Phase 5L-6（Parent List Item Structured Partial Edit）: applyEdit 自身の
+  // invertParentListItemProjection による "own-text-unsafe-structure" 拒否。
+  // own-text単独で再構成したcandidate（marker/checkbox/number/本文/継続行）
+  // を単独で再解析した結果、子リスト項目やcallout/blockquote/fenced-code/
+  // table/thematic-breakが生成されてしまう場合に表示する。直上の
+  // multiLineListStructureInvalidの親項目版であり、own-textの範囲のみを
+  // 対象とする（child subtree自体はこの拒否では一切変更されない）。
+  // Apply全体を拒否し、変更はゼロバイトであり、各draftはユーザーが入力した
+  // ままの状態で保持される。
+  "partialEdit.parentOwnTextStructureInvalid":
+    "Unified Outliner: この編集は親項目自体のMarkdown構造を変えてしまうため適用できない。",
+  // Phase 5L-6: 2段階目の安全性検証による拒否。編集後のown-text
+  // candidateを、元のchild subtreeスナップショットと結合して全体を
+  // 再解析した結果、単一の親list itemが同じchild subtreeを安全に保持する
+  // 状態に戻らない場合に表示する（edit/parentListItemProjection.ts の
+  // invertParentListItemProjection 自身の "child-subtree-detached"／
+  // "child-subtree-changed" を参照）。直上のparentOwnTextStructureInvalid
+  // とは意図的に別キーである — こちらはown-text単独ではなくchild subtree
+  // との結合時の検証失敗を表す。Apply全体を拒否し、変更はゼロバイトである。
+  "partialEdit.parentChildSubtreeStructureInvalid":
+    "Unified Outliner: この編集は適用できない。親項目と子項目の構造上の関係が崩れてしまう。",
+  // Phase 5L-6: 親list itemの編集可能なown-textフィールド群の下に表示される
+  // child subtreeプレビュー（view/PartialEditView.ts の
+  // renderParentChildPreview）のラベル。プレビューの各行自体は直接編集不可
+  // だが、Phase 5L-8以降は行ごとにeligibility判定があり、対象の直接の子には
+  // インライン編集アフォーダンス（鉛筆アイコン、partialEdit.
+  // parentChildInlineEditStartLabel）が表示される。よって、このラベルは
+  // セクション全体を一律「読み取り専用」と断定する文言を含めない——
+  // 編集可否は行ごとの鉛筆アイコンの有無で伝える（Phase 5L-6時点の
+  // 「(読み取り専用)」という文言はPhase 5L-8で除去した）。
+  "partialEdit.parentChildPreviewLabel": "子項目",
+  // Phase 5L-6: child subtreeプレビューが
+  // PartialEditView.PARENT_CHILD_PREVIEW_MAX_LINES 行を超えた場合に表示する
+  // 省略表示。上記の既存moreChip／moreCountの{count}補間パターンに倣う。
+  "partialEdit.parentChildPreviewTruncated": "他{count}行は表示されていない",
+  // Phase 5L-7（「子サブツリー読み取り専用プレビューのナビゲーション化」）:
+  // 解決可能なnavigation targetを持つchild previewの行（view/PartialEditView.ts
+  // のrenderParentChildPreview）に付与するtooltip/aria-label。この操作（行
+  // クリック／Enter・Space）自体は常に「別パネルとしてこの子項目を開く」
+  // ナビゲーションであり、行内で直接編集が始まるわけではない、という意味は
+  // 変わらない。ただしPhase 5L-8で対象の直接の子には同じ行に鉛筆アイコン
+  // （インライン編集アフォーダンス）が並んで表示されるようになったため、
+  // 「(読み取り専用プレビュー)」という文言を残すと、隣の鉛筆アイコンと
+  // 矛盾して見える。そのためPhase 5L-8でこの文言は除去した——行自体は
+  // 相変わらずクリックしても直接編集は始まらないという事実は、行内の鉛筆
+  // アイコンの有無（あるいは無し）で伝える。
+  "partialEdit.parentChildPreviewRowOpenLabel": "この子項目を開く",
+  // Phase 5L-7: resolveParentChildPreviewNavigationTargetがchild preview行の
+  // 操作を拒否した場合（親項目自体がもう対象外になった、targetがもう見つから
+  // ない、targetが別の場所へ再割当てされた、あるいはこのプレビューの最終
+  // 構築／再読み込み以降にtargetの内容が変わった——同関数自身のreason型の
+  // doc commentを参照）に表示する。パネルは現在のnodeと現在のdraftを完全に
+  // 保持したまま留まる。理由ごとの出し分けは行わない——いずれの理由も、
+  // 同一の安全な結果（画面遷移しない）につながるため。
+  "partialEdit.parentChildPreviewNavigationFailed":
+    "Unified Outliner: 選択した子項目を開けなかった（内容が変更された可能性がある）。編集中の親項目には影響しない。",
+  // Phase 5L-8: 親のPartial Edit Paneのchild subtree previewから、直接の子で
+  // かつリーフ（孫を持たない）である1項目だけを選び、既存のリーフ投影
+  // モジュール（listMarker/taskList/orderedList/multiLine）をそのまま再利用
+  // してインライン構造編集する機能の文言群。
+  "partialEdit.parentChildInlineEditStartLabel": "この子項目をインライン編集",
+  "partialEdit.parentChildInlineEditStopLabel": "編集を終了",
+  "partialEdit.parentChildInlineEditPanelLabel": "編集中の子項目: {text}",
+  "partialEdit.parentChildInlineEditFailed":
+    "Unified Outliner: その子項目をインライン編集用に開けなかった——内容が変更された可能性がある。",
+  "partialEdit.parentChildInlineEditApplied":
+    "Unified Outliner: 親項目と子項目を更新した。",
+  "partialEdit.parentChildInlineEditChildStructureInvalid":
+    "Unified Outliner: この編集は子項目自体のMarkdown構造を変えてしまうため、ここでは適用できない。",
+  "partialEdit.parentChildInlineEditCandidateInvalid":
+    "Unified Outliner: この編集は適用できない——親項目とその子項目との関係が変わってしまう。",
+  "partialEdit.parentChildInlineEditConflict":
+    "Unified Outliner: この項目を読み込んだ後にノートの内容が変更された——適用する前に再読み込みが必要。",
+  "partialEdit.parentChildInlineEditResolveFailed":
+    "Unified Outliner: この編集を適用できなかった——親項目または子項目の構造が変更された。",
+  "partialEdit.parentChildNewChildStructureInvalid":
+    "Unified Outliner: この新しい項目のテキストに改行を含めることはできず、適用できない。",
+  "partialEdit.parentChildAddButtonLabel": "子項目を追加",
+  "partialEdit.parentChildAddButtonAlreadyPendingLabel": "追加中の子項目がある——先に適用するか取り消すこと",
+  "partialEdit.parentChildNewChildPanelLabel": "新しい子項目",
+  "partialEdit.parentChildNewChildStopLabel": "編集を終了",
+  "partialEdit.parentChildPendingDeletionLabel": "適用時に削除される",
+  "partialEdit.parentChildDeleteButtonLabel": "この子項目を削除",
+  "partialEdit.parentChildReorderUpLabel": "この子項目を上へ移動",
+  "partialEdit.parentChildReorderDownLabel": "この子項目を下へ移動",
+  "partialEdit.parentChildReorderFailed":
+    "Unified Outliner: この子項目を移動できなかった——変更された可能性がある。",
+  "partialEdit.parentChildAddChildFailed":
+    "Unified Outliner: 子項目の追加を開始できなかった——親項目が変更された可能性がある。",
+  "partialEdit.parentChildDeleteFailed":
+    "Unified Outliner: この子項目を削除対象にできなかった——変更された可能性がある。",
+  "partialEdit.parentChildAddDeleteApplied": "Unified Outliner: 親項目の子項目を更新した。",
+  "partialEdit.parentChildIndentOutdentPendingOtherDisabledLabel":
+    "インデント/アウトデントが保留中です——先に適用するか取り消すこと",
+  "partialEdit.parentChildIndentButtonLabel": "この子項目を直前の項目の子としてインデント",
+  "partialEdit.parentChildOutdentButtonLabel": "この子項目を親のレベルへアウトデント",
+  "partialEdit.parentChildIndentFailed":
+    "Unified Outliner: この子項目をインデントできなかった——変更された可能性がある。",
+  "partialEdit.parentChildOutdentFailed":
+    "Unified Outliner: この子項目をアウトデントできなかった——変更された可能性がある。",
+  "partialEdit.parentChildDeleteConfirmTitle": "この子項目を削除予定にするか？",
+  "partialEdit.parentChildDeleteConfirmBody":
+    "実際にノートから削除されるのは、「適用」ボタンを押したときである。",
+  "partialEdit.parentChildDeleteConfirmButton": "削除する",
   "partialEdit.quoteTitleLabel": "コールアウトのタイトル",
   "partialEdit.quoteTitleNewlineUnsupported":
     "Unified Outliner: コールアウトのタイトルには改行を含められない。",
@@ -1175,7 +1693,8 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.reloadConfirmDiscardButton": "変更を破棄して再読み込み",
   "partialEdit.unsavedChangesTitle": "Unified Outliner: 未保存の変更",
   "partialEdit.unsavedChangesBody":
-    "このノードには未適用の編集がある。切り替える前に適用するか、破棄するか、このまま留まるかを選んでほしい。",
+    "このノードには未適用の編集がある。切り替える前に適用するか、キャンセルするかを選んでほしい。編集を続けたい場合は、このダイアログを閉じてほしい。",
+  "partialEdit.unsavedChangesDiscardButtonLabel": "キャンセル",
 
   // ---- セクション挿入時の見出しレベル選択モーダル（HeadingLevelModal.ts） -
   "modal.insertSectionTitle": "Unified Outliner: セクションを挿入",
@@ -1302,6 +1821,22 @@ const ja: Record<TranslationKey, string> = {
   "reason.compositePartialEditConflict":
     "Unified Outliner: この編集を読み込んだ後に拡張ブロックの内容が変更されたため、その変更を破棄しないようApplyを中止した。",
 
+  // ---- Parent List Item Structured Partial Edit reasons (Phase 5L-6、
+  // edit/parentListItemProjection.ts の ApplyParentListItemOwnTextReason)。
+  // "resolve-failed" と "unsafe-indent" は上記の汎用reason.resolve-failed／
+  // reason.unsafe-indentキーを意図的に再利用する（操作に依存しない文言の
+  // ため共有して安全。compositePartialEditRangeInvalidの
+  // "resolve-failed"再利用コメントと同じ理由による）。own-text
+  // conflictについても再利用できる汎用の"reason.conflict"キーは存在しない
+  // （compositePartialEditConflict自身のコメントが既に指摘する同じ欠落）
+  // ため、専用キーを追加する。この2件は親項目自身のOWN TEXTのみを対象と
+  // する — child subtreeのみの外部変更ではこの理由は発生しない
+  // （applyParentListItemOwnTextEdit自身のdocコメント参照）。
+  "reason.parent-own-text-range-unresolvable":
+    "Unified Outliner: この親項目の本文を子項目から安全に分離できなくなったため、安全のためApplyを中止した。",
+  "reason.parent-own-text-conflict":
+    "Unified Outliner: この編集を読み込んだ後にこの項目自身の本文が変更されたため、その変更を破棄しないようApplyを中止した。",
+
   // ---- カーソル／選択範囲起点の拡張ブロックmove理由
   // (move/resolveCompositeSelectionTarget.ts の CompositeSelectionRejectionReason、
   // Phase 5C-1 チケット4-5)。"multiple-selections" は上記の
@@ -1415,6 +1950,15 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: この段落は拡張ブロックの一部であるため、挿入は利用できない。",
   "reason.paragraphInsertUnsafeIndent":
     "Unified Outliner: このリスト項目はタブとスペースが混在したインデントのため、段落を安全に挿入できない。",
+
+  // Phase 5L-9b（子を持たない standalone leaf list item からの初回 direct
+  // child 追加——Mode B）
+  "partialEdit.leafFirstChildAddButtonLabel": "最初の子項目を追加",
+  "partialEdit.leafFirstChildAddButtonAlreadyPendingLabel":
+    "追加中の最初の子項目がある——先に適用するか取り消すこと",
+  "partialEdit.leafFirstChildAddFailed":
+    "Unified Outliner: 最初の子項目を追加できなかった——この項目が変更された可能性がある。",
+  "partialEdit.leafFirstChildAdded": "Unified Outliner: この項目に最初の子項目を追加した。",
 };
 
 const DICTIONARIES: Record<SupportedLocale, Record<TranslationKey, string>> = {

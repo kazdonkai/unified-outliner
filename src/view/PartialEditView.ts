@@ -153,7 +153,7 @@ import {
   STANDALONE_CALLOUT_PREFIX,
 } from "../tree/buildOutlineTree";
 import { scanComplexBlocks } from "../parser/complexBlocks";
-import { ParsedDocument } from "../model/block";
+import { BlockNode, isListNode, ListBlockNode, ParsedDocument } from "../model/block";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
 import { DescendantNavigationEntry, findDirectChildren } from "../tree/descendantPath";
 import { SiblingNavigationState, getSiblingNavigationState } from "../tree/siblingNavigation";
@@ -182,10 +182,276 @@ import {
   extractCompositeBlockText,
 } from "../edit/compositeBlockPartialEdit";
 import { CompositeBlockSnapshot } from "../edit/deleteCompositeBlock";
+import {
+  composeCompositeBlockMemberText,
+  isListMemberEligibleForMarkerFreeProjection,
+  splitCompositeBlockMembers,
+} from "../edit/compositeBlockMemberProjection";
+import {
+  buildListMarkerProjection,
+  invertListMarkerProjection,
+  ListMarkerProjection,
+  projectedListBodyText,
+} from "../edit/listMarkerProjection";
+import {
+  buildTaskListProjection,
+  invertTaskListProjection,
+  projectedTaskBodyText,
+  TaskListProjection,
+} from "../edit/taskListProjection";
+import {
+  buildOrderedListProjection,
+  invertOrderedListProjection,
+  projectedOrderedBodyText,
+  projectedOrderedNumberText,
+  OrderedListProjection,
+} from "../edit/orderedListProjection";
+import {
+  MultiLineListItemProjection,
+  buildMultiLineListItemProjection,
+  invertMultiLineListItemProjection,
+  projectedMultiLineBodyText,
+  projectedMultiLineChecked,
+  projectedMultiLineNumberText,
+} from "../edit/multiLineListItemProjection";
+import {
+  ParentChildPreviewNavigationTarget,
+  ParentListItemProjection,
+  applyParentListItemOwnTextEdit,
+  invertParentListItemProjection,
+  projectedParentBodyText,
+  projectedParentChecked,
+  projectedParentNumberText,
+  resolveParentChildPreviewNavigationTarget,
+} from "../edit/parentListItemProjection";
+import { resolveStandaloneListProjections as resolveStandaloneListProjectionsPure } from "../edit/standaloneProjectionResolver";
+import {
+  ParentChildCombinedApplyRejectReason,
+  ParentChildInlineEditSession,
+  ParentChildLiveApplyRejectReason,
+  applyParentChildInlineEditToDocument,
+  buildParentChildInlineEditSession,
+  childEffectiveControlKind,
+  childProjectionRawText,
+  evaluateChildInlineEditEligibility,
+  invertAndValidateParentChildCombinedEdit,
+  projectedChildBodyText,
+  projectedChildChecked,
+  projectedChildNumberText,
+} from "../edit/parentChildInlineEditSession";
+// Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+// extends the SAME module — see that module's own Phase 5L-9 section for
+// why this is additive to, never a duplicate of, everything imported
+// immediately above.
+import {
+  ParentChildAddDeleteApplyRejectReason,
+  ParentChildAddDeleteLiveApplyRejectReason,
+  ParentChildAddDeleteSession,
+  applyParentChildAddDeleteToDocument,
+  buildNewChildDraft,
+  buildParentChildAddDeleteSession,
+  evaluateChildDeleteEligibility,
+  invertAndValidateParentChildAddDeleteEdit,
+} from "../edit/parentChildInlineEditSession";
+// Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit Pane"):
+// extends the SAME module yet again — see that module's own Phase 5L-10
+// section for why this is additive to, never a duplicate of, everything
+// imported immediately above.
+import {
+  ChildReorderDirection,
+  ReorderLiveApplyInput,
+  evaluateChildReorderEligibility,
+  isPendingReorderDirty,
+  moveChildInPendingReorder,
+} from "../edit/parentChildInlineEditSession";
+// Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial Edit
+// Pane"): extends the SAME module yet again — see that module's own
+// Phase 5L-11 section for why this is additive to, never a duplicate of,
+// everything imported immediately above.
+import {
+  ChildIndentOutdentApplyRejectReason,
+  applyParentChildIndentOutdentToDocument,
+  buildIndentOutdentPreviewText,
+  buildPendingIndent,
+  buildPendingOutdent,
+  evaluateChildIndentEligibility,
+  evaluateChildOutdentEligibility,
+} from "../edit/parentChildInlineEditSession";
+// Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+// B"): extends the SAME module yet again — see that module's own Phase
+// 5L-9b section for why this is additive to, never a duplicate of,
+// everything imported immediately above.
+import {
+  ApplyLeafFirstChildRejectReason,
+  PendingLeafFirstChild,
+  applyLeafFirstChildAdditionToDocument,
+  buildPendingLeafFirstChild,
+} from "../edit/parentChildInlineEditSession";
 import { compositeBlockDisplayLabel, getCompositeBlockRuleById } from "../model/compositeBlock";
 import { getEnabledCompositeBlockRules } from "../settingsDefaults";
 
 export const PARTIAL_EDIT_VIEW_TYPE = "unified-outliner-partial-edit";
+
+/**
+ * Phase 5L-8: maps invertAndValidateParentChildCombinedEdit's own exhaustive
+ * reason union onto this pane's Notice i18n keys — a small many-to-few
+ * mapping (several structurally-related reasons share one user-facing
+ * message), mirroring how applyEdit's existing standaloneParentListItemProjection
+ * branch already maps invertParentListItemProjection's own reasons. Kept as
+ * a free function (not a method) since it needs no `this` — pure dispatch.
+ */
+function parentChildCombinedApplyReasonKey(reason: ParentChildCombinedApplyRejectReason): TranslationKey {
+  switch (reason) {
+    case "parent-invalid-number":
+    case "child-invalid-number":
+      return "partialEdit.orderedNumberInvalid";
+    case "parent-own-text-unsafe-structure":
+      return "partialEdit.parentOwnTextStructureInvalid";
+    case "parent-child-subtree-detached":
+    case "parent-child-subtree-changed":
+      return "partialEdit.parentChildSubtreeStructureInvalid";
+    case "child-unsafe-structure":
+      return "partialEdit.parentChildInlineEditChildStructureInvalid";
+    case "candidate-structure-invalid":
+    case "child-count-changed":
+    case "child-no-longer-leaf":
+    case "sibling-changed":
+      return "partialEdit.parentChildInlineEditCandidateInvalid";
+  }
+}
+
+/** Phase 5L-8: the LIVE-write counterpart of parentChildCombinedApplyReasonKey immediately above — see applyParentChildInlineEditToDocument's own reason type doc comment (edit/parentChildInlineEditSession.ts) for the exhaustive per-reason rationale. */
+function parentChildLiveApplyReasonKey(reason: ParentChildLiveApplyRejectReason | undefined): TranslationKey {
+  switch (reason) {
+    case "parent-conflict":
+    case "child-conflict":
+      return "partialEdit.parentChildInlineEditConflict";
+    case "parent-resolve-failed":
+    case "child-resolve-failed":
+    case "not-direct-child":
+    case "child-has-children":
+    case "child-unsafe-indent":
+    case "range-overlap":
+    case undefined:
+      return "partialEdit.parentChildInlineEditResolveFailed";
+  }
+}
+
+/**
+ * Phase 5L-9: the add/delete counterpart of parentChildCombinedApplyReasonKey
+ * above — reuses every one of that function's own mappings verbatim for
+ * the ten reasons ParentChildAddDeleteApplyRejectReason inherits from
+ * ParentChildCombinedApplyRejectReason (see that type's own doc comment
+ * in edit/parentChildInlineEditSession.ts), and adds ONLY the three
+ * genuinely new reasons this ticket introduces.
+ */
+function parentChildAddDeleteApplyReasonKey(reason: ParentChildAddDeleteApplyRejectReason): TranslationKey {
+  switch (reason) {
+    case "new-child-unsafe-structure":
+      return "partialEdit.parentChildNewChildStructureInvalid";
+    case "new-child-not-leaf":
+    case "deletion-target-missing":
+    // Phase 5L-10: both defensive-only reasons (see their own doc
+    // comments in edit/parentChildInlineEditSession.ts) map to the same
+    // generic "candidate invalid" Notice every other defensive
+    // candidate-structure reason already uses — no new i18n key needed.
+    // falls through
+    case "reorder-not-available":
+    case "reorder-target-missing":
+      return "partialEdit.parentChildInlineEditCandidateInvalid";
+    default:
+      return parentChildCombinedApplyReasonKey(reason);
+  }
+}
+
+/** Phase 5L-9: the LIVE-write counterpart of parentChildAddDeleteApplyReasonKey immediately above — see applyParentChildAddDeleteToDocument's own reason type doc comment (edit/parentChildInlineEditSession.ts) for the exhaustive per-reason rationale. Every reason maps to one of the SAME two Notices parentChildLiveApplyReasonKey above already uses (a conflict, or a structural resolve failure) — no new i18n key needed here. */
+function parentChildAddDeleteLiveApplyReasonKey(reason: ParentChildAddDeleteLiveApplyRejectReason | undefined): TranslationKey {
+  switch (reason) {
+    case "parent-conflict":
+    case "existing-child-conflict":
+    case "deletion-target-conflict":
+      return "partialEdit.parentChildInlineEditConflict";
+    case "parent-resolve-failed":
+    case "existing-child-resolve-failed":
+    case "existing-child-not-direct-child":
+    case "existing-child-has-children":
+    case "existing-child-unsafe-indent":
+    case "deletion-target-resolve-failed":
+    case "deletion-target-not-direct-child":
+    case "deletion-target-has-children":
+    case "deletion-target-unsafe-indent":
+    case "range-overlap":
+    // Phase 5L-10: "reorder-target-resolve-failed" is the reorder's own
+    // structural-resolve-failure counterpart of every reason immediately
+    // above it, folded into one (see that reason's own doc comment in
+    // edit/parentChildInlineEditSession.ts for why it is deliberately
+    // coarse-grained) — same Notice.
+    // falls through
+    case "reorder-target-resolve-failed":
+    case undefined:
+      return "partialEdit.parentChildInlineEditResolveFailed";
+    // Phase 5L-10: the reorder's own whole-subtree conflict check —
+    // same Notice as every other conflict reason above.
+    case "reorder-conflict":
+      return "partialEdit.parentChildInlineEditConflict";
+  }
+}
+
+/**
+ * Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial Edit
+ * Pane"): maps applyParentChildIndentOutdentToDocument's own exhaustive
+ * reason union onto this pane's Notice i18n keys — deliberately reuses
+ * the SAME two generic Notices every other structural conflict/
+ * resolve-failure reason in this file already maps to (no new i18n key
+ * needed here — see applyParentChildIndentOutdentToDocument's own reason
+ * type doc comment in edit/parentChildInlineEditSession.ts for the
+ * exhaustive per-reason rationale).
+ */
+function parentChildIndentOutdentApplyReasonKey(
+  reason: ChildIndentOutdentApplyRejectReason | undefined
+): TranslationKey {
+  switch (reason) {
+    case "parent-conflict":
+    case "subtree-conflict":
+      return "partialEdit.parentChildInlineEditConflict";
+    case "parent-resolve-failed":
+    case "target-resolve-failed":
+    case "related-resolve-failed":
+    case "candidate-structure-invalid":
+    case "child-count-changed":
+    case "sibling-changed":
+    case undefined:
+      return "partialEdit.parentChildInlineEditResolveFailed";
+  }
+}
+
+/**
+ * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+ * B"): mirrors parentChildIndentOutdentApplyReasonKey's own identical
+ * "reuse the two existing generic conflict/resolve-failed Notice texts,
+ * never mint a distinct key per reason" convention — Mode B's own Apply
+ * refusal set (LeafFirstChildEligibilityReason plus its own three
+ * additions) collapses onto the exact same two user-facing messages
+ * every sibling Apply-time refusal already shows, except
+ * "new-child-unsafe-structure" — reused verbatim from Mode A's own
+ * identical reason (`parentChildAddDeleteApplyReasonKey`), which already
+ * has its own dedicated, more specific Notice text ("this new item's
+ * text can't include a line break") rather than either generic message.
+ */
+function leafFirstChildApplyReasonKey(reason: ApplyLeafFirstChildRejectReason): TranslationKey {
+  switch (reason) {
+    case "own-text-conflict":
+      return "partialEdit.parentChildInlineEditConflict";
+    case "new-child-unsafe-structure":
+      return "partialEdit.parentChildNewChildStructureInvalid";
+    case "leaf-not-found":
+    case "leaf-has-children":
+    case "leaf-unsafe-indent":
+    case "leaf-complex-block":
+    case "candidate-structure-invalid":
+      return "partialEdit.parentChildInlineEditResolveFailed";
+  }
+}
 
 export class PartialEditView extends ItemView {
   // Shared with OutlineTreeView via plugin.activeMarkdownView, not a local
@@ -236,6 +502,219 @@ export class PartialEditView extends ItemView {
    * kind, a quote block with no body to project, and a fresh empty pane).
    */
   private quoteProjection: QuotePrefixProjection | null = null;
+  /**
+   * Phase 5L-1 ("Standalone Single-Line Unordered List Marker-Free
+   * Partial Edit"): set (never for a section/paragraph/callout/
+   * blockquote, and never for a list item ineligible per
+   * edit/standaloneListMarkerProjection.ts#isStandaloneListItemEligibleForMarkerFreeProjection
+   * or whose single line fails to build via
+   * edit/listMarkerProjection.ts#buildListMarkerProjection — see
+   * loadNodeInternal) when the loaded node is a STANDALONE (never part of
+   * a CompositeBlock — that case uses the separate `listMarkerProjection`
+   * field below, feeding the separate `compositeListInputEl`, never this
+   * pane's shared `textareaEl`) single-line unordered leaf list item whose
+   * marker is currently hidden from the textarea. `originalText` above
+   * ALWAYS stays the raw, marker-included snapshot regardless of this
+   * field — see currentDisplayText's doc comment for the one place the
+   * two are reconciled, mirroring exactly how `quoteProjection` above
+   * already relates to `originalText`. null means "show `originalText`
+   * verbatim" (every non-eligible list item, every non-list kind, and a
+   * fresh empty pane).
+   */
+  private standaloneListMarkerProjection: ListMarkerProjection | null = null;
+  /**
+   * Phase 5L-2 ("Task List Marker-Free Partial Edit"): the standalone
+   * task-list-item counterpart of standaloneListMarkerProjection
+   * immediately above — mutually exclusive with it by construction (see
+   * buildStandaloneListProjections's own doc comment: at most one of the
+   * two is ever non-null). Set when the loaded node is a STANDALONE
+   * single-line unordered leaf task-list item whose marker AND checkbox
+   * are both currently hidden from the shared textarea — the checkbox's
+   * own completion state instead drives taskCheckboxInputEl.checked (see
+   * renderTaskCheckboxRow). `originalText` above ALWAYS stays the raw,
+   * marker+checkbox-included snapshot regardless of this field — see
+   * currentDisplayText's own doc comment for the one place all of
+   * quoteProjection/standaloneListMarkerProjection/this field are
+   * reconciled. null means "show originalText verbatim, or
+   * standaloneListMarkerProjection's own body if THAT is set instead"
+   * (every non-task-list item, every ineligible item, every non-list
+   * kind, and a fresh empty pane).
+   */
+  private standaloneTaskListProjection: TaskListProjection | null = null;
+  /**
+   * Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): the standalone
+   * ordered-list-item counterpart of standaloneListMarkerProjection/
+   * standaloneTaskListProjection immediately above — mutually exclusive
+   * with BOTH by construction (see buildStandaloneListProjections's own
+   * doc comment: at most one of the three is ever non-null). Set when the
+   * loaded node is a STANDALONE single-line ordered leaf list item whose
+   * number marker is currently hidden from the shared textarea — the
+   * item's own leading number instead drives orderedNumberInputEl.value
+   * (see renderOrderedNumberRow). `originalText` above ALWAYS stays the
+   * raw, number-marker-included snapshot regardless of this field — see
+   * currentDisplayText's own doc comment for the one place all of
+   * quoteProjection/standaloneListMarkerProjection/
+   * standaloneTaskListProjection/this field are reconciled. null means
+   * "show originalText verbatim, or one of the other two projections' own
+   * body if THAT is set instead" (every non-ordered item, every
+   * ineligible item, every non-list kind, and a fresh empty pane).
+   */
+  private standaloneOrderedListProjection: OrderedListProjection | null = null;
+  /**
+   * Phase 5L-4 ("Multi-Line Leaf List Item Partial Edit Projection"): the
+   * standalone MULTI-line-leaf-item counterpart of
+   * standaloneListMarkerProjection/standaloneTaskListProjection/
+   * standaloneOrderedListProjection immediately above — mutually
+   * exclusive with all three by construction (see loadNodeInternal's own
+   * doc comment: this is only ever attempted once all three single-line
+   * builders have already returned null for the same node). Set when the
+   * loaded node is a STANDALONE, CHILD-LIST-FREE leaf list item whose own
+   * range spans MORE than one line, and whose structural marker
+   * (unordered/task/ordered) is currently hidden from the shared
+   * textarea's own MULTI-line value — the item's own checkbox/number (for
+   * a task/ordered kind) still drives taskCheckboxInputEl.checked/
+   * orderedNumberInputEl.value exactly like the single-line case (see
+   * renderTaskCheckboxRow/renderOrderedNumberRow). `originalText` above
+   * ALWAYS stays the raw, marker-included multi-line snapshot regardless
+   * of this field — see currentDisplayText's own doc comment for the one
+   * place all four projection fields are reconciled. null means "show
+   * originalText verbatim, or one of the other three projections' own
+   * body if THAT is set instead" (every single-line-eligible item, every
+   * ineligible item, every non-list kind, and a fresh empty pane).
+   */
+  private standaloneMultiLineListProjection: MultiLineListItemProjection | null = null;
+  /**
+   * Phase 5L-6 ("Parent List Item Structured Partial Edit"): the
+   * standalone PARENT-item counterpart of standaloneListMarkerProjection/
+   * standaloneTaskListProjection/standaloneOrderedListProjection/
+   * standaloneMultiLineListProjection immediately above — mutually
+   * exclusive with all four by construction (only ever attempted once all
+   * four have already returned null for the same node, AND only for a node
+   * with `childIds.length > 0` — see loadNodeInternal's own doc comment).
+   * Set when the loaded node OWNS one or more nested child list items and
+   * its own-text/child-subtree ranges can be safely separated (edit/
+   * parentListItemProjection.ts's own resolveParentListItemOwnTextRange) —
+   * the parent's own marker/checkbox/number stays hidden from the shared
+   * textarea exactly like every sibling projection above, but the shared
+   * textarea's own MULTI-line value here is ONLY the parent's own-text
+   * (never any child-subtree content — see parentChildPreviewEl below for
+   * the SEPARATE, read-only element that shows the child subtree).
+   * `originalText` above ALWAYS stays the raw, FULL-SUBTREE (own-text +
+   * every descendant line) snapshot regardless of this field — see
+   * currentDisplayText's own doc comment for the one place all five
+   * projection fields are reconciled. null means "show originalText
+   * verbatim, or one of the other four projections' own body if THAT is
+   * set instead" (every child-list-free item, every ineligible parent
+   * item, every non-list kind, and a fresh empty pane).
+   */
+  private standaloneParentListItemProjection: ParentListItemProjection | null = null;
+  /**
+   * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+   * Edit Pane"): non-null ONLY while `standaloneParentListItemProjection`
+   * is ALSO non-null (a child can only ever be inline-edited from inside a
+   * successfully-projected parent) AND the user has explicitly opened
+   * exactly one direct child's own inline editor via the small edit
+   * affordance renderParentChildPreview now shows on each ELIGIBLE
+   * (non-selected) row — see edit/parentChildInlineEditSession.ts's own
+   * top doc comment for the full session/eligibility/Apply design. Reset
+   * to null alongside standaloneParentListItemProjection everywhere that
+   * field itself resets (resetLoadedState, loadNodeInternal,
+   * loadParagraphInternal, loadCompositeInternal), plus on a successful
+   * "stop editing this child" action (handleStopChildInlineEdit) and,
+   * on a successful combined Apply, REBUILT fresh (never simply cleared —
+   * see applyParentChildCombinedEdit's own doc comment) so a second Apply
+   * within the same child-editing session starts from a fully current
+   * basis, mirroring every sibling projection field's own post-Apply
+   * rebuild convention.
+   */
+  private childInlineSession: ParentChildInlineEditSession | null = null;
+  /**
+   * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+   * the sibling-preservation baseline + at-most-one-pending-new-child-draft
+   * + at-most-one-pending-deletion-target for the currently loaded parent
+   * — non-null exactly when `standaloneParentListItemProjection` is
+   * non-null (built alongside it — see buildParentChildAddDeleteSession's
+   * own doc comment), reset to null everywhere THAT field itself resets.
+   * Independent of `childInlineSession` above: a pending new-child draft
+   * and/or a pending deletion target can coexist with an open EXISTING
+   * child's own inline editor for a DIFFERENT child, all in the same
+   * session — see ParentChildAddDeleteSession's own doc comment for the
+   * exact "three independent slots" contract this field is one half of.
+   */
+  private childAddDeleteSession: ParentChildAddDeleteSession | null = null;
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): the ONE pending "promote this standalone leaf to a parent by
+   * giving it a first child" draft — non-null only while one of the four
+   * standalone-leaf projections (standaloneListMarkerProjection/
+   * standaloneTaskListProjection/standaloneOrderedListProjection/
+   * standaloneMultiLineListProjection) is active and
+   * standaloneParentListItemProjection is still null (Mode B is never
+   * reachable once the node is already a real parent — that is exactly
+   * what Mode A/childAddDeleteSession above is for). Deliberately a
+   * SEPARATE field from childAddDeleteSession, never a reuse of it — this
+   * codebase's own established invariant is that childAddDeleteSession is
+   * non-null EXACTLY when standaloneParentListItemProjection is (see that
+   * field's own doc comment), which this field's own "only while there is
+   * NO real parent projection yet" contract is the deliberate mirror
+   * image of. Its own `draft` (a plain NewChildDraft, the exact same
+   * shape Mode A's own newChildDraft already is) is read by
+   * renderNewChildEditor/isNewChildDraftDirty ALONGSIDE (never instead
+   * of) childAddDeleteSession?.newChildDraft — the two are mutually
+   * exclusive by construction, so reusing the SAME pending-new-child
+   * editor UI for both needed no new controls, only a second place for
+   * that UI's own draft resolution to look. Reset to null everywhere
+   * standaloneParentListItemProjection's own sibling fields already reset
+   * (resetLoadedState, loadNodeInternal, loadParagraphInternal,
+   * loadCompositeInternal), plus on a successful/discarded "stop this
+   * pending first child" action and a full pane-level Cancel — see
+   * handleStopNewChildDraft's/cancelEdit's own doc comments.
+   */
+  private pendingLeafFirstChild: PendingLeafFirstChild | null = null;
+  /**
+   * Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): the structured
+   * CompositeBlock session's own "before editing" snapshot for the LIST
+   * member — the counterpart, for the list member, of what a callout's
+   * own titleSlot.title plays for the trailing member's title. null
+   * whenever nodeKind !== "composite", or for a composite that fell back
+   * to the existing raw whole-range textarea (edit/
+   * compositeBlockMemberProjection.ts#splitCompositeBlockMembers failed,
+   * or the trailing member itself failed to project) — see
+   * loadCompositeInternal. Always set together with (never independently
+   * of) this.quoteProjection for a structured composite session: exactly
+   * one of "both null" (raw fallback / non-composite) or "both non-null"
+   * (structured composite) ever holds.
+   *
+   * Phase 5D-2C ("marker-free single-line-list member projection"): holds
+   * `listMarkerProjection.body` (the marker-free editable text) whenever
+   * listMarkerProjection below is ALSO non-null; holds the list member's
+   * own RAW line (marker included, unchanged from 5D-2B's own original
+   * behavior) whenever listMarkerProjection is null — a `single-line-list`
+   * member whose marker is ordered, a task-list checkbox, or otherwise
+   * unprojectable (see edit/listMarkerProjection.ts's own refusal
+   * reasons), or a defensive non-"single-line-list" kind. Either way this
+   * field is exactly what compositeListInputEl.value is loaded from and
+   * compared against for dirty tracking (isDirty's own listDirty check) —
+   * callers never need to know WHICH of the two states produced it.
+   */
+  private compositeListOriginalText: string | null = null;
+  /**
+   * Phase 5D-2C ("CompositeBlock single-line-list member marker-free
+   * projection"): the structured composite session's own split of the
+   * list member's raw line into indent/marker/markerSpacing/body (edit/
+   * listMarkerProjection.ts, unmodified — see that module's own top doc
+   * comment). null whenever compositeListOriginalText above is null
+   * (nothing loaded, or raw-fallback whole-range textarea), AND also null
+   * whenever compositeListOriginalText holds the list member's RAW line
+   * instead of its marker-free body — i.e. this field being non-null is
+   * exactly the condition that gates the list-member input showing
+   * marker-free text; see renderCompositeListSlot/loadCompositeInternal
+   * for where that gate is applied. Set ONLY for a member whose resolved
+   * kind is "single-line-list" (never the defensive "list" kind — see
+   * this field's own gating in loadCompositeInternal for why) AND whose
+   * raw line builds successfully via buildListMarkerProjection.
+   */
+  private listMarkerProjection: ListMarkerProjection | null = null;
   /**
    * Phase 5C-4: the file path of the note `nodeId` was actually loaded
    * from, recorded once per loadNodeInternal call (never recomputed
@@ -497,7 +976,181 @@ export class PartialEditView extends ItemView {
    * of scope there — see renderQuoteHeader's doc comment).
    */
   private quoteTitleInputEl!: HTMLInputElement;
+  /**
+   * Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): the structured
+   * CompositeBlock session's own list-member row — a single raw-text
+   * `<input>` holding the list member's own one raw line (marker,
+   * indentation, content, all verbatim; this pane never restructures the
+   * list line itself, matching how a standalone list Partial Edit already
+   * shows its raw line unchanged elsewhere in this plugin). Shown ONLY
+   * when this.nodeKind === "composite" AND the CompositeBlock was
+   * successfully split into its two members AND its trailing member
+   * successfully projected (this.quoteProjection !== null) — every other
+   * case (a non-composite kind, or a composite that fell back to the
+   * existing raw whole-range textarea) hides this row and leaves
+   * compositeListOriginalText null. See renderCompositeListSlot, the
+   * single place that toggles/populates it.
+   *
+   * 2026-09-14 (real-device follow-up): this row, and the trailing
+   * member's own kind label (formerly a separate compositeTrailingLabelEl
+   * field above the reused quoteHeaderEl/textareaEl pair), both
+   * originally carried a read-only text label ("List item" / "Callout" /
+   * "Quote"). Removed as redundant: the pane's own title already states
+   * the kind ("編集中(拡張ブロック): List + Callout" / "List + Quote"), and
+   * each row's own visual prefix (the list marker verbatim in this input;
+   * the callout/blockquote symbol in quoteHeaderEl below) already says
+   * the same thing at a glance. See
+   * docs/phase5d2b_composite-block-structured-partial-edit.md for the
+   * full record of this follow-up.
+   */
+  private compositeListRowEl!: HTMLElement;
+  private compositeListInputEl!: HTMLInputElement;
+  /**
+   * Phase 5L-2 ("Task List Marker-Free Partial Edit"): the standalone
+   * task-list item's own checkbox row — created once in onOpen (like
+   * every other row in this class), visibility/content toggled per-load
+   * by renderTaskCheckboxRow. Sits directly above the REUSED textareaEl
+   * (the marker-free/checkbox-free body editor for the SAME item) — see
+   * standaloneTaskListProjection's own field doc comment for the exact
+   * condition that shows this row.
+   */
+  private taskCheckboxRowEl!: HTMLElement;
+  private taskCheckboxInputEl!: HTMLInputElement;
+  /**
+   * Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): the standalone
+   * ordered-list item's own number row — created once in onOpen (like
+   * every other row in this class), visibility/content toggled per-load
+   * by renderOrderedNumberRow. Sits directly above the REUSED textareaEl
+   * (the marker-free body editor for the SAME item) — see
+   * standaloneOrderedListProjection's own field doc comment for the exact
+   * condition that shows this row. A plain text input (never
+   * type="number") — see edit/orderedListProjection.ts's own top doc
+   * comment's "The number field" section for why this pane never relies
+   * on an HTML number input's own browser-side coercion/validation for
+   * correctness.
+   */
+  private orderedNumberRowEl!: HTMLElement;
+  private orderedNumberInputEl!: HTMLInputElement;
   private textareaEl!: HTMLTextAreaElement;
+  /**
+   * Phase 5L-6 ("Parent List Item Structured Partial Edit"): the READ-ONLY
+   * child-subtree preview — created once in onOpen, visibility/content
+   * toggled per-load/per-reload by renderParentChildPreview. Sits directly
+   * BELOW the shared textareaEl (which, for a parent item, shows ONLY the
+   * parent's own-text — see standaloneParentListItemProjection's own field
+   * doc comment), never above it, so the pane reads top-to-bottom as
+   * "editable own text, then a read-only look at what's nested under it".
+   * `parentChildPreviewBodyEl` renders the child subtree's raw Markdown
+   * verbatim, one line per row (`white-space: pre` — see styles.css), which
+   * is what makes the child hierarchy's own indentation visible without
+   * this pane re-implementing any tree-drawing of its own (per this
+   * ticket's own explicit "既存のインデント表現をそのまま活かす" design
+   * choice — see edit/parentListItemProjection.ts's own top doc comment).
+   * Every row carries `aria-readonly="true"`/`data-readonly="true"` and no
+   * click handler of any kind is ever attached to it — per this ticket's
+   * own explicit scope, a child item is never directly editable from
+   * inside this preview; the pane's own PRE-EXISTING Subtree Navigator
+   * (renderSubtreeNavigator, unmodified by this ticket) already offers a
+   * safe, guarded (requestLoadNode-routed) way to open a child as its own
+   * separate Partial Edit session, and this preview deliberately does not
+   * duplicate or replace that. `parentChildPreviewTruncatedEl` shows a
+   * visible "…and N more lines" indicator whenever the child subtree
+   * exceeds PARENT_CHILD_PREVIEW_MAX_LINES, so an unexpectedly huge
+   * subtree never makes this pane unusably tall.
+   */
+  private parentChildPreviewEl!: HTMLElement;
+  private parentChildPreviewLabelEl!: HTMLElement;
+  /**
+   * Phase 5L-9 follow-up fix: the label TEXT lives in its own child span,
+   * separate from parentChildPreviewLabelEl itself (the header ROW, which
+   * also contains parentChildAddButtonEl as a sibling element). Renaming
+   * the bug this fixes so it's easy to find later: renderParentChildPreview
+   * used to call `this.parentChildPreviewLabelEl.setText(...)` directly on
+   * every render — but `setText` replaces ALL of an element's children
+   * with a single text node, which silently detached parentChildAddButtonEl
+   * (created as that same element's child) from the DOM on every render,
+   * making the "+" button invisible even though the code that configures
+   * its disabled/tooltip state right after ran without error (it was still
+   * mutating a live JS reference, just one no longer attached to the page).
+   * renderParentChildPreview now calls `.setText` on THIS element instead,
+   * leaving parentChildAddButtonEl (a sibling, not a child of this span)
+   * untouched by every re-render.
+   */
+  private parentChildPreviewLabelTextEl!: HTMLElement;
+  private parentChildPreviewBodyEl!: HTMLElement;
+  private parentChildPreviewTruncatedEl!: HTMLElement;
+  /** Phase 5L-6: see parentChildPreviewEl's own doc comment's last sentence. */
+  private static readonly PARENT_CHILD_PREVIEW_MAX_LINES = 200;
+  /**
+   * Phase 5L-8: the ONE inline structured editor for the currently-selected
+   * direct child (`childInlineSession` non-null) — created once in onOpen,
+   * placed directly BELOW the read-only preview (parentChildPreviewEl),
+   * toggled/populated per-load/per-reload/per-Apply by
+   * renderChildInlineEditor. Deliberately a SEPARATE small set of controls
+   * (its own checkbox/number-input/textarea), never a re-use of the
+   * pane-level taskCheckboxInputEl/orderedNumberInputEl/textareaEl — those
+   * three are already showing the PARENT's own own-text at the same time
+   * this panel is open, and both must remain independently visible and
+   * editable together (this ticket's own explicit "同時に編集可能" design).
+   * Carries its own CSS modifier classes (styles.css) so it reads as
+   * visually NESTED under the parent's own controls (indentation/
+   * background/border), never confusable with them. No separate Apply/
+   * Cancel of its own — only `childInlineStopButtonEl` ("stop editing this
+   * child", discards ONLY the child draft — see handleStopChildInlineEdit)
+   * and the pane-level Apply/Cancel buttons ever touch this panel's state.
+   */
+  private childInlineEditorEl!: HTMLElement;
+  private childInlineEditorLabelEl!: HTMLElement;
+  private childInlineStopButtonEl!: HTMLButtonElement;
+  private childInlineTaskCheckboxRowEl!: HTMLElement;
+  private childInlineTaskCheckboxInputEl!: HTMLInputElement;
+  private childInlineOrderedNumberRowEl!: HTMLElement;
+  private childInlineOrderedNumberInputEl!: HTMLInputElement;
+  private childInlineTextareaEl!: HTMLTextAreaElement;
+  /**
+   * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+   * the small "Add child item" control — sits inside
+   * parentChildPreviewLabelEl's own row (the child-preview HEADER, per
+   * this ticket's own §10 placement choice), so it is visible whenever
+   * the read-only child preview itself is (i.e. whenever
+   * standaloneParentListItemProjection is non-null), usable even while
+   * the preview currently has zero VISIBLE rows (every existing child
+   * pending-deletion — see renderParentChildPreview). Disabled (never
+   * hidden — a hidden control cannot explain itself via tooltip) while a
+   * new-child draft is already pending, per this ticket's own
+   * "prevent double-add" requirement.
+   */
+  private parentChildAddButtonEl!: HTMLButtonElement;
+  /**
+   * Phase 5L-9: the ONE inline structured editor for a pending NEW direct
+   * child — created once here, toggled/populated per-load/per-reload/
+   * per-Apply by renderNewChildEditor. Deliberately a SEPARATE small set
+   * of controls from childInlineEditorEl immediately above (an existing
+   * child's own inline editor) — both must be able to show at once (§6's
+   * own "three independent slots" contract). Always just ONE textarea (no
+   * checkbox/number row — the new child's own shape is fixed to
+   * unordered/non-task, see edit/parentChildInlineEditSession.ts's own
+   * NewChildDraft doc comment), unlike childInlineEditorEl's own three
+   * possible control kinds.
+   */
+  private newChildEditorEl!: HTMLElement;
+  private newChildEditorLabelEl!: HTMLElement;
+  private newChildStopButtonEl!: HTMLButtonElement;
+  private newChildTextareaEl!: HTMLTextAreaElement;
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): the "add a first child" row for a STANDALONE leaf item — a
+   * SEPARATE control from parentChildAddButtonEl above (that one lives
+   * inside parentChildPreviewEl, which stays hidden whenever there is no
+   * REAL parent projection yet; this one is its own top-level row,
+   * visible whenever one of the four standalone-leaf projections is
+   * active — see renderLeafFirstChildAddRow's own doc comment). Sits
+   * directly below the shared body textarea/checkbox/number rows, mirrors
+   * parentChildAddButtonEl's own plus-icon/tooltip/stopPropagation
+   * conventions exactly.
+   */
+  private leafFirstChildAddRowEl!: HTMLElement;
+  private leafFirstChildAddButtonEl!: HTMLButtonElement;
   private applyButtonEl!: HTMLButtonElement;
   private cancelButtonEl!: HTMLButtonElement;
   private closeButtonEl!: HTMLElement;
@@ -687,6 +1340,26 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-subtree-nav",
     });
 
+    // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): the structured
+    // CompositeBlock session's own list-member row — created once here
+    // (like every other row in this method), visibility/content toggled
+    // per-load by renderCompositeListSlot. Sits directly above the REUSED
+    // quoteHeaderEl/textareaEl pair below (also reused verbatim for the
+    // trailing callout/blockquote member) — see compositeListRowEl's own
+    // field doc comment for the exact condition that shows this row.
+    this.compositeListRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-composite-list-row",
+    });
+    this.compositeListInputEl = this.compositeListRowEl.createEl("input", {
+      type: "text",
+      cls: "unified-outliner-partial-edit-composite-list-input",
+    });
+    // Same dirty-tracking policy as quoteTitleInputEl/textareaEl's own
+    // listeners further below — every keystroke here must also re-check
+    // isDirty(), since isDirty() now considers this input too (see
+    // isDirty's own listDirty computation).
+    this.compositeListInputEl.addEventListener("input", () => this.updateDirtyState());
+
     // Phase 5D-0.5: created once here (like every other row in this
     // method), visibility/content toggled per-load by renderQuoteHeader —
     // same "create once in onOpen, mutate on each render" policy as
@@ -772,6 +1445,44 @@ export class PartialEditView extends ItemView {
     // isDirty(), since isDirty() now considers the title input too.
     this.quoteTitleInputEl.addEventListener("input", () => this.updateDirtyState());
 
+    // Phase 5L-2 ("Task List Marker-Free Partial Edit"): created once here
+    // (like every other row in this method), visibility/content toggled
+    // per-load by renderTaskCheckboxRow. Sits directly above the shared
+    // textareaEl below, which this same standalone task-list item's own
+    // marker-free/checkbox-free BODY editor reuses unchanged.
+    this.taskCheckboxRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-task-checkbox-row",
+    });
+    this.taskCheckboxInputEl = this.taskCheckboxRowEl.createEl("input", {
+      type: "checkbox",
+      cls: "unified-outliner-partial-edit-task-checkbox-input",
+    });
+    setTooltip(this.taskCheckboxInputEl, this.plugin.t("partialEdit.taskCheckboxLabel"));
+    // Same dirty-tracking policy as compositeListInputEl's own listener
+    // above — every toggle here must also re-check isDirty(), since
+    // isDirty() now considers this checkbox too (see isDirty's own
+    // taskCheckedDirty check).
+    this.taskCheckboxInputEl.addEventListener("change", () => this.updateDirtyState());
+
+    // Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): created once
+    // here (like every other row in this method), visibility/content
+    // toggled per-load by renderOrderedNumberRow. Sits directly above the
+    // shared textareaEl below, which this same standalone ordered-list
+    // item's own marker-free BODY editor reuses unchanged.
+    this.orderedNumberRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-ordered-number-row",
+    });
+    this.orderedNumberInputEl = this.orderedNumberRowEl.createEl("input", {
+      type: "text",
+      cls: "unified-outliner-partial-edit-ordered-number-input",
+    });
+    setTooltip(this.orderedNumberInputEl, this.plugin.t("partialEdit.orderedNumberLabel"));
+    // Same dirty-tracking policy as taskCheckboxInputEl's own listener
+    // above — every keystroke here must also re-check isDirty(), since
+    // isDirty() now considers this input too (see isDirty's own
+    // orderedNumberDirty check).
+    this.orderedNumberInputEl.addEventListener("input", () => this.updateDirtyState());
+
     this.textareaEl = this.contentEl.createEl("textarea", {
       cls: "unified-outliner-partial-edit-textarea",
     });
@@ -781,6 +1492,161 @@ export class PartialEditView extends ItemView {
     // (originalText, or — Phase 5D-0.5 — the projected displayText for a
     // projecting callout/blockquote; see isDirty/currentDisplayText).
     this.textareaEl.addEventListener("input", () => this.updateDirtyState());
+
+    // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
+    // Mode B"): the "add a first child" row for a STANDALONE leaf item —
+    // sits directly below the shared body textarea (created immediately
+    // above), BEFORE parentChildPreviewEl (created immediately below),
+    // since that one only ever becomes visible once this leaf has
+    // actually become a real parent (Apply). Toggled/populated
+    // per-load/per-reload by renderLeafFirstChildAddRow. No `input`/
+    // `change` listener of any kind on this row itself — only its own
+    // button below has a click handler, mirroring parentChildAddButtonEl's
+    // own identical structure.
+    this.leafFirstChildAddRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-leaf-first-child-add-row",
+    });
+    this.leafFirstChildAddButtonEl = this.leafFirstChildAddRowEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-leaf-first-child-add-button",
+      attr: { type: "button" },
+    });
+    setIcon(this.leafFirstChildAddButtonEl, "plus");
+    setTooltip(this.leafFirstChildAddButtonEl, this.plugin.t("partialEdit.leafFirstChildAddButtonLabel"));
+    this.leafFirstChildAddButtonEl.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      this.handleRequestAddLeafFirstChild();
+    });
+    this.leafFirstChildAddRowEl.toggleVisibility(false);
+
+    // Phase 5L-6 ("Parent List Item Structured Partial Edit"): the
+    // read-only child-subtree preview — sits directly BELOW textareaEl
+    // (created above), toggled per-load/per-reload by
+    // renderParentChildPreview. See parentChildPreviewEl's own field doc
+    // comment for the full rationale. No `input`/`change` listener of any
+    // kind on this element or its children — it is never editable, so
+    // isDirty()/updateDirtyState never need to observe it.
+    this.parentChildPreviewEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-parent-child-preview",
+    });
+    this.parentChildPreviewLabelEl = this.parentChildPreviewEl.createDiv({
+      cls: "unified-outliner-partial-edit-parent-child-preview-label",
+    });
+    // Phase 5L-9 follow-up fix: dedicated text-only child span — see this
+    // field's own doc comment for why renderParentChildPreview must never
+    // call `.setText` on parentChildPreviewLabelEl itself once it also
+    // holds parentChildAddButtonEl as a child.
+    this.parentChildPreviewLabelTextEl = this.parentChildPreviewLabelEl.createSpan({
+      cls: "unified-outliner-partial-edit-parent-child-preview-label-text",
+    });
+    // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+    // the "Add child item" control sits in the SAME row as the read-only
+    // preview's own label (§10's own "child-preview header" placement) —
+    // a genuinely separate control from anything in the parent's own
+    // body textarea above it, so its own click handler always stops
+    // propagation (see handleRequestAddChild) even though this label row
+    // itself has no OTHER click handler to guard against today.
+    this.parentChildAddButtonEl = this.parentChildPreviewLabelEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-parent-child-add-button",
+      attr: { type: "button" },
+    });
+    setIcon(this.parentChildAddButtonEl, "plus");
+    setTooltip(this.parentChildAddButtonEl, this.plugin.t("partialEdit.parentChildAddButtonLabel"));
+    this.parentChildAddButtonEl.addEventListener("click", (evt) => {
+      evt.stopPropagation();
+      this.handleRequestAddChild();
+    });
+    this.parentChildPreviewBodyEl = this.parentChildPreviewEl.createDiv({
+      cls: "unified-outliner-partial-edit-parent-child-preview-body",
+    });
+    this.parentChildPreviewBodyEl.setAttribute("aria-readonly", "true");
+    this.parentChildPreviewBodyEl.setAttribute("data-readonly", "true");
+    this.parentChildPreviewTruncatedEl = this.parentChildPreviewEl.createDiv({
+      cls: "unified-outliner-partial-edit-parent-child-preview-truncated",
+    });
+
+    // Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+    // Edit Pane"): the ONE inline structured editor for the currently-
+    // selected direct child — created once here (like every other row in
+    // this method), toggled/populated per-load/per-reload/per-Apply by
+    // renderChildInlineEditor. See childInlineEditorEl's own field doc
+    // comment for the full rationale.
+    this.childInlineEditorEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-child-inline-editor",
+    });
+    const childInlineHeaderEl = this.childInlineEditorEl.createDiv({
+      cls: "unified-outliner-partial-edit-child-inline-header",
+    });
+    this.childInlineEditorLabelEl = childInlineHeaderEl.createSpan({
+      cls: "unified-outliner-partial-edit-child-inline-label",
+    });
+    this.childInlineStopButtonEl = childInlineHeaderEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-child-inline-stop",
+      text: this.plugin.t("partialEdit.parentChildInlineEditStopLabel"),
+    });
+    this.childInlineStopButtonEl.addEventListener("click", () => this.handleStopChildInlineEdit());
+
+    this.childInlineTaskCheckboxRowEl = this.childInlineEditorEl.createDiv({
+      cls: "unified-outliner-partial-edit-task-checkbox-row unified-outliner-partial-edit-child-inline-row",
+    });
+    this.childInlineTaskCheckboxInputEl = this.childInlineTaskCheckboxRowEl.createEl("input", {
+      type: "checkbox",
+      cls: "unified-outliner-partial-edit-task-checkbox-input",
+    });
+    setTooltip(this.childInlineTaskCheckboxInputEl, this.plugin.t("partialEdit.taskCheckboxLabel"));
+    this.childInlineTaskCheckboxInputEl.addEventListener("change", () => this.updateDirtyState());
+
+    this.childInlineOrderedNumberRowEl = this.childInlineEditorEl.createDiv({
+      cls: "unified-outliner-partial-edit-ordered-number-row unified-outliner-partial-edit-child-inline-row",
+    });
+    this.childInlineOrderedNumberInputEl = this.childInlineOrderedNumberRowEl.createEl("input", {
+      type: "text",
+      cls: "unified-outliner-partial-edit-ordered-number-input",
+    });
+    setTooltip(this.childInlineOrderedNumberInputEl, this.plugin.t("partialEdit.orderedNumberLabel"));
+    this.childInlineOrderedNumberInputEl.addEventListener("input", () => this.updateDirtyState());
+
+    this.childInlineTextareaEl = this.childInlineEditorEl.createEl("textarea", {
+      cls: "unified-outliner-partial-edit-textarea unified-outliner-partial-edit-child-inline-textarea",
+    });
+    this.childInlineTextareaEl.addEventListener("input", () => this.updateDirtyState());
+    this.childInlineEditorEl.toggleVisibility(false);
+
+    // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+    // the pending new-child's own inline editor — see newChildEditorEl's
+    // own field doc comment for why this is a SEPARATE panel from
+    // childInlineEditorEl immediately above. Just a header (label + a
+    // "cancel this new item" button, mirroring childInlineStopButtonEl's
+    // own row exactly) and one textarea — no checkbox/number row, since
+    // the new child's own shape is always unordered/non-task.
+    this.newChildEditorEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-child-inline-editor unified-outliner-partial-edit-new-child-editor",
+    });
+    const newChildHeaderEl = this.newChildEditorEl.createDiv({
+      cls: "unified-outliner-partial-edit-child-inline-header",
+    });
+    this.newChildEditorLabelEl = newChildHeaderEl.createSpan({
+      cls: "unified-outliner-partial-edit-child-inline-label",
+      text: this.plugin.t("partialEdit.parentChildNewChildPanelLabel"),
+    });
+    this.newChildStopButtonEl = newChildHeaderEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-child-inline-stop",
+      text: this.plugin.t("partialEdit.parentChildNewChildStopLabel"),
+    });
+    // Phase 5L-9b: dispatches to whichever of the two mutually-exclusive
+    // "stop this pending new-child draft" handlers actually applies —
+    // see handleStopLeafFirstChildDraft's own doc comment.
+    this.newChildStopButtonEl.addEventListener("click", () => {
+      if (this.pendingLeafFirstChild) {
+        this.handleStopLeafFirstChildDraft();
+      } else {
+        this.handleStopNewChildDraft();
+      }
+    });
+    this.newChildTextareaEl = this.newChildEditorEl.createEl("textarea", {
+      cls: "unified-outliner-partial-edit-textarea unified-outliner-partial-edit-child-inline-textarea",
+    });
+    this.newChildTextareaEl.addEventListener("input", () => this.updateDirtyState());
+    this.newChildEditorEl.toggleVisibility(false);
 
     // Real-device follow-up: keep exactly one visible close affordance.
     // See updateCloseButtonVisibility's doc comment for why a lone leaf
@@ -923,6 +1789,34 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = null;
     this.originalText = "";
     this.quoteProjection = null;
+    // Phase 5L-1: reset alongside quoteProjection above — see this
+    // field's own doc comment.
+    this.standaloneListMarkerProjection = null;
+    // Phase 5L-2: reset alongside standaloneListMarkerProjection above —
+    // see this field's own doc comment.
+    this.standaloneTaskListProjection = null;
+    // Phase 5L-3: reset alongside standaloneTaskListProjection above —
+    // see this field's own doc comment.
+    this.standaloneOrderedListProjection = null;
+    // Phase 5L-4: reset alongside standaloneOrderedListProjection above —
+    // see this field's own doc comment.
+    this.standaloneMultiLineListProjection = null;
+    // Phase 5L-6: reset alongside standaloneMultiLineListProjection above —
+    // see this field's own doc comment.
+    this.standaloneParentListItemProjection = null;
+    // Phase 5L-8: reset alongside standaloneParentListItemProjection above
+    // — see this field's own doc comment (a child inline session can only
+    // ever exist alongside a live parent projection).
+    this.childInlineSession = null;
+    // Phase 5L-9: reset alongside childInlineSession above — see
+    // ParentChildAddDeleteSession's own doc comment (its lifecycle exactly
+    // mirrors standaloneParentListItemProjection/childInlineSession).
+    this.childAddDeleteSession = null;
+    this.pendingLeafFirstChild = null;
+    this.compositeListOriginalText = null;
+    // Phase 5D-2C: reset alongside compositeListOriginalText above — see
+    // this field's own doc comment for why the two are never independent.
+    this.listMarkerProjection = null;
     this.label = "";
     this.sourcePath = null;
     this.ancestors = [];
@@ -1135,6 +2029,36 @@ export class PartialEditView extends ItemView {
       label = complexBlock ? standaloneComplexBlockLabel(doc, complexBlock, t) : "";
     }
 
+    // Phase 5L-1/5L-2: analogous gate for a standalone single-line
+    // unordered leaf list item — deliberately AFTER the quote gate above
+    // (mutually exclusive: extracted.kind is never simultaneously "list"
+    // and "callout"/"blockquote") and, like it, strictly BEFORE any field
+    // on this pane is mutated below. Unlike the quote gate, there is no
+    // hard-refusal branch here at all — per Phase 5L-1's own explicit
+    // scope (unchanged by Phase 5L-2), an ineligible list item is NEVER
+    // refused opening, only shown raw (see
+    // edit/standaloneListMarkerProjection.ts's own doc comment for why
+    // structural eligibility alone can be decided from `node` without
+    // looking at its text).
+    //
+    // Phase 5L-2: buildStandaloneListProjections (below) tries the
+    // non-task ListMarkerProjection first and, ONLY on its own
+    // "task-list-marker" refusal, the task-list TaskListProjection — see
+    // that method's own doc comment for why the two are mutually
+    // exclusive by construction, and why a structurally-eligible item can
+    // still legitimately fall back to raw here (an ordered marker, or a
+    // task checkbox whose own status character this ticket's minimal
+    // scope doesn't support — edit/taskListProjection.ts's own
+    // "unsupported-status" refusal).
+    // Phase 5L-12: the five-tier eligibility-check-then-builder-call
+    // chain that used to be duplicated inline here is now the single
+    // shared resolveStandaloneListProjections — see its own doc comment.
+    // `extracted.kind === "list"` (this method's own prior explicit gate
+    // on every one of the five checks) is provably equivalent to
+    // `node !== undefined && isListNode(node)` (extractSubtreeText's own
+    // kind assignment is itself driven by that exact same check — see
+    // edit/partialEdit.ts's own implementation), so dropping it here
+    // changes nothing observable.
     this.nodeId = nodeId;
     this.nodeKind = extracted.kind;
     // Phase 5P-2/5D-2A: clear any previously-loaded paragraph/composite
@@ -1144,6 +2068,33 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = null;
     this.originalText = extracted.text;
     this.quoteProjection = quoteProjection;
+    // Phase 5L-12: the five-tier projection chain
+    // (standaloneListMarkerProjection/standaloneTaskListProjection/
+    // standaloneOrderedListProjection/standaloneMultiLineListProjection/
+    // standaloneParentListItemProjection), the Mode A/B session fields
+    // (childAddDeleteSession/childInlineSession/pendingLeafFirstChild),
+    // and the ancestors/directChildren/siblingState triple are all now
+    // derived by the single shared reconcileStandaloneNodeState — see
+    // its own doc comment. This replaces what used to be ~90 lines of
+    // eligibility checks, builder calls, and field assignments
+    // independently duplicated (and, before this phase, silently
+    // drifting out of sync with) performAutoReload's and each Apply
+    // success rebuild's own copies of the same logic.
+    this.reconcileStandaloneNodeState(doc, nodeId, node, extracted.text);
+    // 2026-09-14 (regression fix): a fresh node load must clear any
+    // structured-composite list-member snapshot left behind by a PRIOR
+    // composite session — otherwise isDirty()'s listDirty check compares
+    // this unrelated node's (always-empty, since nodeKind !== "composite"
+    // here) compositeListInputEl.value against that stale non-null
+    // snapshot and reads dirty on every switch, even with zero edits.
+    // Mirrors quoteProjection's own reset immediately above, which this
+    // ticket's own investigation found was the ONLY field of its kind
+    // being reset here — compositeListOriginalText was missed when
+    // Phase 5D-2B added it (see loadParagraphInternal's identical fix).
+    this.compositeListOriginalText = null;
+    // Phase 5D-2C: reset alongside compositeListOriginalText above — see
+    // this field's own doc comment for why the two are never independent.
+    this.listMarkerProjection = null;
     this.label = label;
     // Phase 5C-4: recorded fresh on every load, from the SAME `view` this
     // method already resolved `doc` from above — see the class field's own
@@ -1154,21 +2105,6 @@ export class PartialEditView extends ItemView {
     // just read from — see the `syncState` field's own doc comment for
     // when this gets set to anything else.
     this.syncState = "synced";
-    // Phase 5C-2: breadcrumb / sibling nav / Subtree Navigator stay at
-    // their empty state for a callout/blockquote — this ticket's own
-    // approved scope explicitly leaves those three unextended
-    // ("complex 対応は今回実装しない"). findAncestorPath/findDirectChildren/
-    // getSiblingNavigationState are all doc.nodes-based (BlockNode-only)
-    // and are simply not called for a node that isn't one.
-    if (node) {
-      this.ancestors = findAncestorPath(doc, nodeId, t);
-      this.directChildren = findDirectChildren(doc, nodeId, t);
-      this.siblingState = getSiblingNavigationState(doc, nodeId, t);
-    } else {
-      this.ancestors = [];
-      this.directChildren = [];
-      this.siblingState = { previous: null, next: null };
-    }
     this.renderLoadedState();
   }
 
@@ -1218,6 +2154,42 @@ export class PartialEditView extends ItemView {
     // was just showing a projected quote body doesn't leave a stale
     // projection behind for currentDisplayText/isDirty to trip over.
     this.quoteProjection = null;
+    // Phase 5L-1: reset alongside quoteProjection above — see this
+    // field's own doc comment (a paragraph is never eligible for
+    // marker-free list projection).
+    this.standaloneListMarkerProjection = null;
+    // Phase 5L-2: reset alongside standaloneListMarkerProjection above —
+    // see this field's own doc comment.
+    this.standaloneTaskListProjection = null;
+    // Phase 5L-3: reset alongside standaloneTaskListProjection above —
+    // see this field's own doc comment (a paragraph is never eligible for
+    // ordered-list marker-free projection either).
+    this.standaloneOrderedListProjection = null;
+    // Phase 5L-4: reset alongside standaloneOrderedListProjection above —
+    // see this field's own doc comment (a paragraph is never eligible for
+    // multi-line marker-free projection either).
+    this.standaloneMultiLineListProjection = null;
+    // Phase 5L-6: reset alongside standaloneMultiLineListProjection above
+    // — see this field's own doc comment (a paragraph is never eligible
+    // for parent structured projection either).
+    this.standaloneParentListItemProjection = null;
+    // Phase 5L-8: reset alongside standaloneParentListItemProjection above
+    // — see this field's own doc comment.
+    this.childInlineSession = null;
+    // Phase 5L-9: reset alongside childInlineSession above — see
+    // ParentChildAddDeleteSession's own doc comment (its lifecycle exactly
+    // mirrors standaloneParentListItemProjection/childInlineSession).
+    this.childAddDeleteSession = null;
+    this.pendingLeafFirstChild = null;
+    // 2026-09-14 (regression fix): same reset, same reason, as
+    // loadNodeInternal's identical fix above — a paragraph load must also
+    // clear any structured-composite list-member snapshot left behind by
+    // a prior composite session, or isDirty() reads dirty with zero edits
+    // after switching away from a composite.
+    this.compositeListOriginalText = null;
+    // Phase 5D-2C: reset alongside compositeListOriginalText above — see
+    // this field's own doc comment for why the two are never independent.
+    this.listMarkerProjection = null;
     this.label = paragraph.preview;
     // Phase 5C-4 convention, reused as-is: recorded fresh on every load,
     // from the SAME `view` this method already resolved `doc` from above.
@@ -1294,10 +2266,103 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = extracted.resolvedSnapshot;
     this.nodeKind = "composite";
     this.originalText = extracted.text;
-    // Phase 5D-2A explicit scope: no projection for the whole-CompositeBlock
-    // pane — see this method's own doc comment and currentDisplayText's
-    // doc comment (quoteProjection === null shows originalText verbatim).
+    // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): attempt to
+    // split this CompositeBlock into its own list member + trailing
+    // callout/blockquote member, and — only if that split succeeds — also
+    // project the trailing member's body the exact same way a STANDALONE
+    // callout/blockquote already is (edit/quotePrefixProjection.ts,
+    // unmodified). Either failure (an unexpected member shape, or the
+    // trailing member being "nested"/header-only-with-no-body) falls back
+    // to the ORIGINAL, unmodified Phase 5D-2A behavior: quoteProjection
+    // stays null, compositeListOriginalText stays null, and the pane shows
+    // extracted.text verbatim in one raw textarea — see currentDisplayText/
+    // renderCompositeListSlot for the two places that branch on these
+    // fields. This never re-implements any parser/serializer logic of its
+    // own — see edit/compositeBlockMemberProjection.ts's own top doc
+    // comment for why splitting is pure line-slicing over the snapshot's
+    // already-resolved member ranges.
     this.quoteProjection = null;
+    // Phase 5L-1: reset alongside quoteProjection above — see this
+    // field's own doc comment (a CompositeBlock session always uses the
+    // separate `listMarkerProjection`/`compositeListOriginalText` fields
+    // below for its own list member, never this one).
+    this.standaloneListMarkerProjection = null;
+    // Phase 5L-2: reset alongside standaloneListMarkerProjection above —
+    // see this field's own doc comment.
+    this.standaloneTaskListProjection = null;
+    // Phase 5L-3: reset alongside standaloneTaskListProjection above —
+    // see this field's own doc comment (same rationale — a CompositeBlock
+    // session never uses this field either).
+    this.standaloneOrderedListProjection = null;
+    // Phase 5L-4: reset alongside standaloneOrderedListProjection above —
+    // see this field's own doc comment (same rationale — a CompositeBlock
+    // session never uses this field either).
+    this.standaloneMultiLineListProjection = null;
+    // Phase 5L-6: reset alongside standaloneMultiLineListProjection above
+    // — see this field's own doc comment (same rationale — a
+    // CompositeBlock session never uses this field either).
+    this.standaloneParentListItemProjection = null;
+    // Phase 5L-8: reset alongside standaloneParentListItemProjection above
+    // — see this field's own doc comment.
+    this.childInlineSession = null;
+    // Phase 5L-9: reset alongside childInlineSession above — see
+    // ParentChildAddDeleteSession's own doc comment (its lifecycle exactly
+    // mirrors standaloneParentListItemProjection/childInlineSession).
+    this.childAddDeleteSession = null;
+    this.pendingLeafFirstChild = null;
+    this.compositeListOriginalText = null;
+    // Phase 5D-2C: reset alongside compositeListOriginalText above — see
+    // this field's own doc comment for why the two are never independent.
+    this.listMarkerProjection = null;
+    const memberSplit = splitCompositeBlockMembers(doc.lines, extracted.resolvedSnapshot);
+    if (memberSplit.ok) {
+      const built = buildQuotePrefixProjection(
+        memberSplit.split.trailingRawText,
+        memberSplit.split.trailingKind
+      );
+      if (built.ok) {
+        this.quoteProjection = built.projection;
+        // Phase 5D-2C ("CompositeBlock single-line-list member marker-free
+        // projection"): attempt to ALSO project the list member's own raw
+        // line marker-free, gated on the list member's resolved kind
+        // being exactly "single-line-list" — never the defensive "list"
+        // kind, which permits continuation lines/nested children that
+        // edit/listMarkerProjection.ts's pure one-line model cannot
+        // safely represent (see that module's own top doc comment).
+        // Either gate failing (wrong kind, or buildListMarkerProjection
+        // itself refusing an ordered marker/task-list checkbox/
+        // unrecognized shape) leaves listMarkerProjection null and
+        // compositeListOriginalText holding the list member's RAW line
+        // instead — Phase 5D-2B's own original, unmodified behavior for
+        // the list row specifically. This is a NARROWER, member-local
+        // fallback than splitCompositeBlockMembers/buildQuotePrefixProjection's
+        // own failures above (which fall back to the whole-CompositeBlock
+        // raw textarea instead) — the trailing member's own structured
+        // editor is completely unaffected either way.
+        const listBuilt = isListMemberEligibleForMarkerFreeProjection(
+          extracted.resolvedSnapshot.members[0].kind
+        )
+          ? buildListMarkerProjection(memberSplit.split.listLineText)
+          : null;
+        this.listMarkerProjection = listBuilt?.ok ? listBuilt.projection : null;
+        this.compositeListOriginalText = this.listMarkerProjection
+          ? this.listMarkerProjection.body
+          : memberSplit.split.listLineText;
+      }
+      // built.reason === "nested" | "no-body": both fall back to the
+      // existing raw whole-range textarea, exactly like a standalone
+      // callout/blockquote's own "no-body" fallback already does. Unlike
+      // loadNodeInternal's standalone gate, a "nested" trailing member
+      // here is NOT refused outright: the pre-existing, independently-safe
+      // whole-CompositeBlock raw textarea (Phase 5D-2A, untouched) is
+      // always available as a safe fallback, so there is no reason to
+      // block the pane from opening at all.
+    }
+    // memberSplit.ok === false (member-count/list-member-kind/
+    // list-member-not-single-line/trailing-member-kind): defensive — every
+    // shipped rule produces the shape splitCompositeBlockMembers expects,
+    // so this currently only matters for a hypothetical future rule
+    // shape. Falls back to the same raw whole-range textarea.
     this.label = label;
     this.sourcePath = view.file?.path ?? null;
     // Phase 5A-1: see loadNodeInternal's identical reset — a fresh load is
@@ -1333,6 +2398,11 @@ export class PartialEditView extends ItemView {
     this.renderSiblingNav();
     this.renderSubtreeNavigator();
     this.renderQuoteHeader();
+    this.renderCompositeListSlot();
+    this.renderTaskCheckboxRow();
+    this.renderOrderedNumberRow();
+    this.renderParentChildPreview();
+    this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
   }
 
@@ -1377,7 +2447,1207 @@ export class PartialEditView extends ItemView {
     this.renderSiblingNav();
     this.renderSubtreeNavigator();
     this.renderQuoteHeader();
+    this.renderCompositeListSlot();
+    this.renderTaskCheckboxRow();
+    this.renderOrderedNumberRow();
+    this.renderParentChildPreview();
+    this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-6 ("Parent List Item Structured Partial Edit"): draw (or
+   * hide) the read-only child-subtree preview below the shared textarea.
+   * Shown ONLY when a parent item's own-text is currently projected
+   * (`this.standaloneParentListItemProjection !== null`) — every other
+   * case (every child-list-free item, every ineligible parent item that
+   * fell back to raw editing, every non-list kind) hides this element
+   * entirely, mirroring renderSubtreeNavigator's own "hide the whole row
+   * when not applicable" policy.
+   *
+   * Renders `projection.childSubtreeText` verbatim, one raw line per row
+   * (styles.css's `white-space: pre` is what keeps each row's own leading
+   * indentation visually intact — see parentChildPreviewEl's own field doc
+   * comment for why this, rather than a re-derived tree drawing, is this
+   * ticket's own chosen "hierarchy stays visible" mechanism). Truncates at
+   * PARENT_CHILD_PREVIEW_MAX_LINES with a visible indicator for an
+   * unusually large subtree — this pane's own height staying bounded takes
+   * priority over showing every single descendant line at once; the
+   * pre-existing Subtree Navigator (renderSubtreeNavigator, unmodified)
+   * remains available for actually navigating into a specific child
+   * regardless of how this preview truncates.
+   *
+   * Called from renderLoadedState/renderEmptyState (fresh load / clear),
+   * and — via the same re-render sequence every sibling render* method
+   * already participates in — from applyEdit's own post-Apply rebuild and
+   * performAutoReload, both of which rebuild
+   * `standaloneParentListItemProjection` fresh before this runs, so this
+   * method itself never needs to re-derive anything: it only ever reads
+   * whatever is currently in that field.
+   */
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): draw (or hide) the "add a first child" row below the shared
+   * textarea. Shown ONLY while this pane currently projects the node as
+   * ONE of the four standalone-leaf kinds (never while it is already a
+   * real parent — standaloneParentListItemProjection non-null — which is
+   * exactly what Mode A's own parentChildAddButtonEl inside
+   * parentChildPreviewEl already covers instead). Deliberately checks the
+   * four PROJECTION fields directly (never a separate structural
+   * eligibility recomputation) — a node whose text failed to build ANY of
+   * the four standalone projections already fell back to raw editing (see
+   * loadNodeInternal's own five-tier priority chain), and Mode B has
+   * nothing to promote in that case either.
+   *
+   * Disabled (never hidden — a hidden control cannot explain itself via
+   * tooltip, mirroring parentChildAddButtonEl's own identical policy)
+   * while a first-child draft is already pending, per this ticket's own
+   * "prevent double-add" requirement.
+   */
+  private renderLeafFirstChildAddRow(): void {
+    const eligible =
+      !this.standaloneParentListItemProjection &&
+      (!!this.standaloneListMarkerProjection ||
+        !!this.standaloneTaskListProjection ||
+        !!this.standaloneOrderedListProjection ||
+        !!this.standaloneMultiLineListProjection);
+    if (!eligible) {
+      this.leafFirstChildAddRowEl.toggleVisibility(false);
+      return;
+    }
+    this.leafFirstChildAddRowEl.toggleVisibility(true);
+    const alreadyPending = !!this.pendingLeafFirstChild;
+    this.leafFirstChildAddButtonEl.disabled = alreadyPending;
+    setTooltip(
+      this.leafFirstChildAddButtonEl,
+      this.plugin.t(
+        alreadyPending
+          ? "partialEdit.leafFirstChildAddButtonAlreadyPendingLabel"
+          : "partialEdit.leafFirstChildAddButtonLabel"
+      )
+    );
+  }
+
+  private renderParentChildPreview(): void {
+    const projection = this.standaloneParentListItemProjection;
+    this.parentChildPreviewBodyEl.empty();
+    if (!projection) {
+      this.parentChildPreviewEl.toggleVisibility(false);
+      this.parentChildPreviewTruncatedEl.toggleVisibility(false);
+      this.renderChildInlineEditor();
+      // Phase 5L-9: reset alongside renderChildInlineEditor above —
+      // childAddDeleteSession is null whenever projection is (see this
+      // field's own doc comment), so renderNewChildEditor's own
+      // `this.childAddDeleteSession?.newChildDraft` read below already
+      // resolves to "hidden" here; called anyway for the same
+      // "every render* method the pane owns always runs together"
+      // consistency every sibling call in this method already follows.
+      this.renderNewChildEditor();
+      return;
+    }
+    this.parentChildPreviewEl.toggleVisibility(true);
+    this.parentChildPreviewLabelTextEl.setText(this.plugin.t("partialEdit.parentChildPreviewLabel"));
+    // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+    // the "Add child item" control is disabled (never hidden — see
+    // parentChildAddButtonEl's own field doc comment) while a new-child
+    // draft is already pending, per this ticket's own "prevent
+    // double-add" requirement — the SAME control otherwise stays usable
+    // even while every visible row below is empty/pending-deletion.
+    const newChildAlreadyPending = !!this.childAddDeleteSession?.newChildDraft;
+    // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+    // Edit Pane"): ALSO disabled while a pending indent/outdent exists —
+    // §6's own "at most one pending structural transformation at a time"
+    // scope limit extends to Add too, not just Delete/Reorder.
+    const indentOutdentAlreadyPending = !!this.childAddDeleteSession?.pendingIndentOutdent;
+    const addAlreadyPending = newChildAlreadyPending || indentOutdentAlreadyPending;
+    this.parentChildAddButtonEl.disabled = addAlreadyPending;
+    setTooltip(
+      this.parentChildAddButtonEl,
+      this.plugin.t(
+        newChildAlreadyPending
+          ? "partialEdit.parentChildAddButtonAlreadyPendingLabel"
+          : indentOutdentAlreadyPending
+            ? "partialEdit.parentChildIndentOutdentPendingOtherDisabledLabel"
+            : "partialEdit.parentChildAddButtonLabel"
+      )
+    );
+
+    const addDeleteSession = this.childAddDeleteSession;
+
+    // Phase 5L-8: which direct child is currently ELIGIBLE — a fresh
+    // check (never trusted from a stale prior render), via
+    // evaluateChildInlineEditEligibility, the exact SAME eligibility gate
+    // buildParentChildInlineEditSession itself re-runs when the
+    // edit-pencil affordance is activated. Phase 5L-10 reuses this exact
+    // same set for the up/down reorder affordance too (see
+    // evaluateChildReorderEligibility's own doc comment for why the two
+    // eligibility lists are identical, one-for-one). Also captures, as a
+    // FALLBACK, each eligible child's own FIRST relative row against the
+    // document's ORIGINAL (never-reordered) layout — used only when a
+    // reordered preview cannot safely be reconstructed, see
+    // `reorderAvailable` below.
+    const eligibleIds = new Set<string>();
+    const fallbackFirstRowById = new Map<number, string>();
+    const previewView = this.activeMarkdownView.get();
+    // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+    // Edit Pane"): `previewDoc`/`previewParentNode` are hoisted out of
+    // the block below (previously locals of that `if` alone) so this
+    // render's own indent/outdent eligibility computation and
+    // buildIndentOutdentPreviewText call further down can reuse the SAME
+    // fresh parse, rather than re-parsing the active note a second/third
+    // time in the same render pass.
+    let previewDoc: ParsedDocument | null = null;
+    let previewParentNode: ListBlockNode | null = null;
+    if (previewView && this.nodeId) {
+      previewDoc = parseDocument(previewView.editor.getValue());
+      const resolvedPreviewParentNode = previewDoc.nodes.get(this.nodeId);
+      previewParentNode = resolvedPreviewParentNode && isListNode(resolvedPreviewParentNode) ? resolvedPreviewParentNode : null;
+      if (previewParentNode) {
+        for (const childId of previewParentNode.childIds) {
+          const evaluated = evaluateChildInlineEditEligibility(previewDoc, previewParentNode, childId);
+          if (!evaluated.ok) continue;
+          eligibleIds.add(childId);
+          const relativeRow = evaluated.childNode.range.startLine - projection.childSubtreeRange.startLine;
+          fallbackFirstRowById.set(relativeRow, childId);
+        }
+      }
+    }
+
+    // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+    // Pane"): whenever this parent's child subtree is reorder-eligible
+    // at all (`reorderAvailable` — see ParentChildAddDeleteSession's own
+    // doc comment for the "no gap between siblings" scope gate this
+    // reflects), the preview is rendered by walking
+    // `pendingReorderOrder` directly and joining each child's own
+    // captured `childSlots` rawText — this is what makes an ACTUAL
+    // pending reorder visible in the preview (this ticket's own explicit
+    // §7 "Apply 前でも、ユーザーは並び替え結果を preview で確認できる
+    // こと" requirement), and is a byte-for-byte no-op reproduction of
+    // the ORIGINAL rendering whenever pendingReorderOrder still equals
+    // its own identity order (the overwhelming common case — every
+    // pre-existing 5L-1〜5L-9 scenario never touches pendingReorderOrder
+    // at all). `childPreviewRowTargets` (Phase 5L-7's own row-click
+    // navigation) is keyed to the ORIGINAL document's own line positions,
+    // so it is only trustworthy for the ORIGINAL (non-reordered) layout —
+    // navigation is deliberately suppressed below for a row rendered from
+    // a REORDERED position (see the per-row loop's own `navigationSafe`
+    // guard) rather than guessing at a remapped target; it becomes
+    // available again the moment the reorder is Applied or Cancelled
+    // (both rebuild this preview from a fresh, natural-order state).
+    const reorderAvailable = !!addDeleteSession?.reorderAvailable;
+    // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+    // Edit Pane"): whenever a pending indent/outdent exists, it takes
+    // priority over the reorder-preview branch below — the two are
+    // mutually exclusive by construction (handleRequestIndentChild/
+    // handleRequestOutdentChild only ever start one while
+    // isPendingReorderDirty is false — see that module's own Phase 5L-11
+    // section top doc comment in edit/parentChildInlineEditSession.ts),
+    // but checking this FIRST rather than relying on that invariant
+    // alone follows this codebase's own "never guess, always verify"
+    // convention.
+    const indentOutdentPending = addDeleteSession?.pendingIndentOutdent ?? null;
+    let allLines: string[];
+    let eligibleFirstRowById: Map<number, string>;
+    let navigationSafe: boolean;
+    if (addDeleteSession && indentOutdentPending && previewDoc && previewParentNode) {
+      allLines = buildIndentOutdentPreviewText(previewDoc, previewParentNode, projection, indentOutdentPending).split(
+        "\n"
+      );
+      // Phase 5L-11 §8: "the UI must never suggest free movement" — every
+      // OTHER row affordance (navigation, edit-start, delete, reorder,
+      // and a SECOND indent/outdent) is suppressed entirely while one
+      // transformation is already pending, simply by giving this render
+      // pass no eligible ids to attach any of them to (every affordance
+      // below is gated on `eligibleFirstRowById.get(i)` resolving to
+      // something).
+      eligibleFirstRowById = new Map();
+      navigationSafe = false;
+    } else if (addDeleteSession && reorderAvailable) {
+      const slotByNodeId = new Map(addDeleteSession.childSlots.map((slot) => [slot.nodeId, slot] as const));
+      const lines: string[] = [];
+      const positionByRow = new Map<number, string>();
+      for (const nodeId of addDeleteSession.pendingReorderOrder) {
+        const slot = slotByNodeId.get(nodeId);
+        if (!slot) continue; // defensive — pendingReorderOrder is always a permutation of childSlots' own ids.
+        positionByRow.set(lines.length, nodeId);
+        lines.push(...slot.rawText.split("\n"));
+      }
+      allLines = lines;
+      eligibleFirstRowById = new Map();
+      for (const [row, nodeId] of positionByRow) {
+        if (eligibleIds.has(nodeId)) eligibleFirstRowById.set(row, nodeId);
+      }
+      navigationSafe = !isPendingReorderDirty(addDeleteSession);
+    } else {
+      allLines = projection.childSubtreeText.split("\n");
+      eligibleFirstRowById = fallbackFirstRowById;
+      navigationSafe = true;
+    }
+
+    // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+    // Edit Pane"): a NEW indent/outdent may only ever START while
+    // nothing else is already mid-flight for this parent (§6's own "at
+    // most one pending structural transformation, never freely composed
+    // with add/delete/reorder/an open existing-child editor" scope
+    // limit) — computed once here and reused by both the indent- and
+    // outdent-eligible-id sets immediately below, so the two can never
+    // drift apart from whatever handleRequestIndentChild/
+    // handleRequestOutdentChild themselves re-check before actually
+    // starting one.
+    const canStartIndentOutdent =
+      !indentOutdentPending &&
+      !this.childInlineSession &&
+      !addDeleteSession?.newChildDraft &&
+      !addDeleteSession?.pendingDeletion &&
+      !(addDeleteSession && isPendingReorderDirty(addDeleteSession));
+    // Phase 5L-11: which DIRECT child rows offer an indent button (a
+    // strict SUBSET of `eligibleIds` above — also needs a preceding
+    // sibling, see evaluateChildIndentEligibility's own doc comment) and
+    // which NESTED (exactly-one-level-deep) rows offer an outdent button
+    // — the latter a population `eligibleIds`/`fallbackFirstRowById`
+    // never cover at all (those two are direct-children-only). Both
+    // computed only while `canStartIndentOutdent`, and only against the
+    // natural (non-reordered, non-already-pending) layout — the SAME
+    // `previewDoc`/`previewParentNode` fresh parse `eligibleIds` itself
+    // used above, and the same relative-row convention
+    // (`fallbackFirstRowById` uses) since indent/outdent buttons are
+    // never shown while a reorder is pending either (canStartIndentOutdent
+    // already excludes that case).
+    const indentEligibleIds = new Set<string>();
+    const outdentEligibleFirstRowById = new Map<number, string>();
+    if (canStartIndentOutdent && previewDoc && previewParentNode) {
+      for (const directChildId of previewParentNode.childIds) {
+        if (evaluateChildIndentEligibility(previewDoc, previewParentNode, directChildId).ok) {
+          indentEligibleIds.add(directChildId);
+        }
+        const directChildNode = previewDoc.nodes.get(directChildId);
+        if (!directChildNode || !isListNode(directChildNode)) continue;
+        for (const nestedChildId of directChildNode.childIds) {
+          const evaluatedOutdent = evaluateChildOutdentEligibility(previewDoc, previewParentNode, nestedChildId);
+          if (!evaluatedOutdent.ok) continue;
+          const relativeRow = evaluatedOutdent.childNode.range.startLine - projection.childSubtreeRange.startLine;
+          outdentEligibleFirstRowById.set(relativeRow, nestedChildId);
+        }
+      }
+    }
+
+    const maxLines = PartialEditView.PARENT_CHILD_PREVIEW_MAX_LINES;
+    const visibleLines = allLines.slice(0, maxLines);
+    for (let i = 0; i < visibleLines.length; i++) {
+      const line = visibleLines[i];
+      const rowEl = this.parentChildPreviewBodyEl.createDiv({
+        cls: "unified-outliner-partial-edit-parent-child-preview-row",
+      });
+      rowEl.setAttribute("aria-readonly", "true");
+      rowEl.setAttribute("data-readonly", "true");
+      // Phase 5L-6: a blank raw line would otherwise render as a
+      // zero-height row with nothing to anchor its own line-box to —
+      // a literal non-breaking space keeps every row's own height
+      // uniform, purely cosmetic, never part of the underlying data
+      // (childSubtreeText itself is never touched by this).
+      //
+      // Phase 5L-10 fix (実機発見バグその3, found via real-device
+      // verification): the row's own text now lives in its OWN span
+      // (never bare text directly on rowEl) so this row can be laid out
+      // as a flex row — the text on one side, a single grouped
+      // "actions" span (rowActionsEl below) pinned to the other —
+      // instead of the edit/delete/reorder controls each floating
+      // independently. Independent floats could each wrap onto their
+      // own line once the text and all three no longer fit side-by-
+      // side (confirmed on-device: with a long enough child line, the
+      // reorder buttons alone dropped to a visually separate line below
+      // the pencil/trash pair, even though the earlier overflow: hidden
+      // fix already stopped a row's floats from bleeding into the NEXT
+      // row's own box). Grouping every control into one flex item that
+      // can never split across lines fixes this whole class of "which
+      // controls end up on which visual line" bugs at once, rather than
+      // special-casing this one report — see this row's own CSS
+      // doc comment in styles.css for the full rationale.
+      rowEl.createSpan({
+        cls: "unified-outliner-partial-edit-parent-child-preview-row-text",
+        text: line.length > 0 ? line : " ",
+      });
+      // The ONE shared actions group every eligible row's edit/delete/
+      // reorder controls below are appended into (never appended
+      // directly onto rowEl any more) — always created, even for a row
+      // with none of the three, so every row shares the exact same DOM
+      // shape; an empty actions span has zero visual footprint.
+      const rowActionsEl = rowEl.createSpan({
+        cls: "unified-outliner-partial-edit-parent-child-preview-row-actions",
+      });
+      // Phase 5L-7 ("Read-Only Child Subtree Preview Navigation"): a row
+      // stays exactly as read-only/static as it already was in Phase 5L-6
+      // (no textarea/input/checkbox/contenteditable added here — see this
+      // pane's own parentChildPreviewEl field doc comment) unless
+      // childPreviewRowTargets identifies a safe navigation target for it,
+      // in which case it ALSO becomes a focusable "open this child" control
+      // — mirroring appendSubtreeChip's own tabIndex/role="button"/
+      // setTooltip/click+Enter+Space pattern exactly, so this preview's own
+      // navigation affordance never invents a second, inconsistent
+      // interaction convention alongside the pane's pre-existing Subtree
+      // Navigator chips.
+      const eligibleChildId = eligibleFirstRowById.get(i);
+      // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit
+      // Pane"): a row whose own eligible child is the CURRENT pending-
+      // deletion target becomes fully non-interactive — no nav, no edit
+      // start, no re-triggerable delete — per this ticket's own §5/§10
+      // "pending-deletion rows become read-only/non-navigable/non-
+      // editable" requirement. Checked BEFORE the navigation/edit-start
+      // wiring below so neither one is ever attached to this row at all.
+      const isPendingDeletionRow =
+        !!eligibleChildId && eligibleChildId === this.childAddDeleteSession?.pendingDeletion?.childNodeId;
+      if (isPendingDeletionRow) {
+        rowEl.addClass("unified-outliner-partial-edit-parent-child-preview-row-pending-deletion");
+        setTooltip(rowEl, this.plugin.t("partialEdit.parentChildPendingDeletionLabel"));
+      }
+
+      // Phase 5L-10: childPreviewRowTargets is keyed to the ORIGINAL
+      // document's own line positions — only trustworthy while this
+      // render is showing the natural (non-reordered) layout, see
+      // `navigationSafe`'s own doc comment above.
+      const target = navigationSafe ? projection.childPreviewRowTargets[i] : undefined;
+      if (target && !isPendingDeletionRow) {
+        rowEl.addClass("unified-outliner-partial-edit-parent-child-preview-row-navigable");
+        rowEl.tabIndex = 0;
+        rowEl.setAttribute("role", "button");
+        setTooltip(rowEl, this.plugin.t("partialEdit.parentChildPreviewRowOpenLabel"));
+        const activate = (evt: Event) => {
+          // Never let this bubble into any unrelated ancestor click
+          // handler this pane's own contentEl might have — a preview row
+          // activation is ALWAYS exactly this navigation request, never
+          // anything else (this ticket's own explicit requirement).
+          evt.stopPropagation();
+          this.handleChildPreviewRowActivate(target);
+        };
+        rowEl.addEventListener("click", activate);
+        rowEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            evt.preventDefault();
+            activate(evt);
+          }
+        });
+      }
+
+      // Phase 5L-8 ("Child Item Inline Structured Editing in Parent
+      // Partial Edit Pane"): the inline-edit-start affordance — a
+      // GENUINELY SEPARATE control/code path from the navigation
+      // click/Enter/Space handling immediately above (this ticket's own
+      // explicit §5 requirement: edit-start and preview-navigation are
+      // never the same interaction). Only rendered on an ELIGIBLE direct
+      // child's own FIRST row, and never on the row currently being
+      // inline-edited (that row is highlighted instead) or pending
+      // deletion (Phase 5L-9).
+      if (eligibleChildId && eligibleChildId === this.childInlineSession?.childNodeId) {
+        rowEl.addClass("unified-outliner-partial-edit-parent-child-preview-row-editing");
+      } else if (eligibleChildId && !isPendingDeletionRow) {
+        const editButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-inline-edit-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(editButtonEl, "pencil");
+        setTooltip(editButtonEl, this.plugin.t("partialEdit.parentChildInlineEditStartLabel"));
+        const activateEdit = (evt: Event) => {
+          // Never a navigation — see the comment immediately above.
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleStartChildInlineEdit(eligibleChildId);
+        };
+        editButtonEl.addEventListener("click", activateEdit);
+        editButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateEdit(evt);
+          }
+        });
+      }
+
+      // Phase 5L-9: the delete affordance — a THIRD genuinely separate
+      // control/code path (never the navigation click, never the pencil
+      // edit-start affordance — this ticket's own §5 explicit
+      // requirement). Rendered on every ELIGIBLE direct child's own first
+      // row, INCLUDING the row currently open for inline editing (§5:
+      // confirming deletion there closes that inline editor first — see
+      // handleRequestDeleteChild) — but never on an already-pending-
+      // deletion row (no re-trigger).
+      if (eligibleChildId && !isPendingDeletionRow) {
+        const deleteButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-delete-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(deleteButtonEl, "trash-2");
+        setTooltip(deleteButtonEl, this.plugin.t("partialEdit.parentChildDeleteButtonLabel"));
+        const activateDelete = (evt: Event) => {
+          // Never a navigation or an edit-start — see the comment
+          // immediately above.
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleRequestDeleteChild(eligibleChildId);
+        };
+        deleteButtonEl.addEventListener("click", activateDelete);
+        deleteButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateDelete(evt);
+          }
+        });
+      }
+
+      // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+      // Pane"): the up/down reorder affordance — a FOURTH genuinely
+      // separate control/code path from navigation, edit-start, and
+      // delete (this ticket's own explicit §7 "edit / delete /
+      // navigation / reorder の4操作をイベント上で明確に分ける"
+      // requirement). Rendered on every ELIGIBLE direct child's own first
+      // row (same population as the edit/delete affordances — never on a
+      // pending-deletion row), but ONLY while this parent's child subtree
+      // is reorder-eligible at all (`reorderAvailable`). Each button's
+      // own disabled state is computed via moveChildInPendingReorder's
+      // OWN predicate (never a second, independently-drifting "can this
+      // move" check) — see this ticket's own §2/§3 "先頭/末尾 disabled"
+      // and "non-eligible neighbor never crossed" requirements.
+      if (eligibleChildId && !isPendingDeletionRow && reorderAvailable && addDeleteSession) {
+        const excludedId = addDeleteSession.pendingDeletion?.childNodeId ?? null;
+        const currentOrder = addDeleteSession.pendingReorderOrder;
+        const reorderButtonsEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-reorder-buttons",
+        });
+        const makeReorderButton = (direction: ChildReorderDirection, icon: string, labelKey: TranslationKey) => {
+          const canMove = moveChildInPendingReorder(currentOrder, eligibleIds, excludedId, eligibleChildId, direction).ok;
+          const buttonEl = reorderButtonsEl.createSpan({
+            cls: "unified-outliner-partial-edit-parent-child-reorder-button",
+            attr: { role: "button", tabindex: canMove ? "0" : "-1", "aria-disabled": canMove ? "false" : "true" },
+          });
+          setIcon(buttonEl, icon);
+          setTooltip(buttonEl, this.plugin.t(labelKey));
+          buttonEl.toggleClass("unified-outliner-partial-edit-parent-child-reorder-button-disabled", !canMove);
+          if (canMove) {
+            const activateReorder = (evt: Event) => {
+              // Never a navigation, edit-start, or delete — see the
+              // comment immediately above.
+              evt.stopPropagation();
+              evt.preventDefault();
+              this.handleReorderChild(eligibleChildId, direction);
+            };
+            buttonEl.addEventListener("click", activateReorder);
+            buttonEl.addEventListener("keydown", (evt) => {
+              if (evt.key === "Enter" || evt.key === " ") {
+                activateReorder(evt);
+              }
+            });
+          }
+        };
+        // Down first, then up — both float right (see styles.css), so
+        // DOM-appending down first makes up render as the RIGHTMOST
+        // (topmost-reading) control, mirroring the edit-pencil/delete-
+        // trash pair's own right-to-left append order above.
+        makeReorderButton("down", "arrow-down", "partialEdit.parentChildReorderDownLabel");
+        makeReorderButton("up", "arrow-up", "partialEdit.parentChildReorderUpLabel");
+      }
+
+      // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+      // Edit Pane"): the indent affordance — appended into the SAME
+      // shared rowActionsEl group as edit/delete/reorder above (this
+      // ticket's own explicit "整合性を持たせて" precedent from Phase
+      // 5L-10's own real-device follow-up), rendered ONLY on an eligible
+      // DIRECT child's own first row, and only while canStartIndentOutdent
+      // (no other pending structural transformation for this parent
+      // right now — see that const's own doc comment above).
+      if (eligibleChildId && !isPendingDeletionRow && canStartIndentOutdent && indentEligibleIds.has(eligibleChildId)) {
+        const indentButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-indent-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(indentButtonEl, "indent");
+        setTooltip(indentButtonEl, this.plugin.t("partialEdit.parentChildIndentButtonLabel"));
+        const activateIndent = (evt: Event) => {
+          // Never a navigation, edit-start, delete, or reorder — see the
+          // comments above this row's own other affordances.
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleRequestIndentChild(eligibleChildId);
+        };
+        indentButtonEl.addEventListener("click", activateIndent);
+        indentButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateIndent(evt);
+          }
+        });
+      }
+
+      // Phase 5L-11: the outdent affordance — rendered on a NESTED
+      // (exactly-one-level-deep) child's own first row instead, a
+      // DIFFERENT population from every other affordance above (all of
+      // which are direct-children-only) — see
+      // outdentEligibleFirstRowById's own doc comment above for why this
+      // needs its own lookup rather than reusing `eligibleChildId`. Every
+      // row already owns its own (possibly empty) `rowActionsEl` from
+      // this row's own setup above, so a nested row that has neither an
+      // edit/delete/reorder affordance nor an indent one can still
+      // receive this one.
+      const outdentChildId = canStartIndentOutdent ? outdentEligibleFirstRowById.get(i) : undefined;
+      if (outdentChildId) {
+        const outdentButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-outdent-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(outdentButtonEl, "outdent");
+        setTooltip(outdentButtonEl, this.plugin.t("partialEdit.parentChildOutdentButtonLabel"));
+        const activateOutdent = (evt: Event) => {
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleRequestOutdentChild(outdentChildId);
+        };
+        outdentButtonEl.addEventListener("click", activateOutdent);
+        outdentButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateOutdent(evt);
+          }
+        });
+      }
+    }
+
+    const truncatedCount = allLines.length - visibleLines.length;
+    if (truncatedCount > 0) {
+      this.parentChildPreviewTruncatedEl.toggleVisibility(true);
+      this.parentChildPreviewTruncatedEl.setText(
+        this.plugin.t("partialEdit.parentChildPreviewTruncated", { count: truncatedCount })
+      );
+    } else {
+      this.parentChildPreviewTruncatedEl.toggleVisibility(false);
+    }
+
+    this.renderChildInlineEditor();
+    // Phase 5L-9: see renderNewChildEditor's own doc comment.
+    this.renderNewChildEditor();
+  }
+
+  /**
+   * Phase 5L-8: populate/toggle the child inline editor panel
+   * (childInlineEditorEl) from `this.childInlineSession` — the ONE place
+   * that ever resets childInlineTextareaEl/childInlineTaskCheckboxInputEl/
+   * childInlineOrderedNumberInputEl to the session's own loaded snapshot.
+   * Called only from renderParentChildPreview (a fresh load, an Apply's
+   * own post-Apply rebuild, and every other re-render that already
+   * rebuilds standaloneParentListItemProjection/childInlineSession fresh
+   * — never standalone from anywhere else), so this never clobbers an
+   * in-progress, still-uncommitted child draft outside of those
+   * already-safe moments.
+   */
+  private renderChildInlineEditor(): void {
+    const session = this.childInlineSession;
+    if (!session) {
+      this.childInlineEditorEl.toggleVisibility(false);
+      return;
+    }
+    this.childInlineEditorEl.toggleVisibility(true);
+    const firstLine = childProjectionRawText(session.childProjection).split("\n")[0].trim();
+    this.childInlineEditorLabelEl.setText(
+      this.plugin.t("partialEdit.parentChildInlineEditPanelLabel", { text: firstLine })
+    );
+    const kind = childEffectiveControlKind(session.childProjection);
+    this.childInlineTaskCheckboxRowEl.toggleVisibility(kind === "task");
+    this.childInlineTaskCheckboxInputEl.disabled = kind !== "task";
+    this.childInlineTaskCheckboxInputEl.checked = projectedChildChecked(session.childProjection);
+    this.childInlineOrderedNumberRowEl.toggleVisibility(kind === "ordered");
+    this.childInlineOrderedNumberInputEl.disabled = kind !== "ordered";
+    this.childInlineOrderedNumberInputEl.value = projectedChildNumberText(session.childProjection);
+    this.childInlineTextareaEl.value = projectedChildBodyText(session.childProjection);
+  }
+
+  /**
+   * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+   * populate/toggle the pending new-child's own inline editor
+   * (newChildEditorEl) from `this.childAddDeleteSession?.newChildDraft` —
+   * the counterpart of renderChildInlineEditor immediately above, for the
+   * NEW-child slot instead of the existing-child slot. Called from every
+   * place renderChildInlineEditor itself is called (renderParentChildPreview's
+   * own two call sites), so the two panels always stay in sync with each
+   * other's own render cycle.
+   */
+  private renderNewChildEditor(): void {
+    // Phase 5L-9b: Mode B's own pendingLeafFirstChild is checked as a
+    // FALLBACK, never instead of — the two are mutually exclusive by
+    // construction (see pendingLeafFirstChild's own doc comment), so
+    // this reuses the exact same inline editor UI for either draft's
+    // own NewChildDraft.
+    const draft = this.childAddDeleteSession?.newChildDraft ?? this.pendingLeafFirstChild?.draft ?? null;
+    if (!draft) {
+      this.newChildEditorEl.toggleVisibility(false);
+      return;
+    }
+    this.newChildEditorEl.toggleVisibility(true);
+    this.newChildTextareaEl.value = projectedChildBodyText(draft.projection);
+  }
+
+  /**
+   * Phase 5L-9: whether the pending new-child's own textarea currently
+   * differs from its canonical loaded (always-empty) body — `false`
+   * whenever no new-child draft is pending. Shared by isDirty() and
+   * this pane's own combined-Apply dirty gating, mirroring
+   * isChildInlineDraftDirty's own identical role for the EXISTING-child
+   * slot.
+   */
+  private isNewChildDraftDirty(): boolean {
+    // Phase 5L-9b: see renderNewChildEditor's own identical fallback —
+    // childAddDeleteSession?.newChildDraft and pendingLeafFirstChild are
+    // mutually exclusive, never both non-null at once.
+    const draft = this.childAddDeleteSession?.newChildDraft ?? this.pendingLeafFirstChild?.draft;
+    if (!draft) return false;
+    return this.newChildTextareaEl.value !== projectedChildBodyText(draft.projection);
+  }
+
+  /**
+   * Phase 5L-9: whether a new-child draft and/or a pending-deletion mark
+   * is currently present — the condition applyEdit's own dispatch uses to
+   * route Apply through this ticket's own generalized combined-apply
+   * method (applyParentChildAddDeleteCombinedEdit) instead of either the
+   * single-range parent-only path or Phase 5L-8's own fixed-two-range
+   * path. Deliberately checks PRESENCE, not dirtiness — an untouched
+   * (still-canonical-empty) new-child draft still needs to be INSERTED on
+   * Apply (§4's own "untouched body Apply is allowed" contract), so it
+   * must route through the combined path even when isNewChildDraftDirty()
+   * itself is false.
+   */
+  private hasAddDeleteActivity(): boolean {
+    const session = this.childAddDeleteSession;
+    return (
+      !!session?.newChildDraft ||
+      !!session?.pendingDeletion ||
+      // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+      // Pane"): ALSO routes through the combined-apply path whenever a
+      // reorder is genuinely dirty — see isPendingReorderDirty's own doc
+      // comment for the "net-no-op is not dirty" contract this shares
+      // with isDirty()/updateDirtyState (both of which call THIS method,
+      // never isPendingReorderDirty directly, so the two can never drift
+      // apart).
+      (!!session && isPendingReorderDirty(session)) ||
+      // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+      // Edit Pane"): a pending indent/outdent is ALWAYS activity (unlike
+      // reorder, there is no "net-no-op" shape for it — it either exists
+      // or it doesn't). applyEdit()'s own dispatch checks
+      // `childAddDeleteSession?.pendingIndentOutdent` BEFORE this
+      // method's own branch and routes to the dedicated
+      // applyParentChildIndentOutdentEdit instead whenever it is set —
+      // this addition here only keeps isDirty()/updateDirtyState (both
+      // of which call ONLY this method, never the raw field) showing
+      // Apply/Cancel while a pending indent/outdent is the ONLY activity
+      // present.
+      !!session?.pendingIndentOutdent
+    );
+  }
+
+  /**
+   * Phase 5L-9: the ONE entry point for starting a new-child draft — the
+   * "Add child item" button's click handler (onOpen) is the only caller.
+   * Re-resolves the parent fresh (never trusts a stale row/session) and
+   * builds the new child's own canonical draft via
+   * edit/parentChildInlineEditSession.ts#buildNewChildDraft. Deliberately
+   * does NOT route through DiscardChangesModal — starting a new-child
+   * draft never discards anything (it is purely additive, and can freely
+   * coexist with an open existing-child editor and/or a pending deletion —
+   * see ParentChildAddDeleteSession's own "three independent slots" doc
+   * comment), so there is nothing here that dirty state could ever put at
+   * risk of being silently lost.
+   */
+  private handleRequestAddChild(): void {
+    if (this.childAddDeleteSession?.newChildDraft) return; // the button is disabled in this state — defensive no-op only.
+    const view = this.activeMarkdownView.get();
+    if (!view || !this.nodeId || !this.standaloneParentListItemProjection || !this.childAddDeleteSession) {
+      new Notice(this.plugin.t("partialEdit.parentChildAddChildFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildAddChildFailed"));
+      return;
+    }
+    const built = buildNewChildDraft(doc, parentNode);
+    if (!built.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildAddChildFailed"));
+      return;
+    }
+    this.childAddDeleteSession.newChildDraft = built.draft;
+    this.renderParentChildPreview();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): the ONE entry point for starting a Mode B "promote this leaf to
+   * a parent" draft — the leafFirstChildAddButtonEl click handler. Mirrors
+   * handleRequestAddChild immediately above (and buildPendingIndent/
+   * buildPendingOutdent's own identical discipline): re-resolves the leaf
+   * fresh from the CURRENT document via buildPendingLeafFirstChild, never
+   * trusting the button's own row-level eligibility snapshot. Deliberately
+   * does NOT route through DiscardChangesModal — starting this draft never
+   * discards anything (purely additive, exactly like handleRequestAddChild
+   * itself), it only ADDS a pending first-child slot alongside whatever
+   * own-text edits are already in the shared textarea.
+   */
+  private handleRequestAddLeafFirstChild(): void {
+    if (this.pendingLeafFirstChild) return; // the button is disabled in this state — defensive no-op only.
+    const view = this.activeMarkdownView.get();
+    if (
+      !view ||
+      !this.nodeId ||
+      this.standaloneParentListItemProjection ||
+      !(
+        this.standaloneListMarkerProjection ||
+        this.standaloneTaskListProjection ||
+        this.standaloneOrderedListProjection ||
+        this.standaloneMultiLineListProjection
+      )
+    ) {
+      new Notice(this.plugin.t("partialEdit.leafFirstChildAddFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const built = buildPendingLeafFirstChild(doc, this.nodeId);
+    if (!built.ok) {
+      new Notice(this.plugin.t("partialEdit.leafFirstChildAddFailed"));
+      return;
+    }
+    this.pendingLeafFirstChild = built.pending;
+    this.renderLeafFirstChildAddRow();
+    this.renderNewChildEditor();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-9: "cancel this new item" — the ONLY way to remove a pending
+   * new-child draft other than a full pane-level Cancel (which also
+   * reverts every other draft — see cancelEdit's own doc comment) or a
+   * successful Apply. A CLEAN (untouched-body) draft is discarded
+   * immediately, no prompt — mirrors handleStopChildInlineEdit's own
+   * identical "clean closes immediately" contract for the EXISTING-child
+   * slot.
+   */
+  private handleStopNewChildDraft(): void {
+    if (!this.childAddDeleteSession?.newChildDraft) return;
+    if (!this.isNewChildDraftDirty()) {
+      this.childAddDeleteSession.newChildDraft = null;
+      this.renderParentChildPreview();
+      this.updateDirtyState();
+      return;
+    }
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        if (this.childAddDeleteSession) this.childAddDeleteSession.newChildDraft = null;
+        this.renderParentChildPreview();
+        this.updateDirtyState();
+        return;
+      }
+      // choice === "apply": the same combined Apply this pane's own Apply
+      // button already runs — closes the draft only once it actually
+      // succeeded (a successful Apply already clears/rebuilds
+      // childAddDeleteSession from scratch, see
+      // applyParentChildAddDeleteCombinedEdit's own doc comment).
+      this.applyEdit();
+    }).open();
+  }
+
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): "cancel this pending first child" — the Mode B counterpart of
+   * handleStopNewChildDraft immediately above, sharing the SAME "cancel
+   * this new item" control (newChildStopButtonEl.click already calls
+   * handleStopNewChildDraft, which delegates to this method whenever
+   * pendingLeafFirstChild — never childAddDeleteSession?.newChildDraft —
+   * is the one actually set; the two are mutually exclusive by
+   * construction, see pendingLeafFirstChild's own doc comment). A CLEAN
+   * (untouched-body) draft is discarded immediately, no prompt — same
+   * "clean closes immediately" contract as every sibling "stop this
+   * draft" handler in this class. Discarding a DIRTY one reverts the
+   * pane to plain standalone-leaf editing (re-shows
+   * leafFirstChildAddButtonEl, re-enabled) — see this ticket's own §4
+   * "Cancelで昇格を解消し、元の standalone leaf pane状態へ戻せること"
+   * requirement.
+   */
+  private handleStopLeafFirstChildDraft(): void {
+    if (!this.pendingLeafFirstChild) return;
+    if (!this.isNewChildDraftDirty()) {
+      this.pendingLeafFirstChild = null;
+      this.renderLeafFirstChildAddRow();
+      this.renderNewChildEditor();
+      this.updateDirtyState();
+      return;
+    }
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        this.pendingLeafFirstChild = null;
+        this.renderLeafFirstChildAddRow();
+        this.renderNewChildEditor();
+        this.updateDirtyState();
+        return;
+      }
+      // choice === "apply": the same Mode B Apply this pane's own Apply
+      // button already runs — closes the draft only once it actually
+      // succeeded (a successful Apply reloads the node as a real parent
+      // from scratch, see applyLeafFirstChildEdit's own doc comment).
+      this.applyEdit();
+    }).open();
+  }
+
+  /**
+   * Phase 5L-9 (§5 "Delete: operation, confirmation, and structural
+   * scope"): the ONE entry point for the delete affordance's click — a
+   * GENUINELY SEPARATE control/code path from both row navigation and the
+   * edit-start affordance (renderParentChildPreview's own three-way
+   * `evt.stopPropagation()` guards). Re-verifies delete eligibility fresh
+   * against the CURRENT document (never trusts the row's own build-time
+   * eligibility snapshot — mirrors handleStartChildInlineEdit's own
+   * identical re-verification discipline) BEFORE ever opening the
+   * confirmation modal, so a row whose eligibility changed since the last
+   * render never even offers a confirm dialog for something that could no
+   * longer safely be deleted.
+   */
+  private handleRequestDeleteChild(childNodeId: string): void {
+    const view = this.activeMarkdownView.get();
+    if (!view || !this.nodeId || !this.childAddDeleteSession) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    const evaluated = evaluateChildDeleteEligibility(doc, parentNode, childNodeId);
+    if (!evaluated.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    new ChildDeleteConfirmModal(this.app, this.plugin, (confirmed) => {
+      if (confirmed) this.commitPendingDeletion(childNodeId);
+    }).open();
+  }
+
+  /**
+   * Phase 5L-9: marks `childNodeId` pending-deletion — called ONLY from
+   * handleRequestDeleteChild's own confirm callback, itself only invoked
+   * once the user chose "削除する" in ChildDeleteConfirmModal. Re-verifies
+   * eligibility fresh ONE MORE TIME (belt-and-suspenders — the modal may
+   * have sat open for a while) before actually marking anything, mirroring
+   * every other "re-verify immediately before mutating state" call site in
+   * this class. Closes that child's own inline editor first, if it was
+   * open (§5's own explicit requirement) — the child is about to be
+   * removed, so any in-progress edit to it is meaningless to keep open
+   * (its OWN draft is discarded as a direct consequence of being deleted,
+   * never silently kept around as a dangling reference to a soon-to-be-
+   * gone node).
+   */
+  private commitPendingDeletion(childNodeId: string): void {
+    const view = this.activeMarkdownView.get();
+    if (!view || !this.nodeId || !this.childAddDeleteSession) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    const evaluated = evaluateChildDeleteEligibility(doc, parentNode, childNodeId);
+    if (!evaluated.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    const childIndex = this.childAddDeleteSession.childSlots.findIndex((slot) => slot.nodeId === childNodeId);
+    if (childIndex === -1) {
+      new Notice(this.plugin.t("partialEdit.parentChildDeleteFailed"));
+      return;
+    }
+    if (this.childInlineSession?.childNodeId === childNodeId) {
+      this.childInlineSession = null;
+    }
+    this.childAddDeleteSession.pendingDeletion = { childNodeId, childIndex };
+    this.renderParentChildPreview();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+   * Pane"): the ONE entry point for the up/down reorder affordance's
+   * click — re-verifies BOTH `reorderAvailable` AND the moving child's
+   * (and its neighbor's) own eligibility fresh against the CURRENT
+   * document (never trusts the row's own build-time eligibility
+   * snapshot — mirrors handleStartChildInlineEdit's/
+   * handleRequestDeleteChild's own identical re-verification discipline)
+   * before ever mutating `pendingReorderOrder`. Deliberately does NOT
+   * route through DiscardChangesModal — a reorder move never discards
+   * anything, it only appends to this session's own pending plan (mirrors
+   * handleRequestAddChild's own identical "purely additive" rationale) —
+   * so there is nothing here that dirty state could ever put at risk of
+   * being silently lost. A failure (the button SHOULD already be
+   * disabled whenever this would fail — see renderParentChildPreview's
+   * own `makeReorderButton`) is a safe, silent no-op, never a partial
+   * reorder.
+   */
+  private handleReorderChild(childNodeId: string, direction: ChildReorderDirection): void {
+    const addDeleteSession = this.childAddDeleteSession;
+    const view = this.activeMarkdownView.get();
+    if (!addDeleteSession || !addDeleteSession.reorderAvailable || !view || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildReorderFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildReorderFailed"));
+      return;
+    }
+    const eligibleIds = new Set<string>();
+    for (const id of parentNode.childIds) {
+      if (evaluateChildReorderEligibility(doc, parentNode, id).ok) {
+        eligibleIds.add(id);
+      }
+    }
+    const excludedId = addDeleteSession.pendingDeletion?.childNodeId ?? null;
+    const result = moveChildInPendingReorder(
+      addDeleteSession.pendingReorderOrder,
+      eligibleIds,
+      excludedId,
+      childNodeId,
+      direction
+    );
+    if (!result.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildReorderFailed"));
+      return;
+    }
+    addDeleteSession.pendingReorderOrder = result.newOrder;
+    this.renderParentChildPreview();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+   * Edit Pane"): the ONE entry point for the indent affordance's click —
+   * re-verifies eligibility fresh via buildPendingIndent (never trusts
+   * the row's own build-time eligibility snapshot, mirroring
+   * handleReorderChild's/handleRequestDeleteChild's own identical
+   * discipline) before ever setting `pendingIndentOutdent`. Deliberately
+   * does NOT route through DiscardChangesModal — renderParentChildPreview
+   * only ever offers this button while canStartIndentOutdent is true
+   * (no other pending structural transformation, no open existing-child
+   * editor, no pending add/delete/reorder), so there is nothing here
+   * that dirty state could ever put at risk of being silently lost — a
+   * pending indent/outdent is itself purely additive to whatever the
+   * parent's own own-text draft may separately hold (see this ticket's
+   * own §6 "MAY compose with a dirty parent own-text edit" scope note).
+   * A failure (the button SHOULD already be hidden whenever this would
+   * fail) is a safe, silent-to-the-document Notice, never a partial
+   * transformation.
+   */
+  private handleRequestIndentChild(childNodeId: string): void {
+    const addDeleteSession = this.childAddDeleteSession;
+    const view = this.activeMarkdownView.get();
+    if (!addDeleteSession || addDeleteSession.pendingIndentOutdent || !view || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildIndentFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildIndentFailed"));
+      return;
+    }
+    const built = buildPendingIndent(doc, parentNode, childNodeId);
+    if (!built.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildIndentFailed"));
+      return;
+    }
+    addDeleteSession.pendingIndentOutdent = built.pending;
+    this.renderParentChildPreview();
+    this.updateDirtyState();
+  }
+
+  /** Phase 5L-11: the outdent counterpart of handleRequestIndentChild immediately above — see that method's own doc comment. */
+  private handleRequestOutdentChild(childNodeId: string): void {
+    const addDeleteSession = this.childAddDeleteSession;
+    const view = this.activeMarkdownView.get();
+    if (!addDeleteSession || addDeleteSession.pendingIndentOutdent || !view || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildOutdentFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const parentNode = doc.nodes.get(this.nodeId);
+    if (!parentNode || !isListNode(parentNode)) {
+      new Notice(this.plugin.t("partialEdit.parentChildOutdentFailed"));
+      return;
+    }
+    const built = buildPendingOutdent(doc, parentNode, childNodeId);
+    if (!built.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildOutdentFailed"));
+      return;
+    }
+    addDeleteSession.pendingIndentOutdent = built.pending;
+    this.renderParentChildPreview();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5L-8: the ONE entry point for opening a direct child's inline
+   * editor — the edit-start affordance in renderParentChildPreview above
+   * is the only caller. Re-verifies eligibility fresh via
+   * buildParentChildInlineEditSession (never trusts the row's own
+   * build-time eligibility snapshot), and — exactly like requestLoadNode's
+   * own dirty guard — routes through the SAME DiscardChangesModal 3-choice
+   * contract whenever this pane's COMBINED dirty state (the parent's own
+   * draft AND/OR the currently-open child's own draft — isDirty() already
+   * accounts for both, see that method's own doc comment) is dirty when
+   * switching to a DIFFERENT child. Opening a first child, or re-opening
+   * while nothing is dirty, proceeds immediately with no prompt.
+   */
+  private handleStartChildInlineEdit(childNodeId: string): void {
+    if (this.childInlineSession?.childNodeId === childNodeId) return;
+    const openSession = () => {
+      const view = this.activeMarkdownView.get();
+      if (!view || !this.nodeId || !this.standaloneParentListItemProjection) {
+        new Notice(this.plugin.t("partialEdit.parentChildInlineEditFailed"));
+        return;
+      }
+      const doc = parseDocument(view.editor.getValue());
+      const parentNode = doc.nodes.get(this.nodeId);
+      if (!parentNode || !isListNode(parentNode)) {
+        new Notice(this.plugin.t("partialEdit.parentChildInlineEditFailed"));
+        return;
+      }
+      const built = buildParentChildInlineEditSession(
+        doc,
+        parentNode,
+        this.standaloneParentListItemProjection,
+        childNodeId
+      );
+      if (!built.ok) {
+        new Notice(this.plugin.t("partialEdit.parentChildInlineEditFailed"));
+        return;
+      }
+      this.childInlineSession = built.session;
+      this.renderParentChildPreview();
+      this.updateDirtyState();
+    };
+
+    if (!this.isDirty()) {
+      openSession();
+      return;
+    }
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        // Revert BOTH the parent's own draft and the current child's own
+        // draft (cancelEdit() already reverts both — see that method's
+        // own updated doc comment), then close the current session before
+        // opening the newly-selected one.
+        this.cancelEdit();
+        this.childInlineSession = null;
+        openSession();
+        return;
+      }
+      // choice === "apply": the SAME combined parent+child Apply this
+      // pane's own Apply button already runs — the new child's editor
+      // only ever opens once that Apply actually succeeded; on failure,
+      // applyEdit() has already shown its own failure Notice and BOTH
+      // drafts remain exactly as they were.
+      if (this.applyEdit()) {
+        openSession();
+      }
+    }).open();
+  }
+
+  /**
+   * Phase 5L-8: "stop editing this child" — the ONLY way to close the
+   * child inline editor other than switching to editing a DIFFERENT child
+   * (handleStartChildInlineEdit above). Discards ONLY the child's own
+   * draft on the "discard" choice — the parent's own draft (if any) is
+   * left completely untouched, per this ticket's own explicit §5
+   * requirement. A CLEAN child draft closes immediately, no prompt.
+   */
+  private handleStopChildInlineEdit(): void {
+    if (!this.childInlineSession) return;
+    if (!this.isChildInlineDraftDirty()) {
+      this.childInlineSession = null;
+      this.renderParentChildPreview();
+      this.updateDirtyState();
+      return;
+    }
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        this.childInlineSession = null;
+        this.renderParentChildPreview();
+        this.updateDirtyState();
+        return;
+      }
+      // choice === "apply": the same combined parent+child Apply — closes
+      // the session only once it actually succeeded.
+      if (this.applyEdit()) {
+        this.childInlineSession = null;
+        this.renderParentChildPreview();
+        this.updateDirtyState();
+      }
+    }).open();
+  }
+
+  /**
+   * Phase 5L-8: whether the child inline editor's own controls currently
+   * differ from `childInlineSession`'s loaded snapshot — `false` whenever
+   * no session is open. Shared by isDirty() and
+   * handleStopChildInlineEdit/applyParentChildCombinedEdit's own dirty
+   * gating, so all three can never drift apart.
+   */
+  private isChildInlineDraftDirty(): boolean {
+    const session = this.childInlineSession;
+    if (!session) return false;
+    const bodyDirty = this.childInlineTextareaEl.value !== projectedChildBodyText(session.childProjection);
+    const kind = childEffectiveControlKind(session.childProjection);
+    const checkedDirty =
+      kind === "task" &&
+      this.childInlineTaskCheckboxInputEl.checked !== projectedChildChecked(session.childProjection);
+    const numberDirty =
+      kind === "ordered" &&
+      this.childInlineOrderedNumberInputEl.value !== projectedChildNumberText(session.childProjection);
+    return bodyDirty || checkedDirty || numberDirty;
+  }
+
+  /**
+   * Phase 5L-7 ("Read-Only Child Subtree Preview Navigation"): the ONE
+   * place a child-preview row's click/Enter/Space activation ever reaches.
+   * Re-parses the CURRENT active note fresh, re-resolves `target` against
+   * it via resolveParentChildPreviewNavigationTarget (never trusts the
+   * nodeId captured back when this preview was last built/reloaded — see
+   * that function's own doc comment for the full identity-refresh
+   * rationale), and only ever calls requestLoadNode — never
+   * loadNodeInternal directly — once that re-resolution actually succeeds.
+   * requestLoadNode is what already gives this its own entire clean/dirty
+   * target-switching contract for free (Apply-then-move /
+   * discard-then-move / cancel-stays-put via the existing
+   * DiscardChangesModal — see requestLoadNode's own doc comment): this
+   * method deliberately never re-implements any part of that itself, only
+   * decides WHETHER it is safe to call requestLoadNode at all.
+   *
+   * A failed re-resolution (parent no longer eligible, target no longer
+   * found, target reassigned elsewhere, or target content changed —
+   * ParentChildPreviewNavigationResolveReason's own exhaustive list) shows
+   * a Notice and returns without ever calling requestLoadNode — this pane
+   * stays on its current node with its current draft completely untouched,
+   * exactly like every other safe-refusal path in this class.
+   */
+  private handleChildPreviewRowActivate(target: ParentChildPreviewNavigationTarget): void {
+    const view = this.activeMarkdownView.get();
+    if (!view || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildPreviewNavigationFailed"));
+      return;
+    }
+    const doc = parseDocument(view.editor.getValue());
+    const resolved = resolveParentChildPreviewNavigationTarget(doc, this.nodeId, target);
+    if (!resolved.ok) {
+      new Notice(this.plugin.t("partialEdit.parentChildPreviewNavigationFailed"));
+      return;
+    }
+    this.requestLoadNode(resolved.nodeId);
   }
 
   /**
@@ -1395,7 +3665,204 @@ export class PartialEditView extends ItemView {
    * exactly as this pane always has.
    */
   private currentDisplayText(): string {
-    return this.quoteProjection ? projectedDisplayText(this.quoteProjection) : this.originalText;
+    if (this.quoteProjection) return projectedDisplayText(this.quoteProjection);
+    // Phase 5L-1: standaloneListMarkerProjection is only ever set for a
+    // standalone list node (nodeId branch, nodeKind === "list") — a
+    // structured CompositeBlock session's OWN list-member projection
+    // lives in the separate `listMarkerProjection` field, which feeds
+    // `compositeListInputEl`, never this shared `textareaEl` — so no
+    // extra compositeAnchor guard is needed here; the two fields are
+    // never both relevant to what this method returns.
+    if (this.standaloneListMarkerProjection) {
+      return projectedListBodyText(this.standaloneListMarkerProjection);
+    }
+    // Phase 5L-2: mutually exclusive with standaloneListMarkerProjection
+    // above by construction (buildStandaloneListProjections) — the task
+    // list item's own marker+checkbox-free body.
+    if (this.standaloneTaskListProjection) {
+      return projectedTaskBodyText(this.standaloneTaskListProjection);
+    }
+    // Phase 5L-3: mutually exclusive with standaloneListMarkerProjection/
+    // standaloneTaskListProjection above by construction
+    // (buildStandaloneListProjections) — the ordered-list item's own
+    // number-marker-free body.
+    if (this.standaloneOrderedListProjection) {
+      return projectedOrderedBodyText(this.standaloneOrderedListProjection);
+    }
+    // Phase 5L-4: mutually exclusive with all three single-line
+    // projections above by construction (only ever set once all three
+    // returned null — see loadNodeInternal) — the multi-line leaf item's
+    // own marker-free MULTI-line body.
+    if (this.standaloneMultiLineListProjection) {
+      return projectedMultiLineBodyText(this.standaloneMultiLineListProjection);
+    }
+    // Phase 5L-6: mutually exclusive with all four projections above by
+    // construction (only ever set once all four returned null AND the
+    // node owns children — see loadNodeInternal) — the parent item's own
+    // marker-free own-text body ONLY (never the child subtree — see
+    // parentChildPreviewEl's own field doc comment for where that's shown
+    // instead).
+    if (this.standaloneParentListItemProjection) {
+      return projectedParentBodyText(this.standaloneParentListItemProjection);
+    }
+    return this.originalText;
+  }
+
+  /**
+   * Phase 5L-12 ("Partial Edit Session Consolidation and External
+   * Document Reconciliation"): the SINGLE authoritative implementation
+   * of the five-tier standalone-list-item projection priority chain
+   * (list-marker-free > task-list-marker-free > ordered-list-marker-free
+   * > multi-line-leaf > parent-list-item — Phase 5L-1/5L-2/5L-3/5L-4/
+   * 5L-6's own priority order, entirely unchanged). Before this phase,
+   * this exact five-check/three-builder-call sequence was independently
+   * re-implemented at FIVE call sites (loadNodeInternal's own initial
+   * load, performAutoReload's own external-change reload, and three of
+   * the post-Apply rebuild sites below) — the two of those five that
+   * used a narrower, "only re-verify a projection that was ALREADY
+   * active" gate (performAutoReload, before this phase) is exactly what
+   * produced Phase 5L-9b's own real-device bug (a leaf reverting from a
+   * just-undone parent started its reload with all four leaf fields
+   * null, so that gate never fired — see
+   * docs/phase5l12_partial-edit-external-reconciliation.md for the full
+   * before/after). Every one of those five call sites now delegates
+   * here instead, so the chain can never drift out of sync between them
+   * again by construction, not by convention.
+   *
+   * Returns every field null for `node === undefined` or a non-list
+   * node, exactly the same "fall back to raw" contract every prior call
+   * site already had — this function never decides to REFUSE a target,
+   * only which (if any) of the five structured projections currently
+   * applies to it. `rawText` is the target's own already-isolated
+   * subtree text (extractSubtreeText's own return shape) — only
+   * consulted by the four LEAF builders, which is why an out-of-date
+   * `rawText` for a node that is CURRENTLY a real parent (childIds.length
+   * > 0) can never matter: every one of the four leaf eligibility checks
+   * already independently requires `childIds.length === 0` before this
+   * function ever looks at `rawText` at all.
+   */
+  private resolveStandaloneListProjections(
+    doc: ParsedDocument,
+    node: BlockNode | undefined,
+    rawText: string
+  ): {
+    list: ListMarkerProjection | null;
+    task: TaskListProjection | null;
+    ordered: OrderedListProjection | null;
+    multiLine: MultiLineListItemProjection | null;
+    parent: ParentListItemProjection | null;
+  } {
+    // Phase 5L-12: the actual eligibility-check/builder-dispatch logic now
+    // lives in edit/standaloneProjectionResolver.ts's own pure, Obsidian-
+    // free resolveStandaloneListProjections — see that module's own doc
+    // comment for why (behavioral testability with a real parseDocument,
+    // with no Obsidian mock harness required). This method is now only a
+    // thin call-through, kept so the class-field-facing doc comment above
+    // stays where every OTHER field-adjacent doc comment in this file
+    // already lives.
+    return resolveStandaloneListProjectionsPure(doc, node, rawText);
+  }
+
+  /**
+   * Phase 5L-12: the single authoritative "ancestors/directChildren/
+   * siblingState triple, freshly derived from `doc`, for a
+   * BlockNode-identified target" implementation — see
+   * resolveStandaloneListProjections' own doc comment immediately above
+   * for the identical rationale (the same five call sites that used to
+   * duplicate the projection chain also duplicated this triple, or —
+   * for three of the post-Apply rebuild sites, and performAutoReload
+   * before this phase — omitted recomputing it entirely, which is what
+   * left the Subtree Navigator/breadcrumb showing stale content after an
+   * external change). `node === undefined` (a standalone callout/
+   * blockquote target, or — defensively — a target that failed to
+   * resolve) keeps this trio at its permanent empty state, exactly like
+   * Phase 5C-2's own gate for those kinds.
+   */
+  private resolveNavigationState(
+    doc: ParsedDocument,
+    nodeId: string,
+    node: BlockNode | undefined
+  ): {
+    ancestors: AncestorPathEntry[];
+    directChildren: DescendantNavigationEntry[];
+    siblingState: SiblingNavigationState;
+  } {
+    if (!node) {
+      return { ancestors: [], directChildren: [], siblingState: { previous: null, next: null } };
+    }
+    const t = this.plugin.t.bind(this.plugin);
+    return {
+      ancestors: findAncestorPath(doc, nodeId, t),
+      directChildren: findDirectChildren(doc, nodeId, t),
+      siblingState: getSiblingNavigationState(doc, nodeId, t),
+    };
+  }
+
+  /**
+   * Phase 5L-12: the single authoritative "reconcile this pane's
+   * node-kind (list/section) projection + Mode A/B session + navigation
+   * state from a fresh `doc`" implementation — combines
+   * resolveStandaloneListProjections and resolveNavigationState above
+   * with the childAddDeleteSession/childInlineSession/
+   * pendingLeafFirstChild derivation every one of the five call sites
+   * below also independently duplicated. loadNodeInternal's own initial
+   * load, performAutoReload's own external-change reload, and each of
+   * the three post-Apply rebuild sites that edit an EXISTING parent's
+   * own-text/child content (applyEdit's own standaloneParentListItemProjection
+   * branch, applyParentChildCombinedEdit, applyParentChildAddDeleteCombinedEdit,
+   * applyParentChildIndentOutdentEdit) all call this now, instead of each
+   * re-deriving (and, before this phase, drifting out of sync with) the
+   * same five-tier chain and the same three session fields. Two of those
+   * Apply paths (add/delete's own "delete the last remaining child", and
+   * indent/outdent's own "outdent the last remaining child") can
+   * genuinely transition a real parent down to a childless leaf — before
+   * this phase, their own narrow rebuilds only ever cleared
+   * standaloneParentListItemProjection/childAddDeleteSession on that
+   * transition, but never discovered the resulting leaf's own standalone
+   * projection or refreshed the navigation trio, leaving the exact same
+   * stale-Subtree-Navigator/missing-"＋"-button symptom Phase 5L-9b's own
+   * real-device bug reported for the external-Undo case — see
+   * docs/phase5l12_partial-edit-external-reconciliation.md §4-2 for the
+   * full scenario list this now covers uniformly.
+   *
+   * Unconditionally resetting childInlineSession/pendingLeafFirstChild
+   * here (rather than trying to preserve them) is safe for every one of
+   * these callers: a fresh load's own "switching target discards local
+   * drafts" contract already covered loadNodeInternal; each Apply-success
+   * call site is, by definition, the very save that just committed
+   * whatever child-inline/add/delete/indent-outdent/leaf-first-child
+   * activity was pending (childAddDeleteSession/pendingLeafFirstChild are
+   * always rebuilt fresh — or reopened, for childInlineSession, by the
+   * caller's own post-call logic where applicable — immediately after);
+   * and performAutoReload itself is only ever reached via
+   * classifySyncOutcome's own clean-pane-auto-reload branch, which
+   * requires `!isDirty()` — and isDirty() already folds in
+   * pendingLeafFirstChild's own presence and childAddDeleteSession's own
+   * activity (hasAddDeleteActivity()), so by the time performAutoReload
+   * calls this there is nothing pending left to lose either.
+   */
+  private reconcileStandaloneNodeState(
+    doc: ParsedDocument,
+    nodeId: string,
+    node: BlockNode | undefined,
+    rawText: string
+  ): void {
+    const projections = this.resolveStandaloneListProjections(doc, node, rawText);
+    this.standaloneListMarkerProjection = projections.list;
+    this.standaloneTaskListProjection = projections.task;
+    this.standaloneOrderedListProjection = projections.ordered;
+    this.standaloneMultiLineListProjection = projections.multiLine;
+    this.standaloneParentListItemProjection = projections.parent;
+    this.childAddDeleteSession =
+      projections.parent && node && isListNode(node)
+        ? buildParentChildAddDeleteSession(doc, node, projections.parent)
+        : null;
+    this.childInlineSession = null;
+    this.pendingLeafFirstChild = null;
+    const nav = this.resolveNavigationState(doc, nodeId, node);
+    this.ancestors = nav.ancestors;
+    this.directChildren = nav.directChildren;
+    this.siblingState = nav.siblingState;
   }
 
   /**
@@ -1530,6 +3997,119 @@ export class PartialEditView extends ItemView {
     }
     this.quoteHeaderEl.toggleVisibility(true);
     this.quoteHeaderLabelEl.setText(header);
+  }
+
+  /**
+   * Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): toggles/
+   * populates the structured CompositeBlock session's own list-member row
+   * (compositeListRowEl/compositeListInputEl) — this ticket's addition to
+   * the pane's existing render pipeline. Called from renderEmptyState/
+   * renderLoadedState alongside renderQuoteHeader (see both methods' own
+   * shared tail), and from performAutoReload after a composite session's
+   * own structured state is refreshed.
+   *
+   * Active (this.nodeKind === "composite" && this.compositeListOriginalText
+   * !== null) only for a CompositeBlock that was successfully split AND
+   * whose trailing member successfully projected — see
+   * loadCompositeInternal's own doc comment. Every other case (a
+   * non-composite kind, or a composite that fell back to the existing raw
+   * whole-range textarea) hides this row and clears the input, leaving
+   * the pane's pre-existing raw-textarea-only composite UI completely
+   * unchanged in appearance and behavior.
+   *
+   * 2026-09-14 (real-device follow-up): previously also toggled/labeled a
+   * separate compositeTrailingLabelEl above the reused quoteHeaderEl/
+   * textareaEl pair ("Callout"/"Quote"). Removed — see compositeListRowEl's
+   * own field doc comment for why both member labels were redundant.
+   */
+  private renderCompositeListSlot(): void {
+    const active = this.nodeKind === "composite" && this.compositeListOriginalText !== null;
+    this.compositeListRowEl.toggleVisibility(active);
+    this.compositeListInputEl.value = active ? this.compositeListOriginalText! : "";
+    this.compositeListInputEl.disabled = !active;
+  }
+
+  /**
+   * Phase 5L-2 ("Task List Marker-Free Partial Edit"): mirrors
+   * renderCompositeListSlot's own "toggle visibility/populate from the
+   * loaded projection, once per render" pattern, for the standalone
+   * task-list checkbox control instead of the CompositeBlock list-member
+   * input. Shown ONLY when a standalone task-list item's checkbox is
+   * currently hidden from the shared textarea
+   * (this.standaloneTaskListProjection !== null) — every other case
+   * (every non-task-list kind, and a task-list item that fell back to
+   * raw editing) hides this row and leaves the checkbox unchecked/
+   * disabled, mirroring compositeListRowEl's own hidden/empty default.
+   */
+  private renderTaskCheckboxRow(): void {
+    // Phase 5L-4: ALSO active for a multi-line leaf item whose own first
+    // line is a task line (this.standaloneMultiLineListProjection?.listKind
+    // === "task") — the exact same checkbox control this row already
+    // owns for the single-line case is reused unchanged (see this
+    // ticket's own design doc §7: "新たな...checkbox status edit control
+    // は作らないこと"). The two conditions are mutually exclusive by
+    // construction (standaloneMultiLineListProjection is only ever set
+    // once standaloneTaskListProjection is null — see loadNodeInternal).
+    const multiLineTaskActive = this.standaloneMultiLineListProjection?.listKind === "task";
+    // Phase 5L-6: ALSO active for a parent item whose own-text's first
+    // line is a task line (this.standaloneParentListItemProjection?.ownText.listKind
+    // === "task") — same reused-unchanged-control rationale as the
+    // multi-line case immediately above. Mutually exclusive with every
+    // condition above by construction (only ever set once all four
+    // single-line/multi-line projections are null — see loadNodeInternal).
+    const parentTaskActive = this.standaloneParentListItemProjection?.ownText.listKind === "task";
+    const active = this.standaloneTaskListProjection !== null || multiLineTaskActive || parentTaskActive;
+    this.taskCheckboxRowEl.toggleVisibility(active);
+    this.taskCheckboxInputEl.checked = this.standaloneTaskListProjection
+      ? this.standaloneTaskListProjection.checked
+      : multiLineTaskActive
+        ? projectedMultiLineChecked(this.standaloneMultiLineListProjection!)
+        : parentTaskActive
+          ? projectedParentChecked(this.standaloneParentListItemProjection!)
+          : false;
+    this.taskCheckboxInputEl.disabled = !active;
+  }
+
+  /**
+   * Phase 5L-3 ("Ordered List Marker-Free Partial Edit"): mirrors
+   * renderTaskCheckboxRow's own "toggle visibility/populate from the
+   * loaded projection, once per render" pattern, for the standalone
+   * ordered-list number control instead of the task-list checkbox. Shown
+   * ONLY when a standalone ordered-list item's number marker is
+   * currently hidden from the shared textarea
+   * (this.standaloneOrderedListProjection !== null) — every other case
+   * (every non-ordered-list kind, and an ordered-list item that fell back
+   * to raw editing) hides this row and leaves the input empty/disabled,
+   * mirroring taskCheckboxRowEl's own hidden/empty default. Always
+   * populates from `projection.number` VERBATIM (see that field's own
+   * doc comment) — never re-formatted/re-validated here; Apply-time
+   * validation is this class's own applyEdit, via
+   * isValidOrderedListNumberText.
+   */
+  private renderOrderedNumberRow(): void {
+    // Phase 5L-4: ALSO active for a multi-line leaf item whose own first
+    // line is an ordered line (this.standaloneMultiLineListProjection?.listKind
+    // === "ordered") — the exact same number control this row already
+    // owns for the single-line case is reused unchanged (see this
+    // ticket's own design doc §7). Mutually exclusive with
+    // standaloneOrderedListProjection by construction — see
+    // renderTaskCheckboxRow's own identical comment immediately above.
+    const multiLineOrderedActive = this.standaloneMultiLineListProjection?.listKind === "ordered";
+    // Phase 5L-6: ALSO active for a parent item whose own-text's first
+    // line is an ordered line — same rationale as renderTaskCheckboxRow's
+    // own identical parent-case addition above.
+    const parentOrderedActive = this.standaloneParentListItemProjection?.ownText.listKind === "ordered";
+    const active =
+      this.standaloneOrderedListProjection !== null || multiLineOrderedActive || parentOrderedActive;
+    this.orderedNumberRowEl.toggleVisibility(active);
+    this.orderedNumberInputEl.value = this.standaloneOrderedListProjection
+      ? projectedOrderedNumberText(this.standaloneOrderedListProjection)
+      : multiLineOrderedActive
+        ? projectedMultiLineNumberText(this.standaloneMultiLineListProjection!)
+        : parentOrderedActive
+          ? projectedParentNumberText(this.standaloneParentListItemProjection!)
+          : "";
+    this.orderedNumberInputEl.disabled = !active;
   }
 
   /**
@@ -1812,7 +4392,7 @@ export class PartialEditView extends ItemView {
 
   /** Revert unsaved edits in the textarea (and, Phase 5D-1A, the title input) — does not close the pane or change which node is loaded. */
   private cancelEdit(): void {
-    if (!this.nodeId && !this.paragraphAnchor) return;
+    if (!this.nodeId && !this.paragraphAnchor && !this.compositeAnchor) return;
     // Phase 5D-0.5: reverts to the projected displayText (not the raw
     // originalText) for a projecting callout/blockquote — see
     // currentDisplayText's own doc comment. Every other kind is
@@ -1832,6 +4412,124 @@ export class PartialEditView extends ItemView {
       this.refreshQuoteTypeDatalistOptions();
       this.quoteMarkerSelectEl.value = titleSlot.marker;
       this.quoteTitleInputEl.value = titleSlot.title;
+    }
+    // Phase 5D-2B: revert the structured composite session's own
+    // list-member input too — a no-op (value already unchanged) whenever
+    // compositeListOriginalText is null (every non-composite kind, and a
+    // composite that fell back to the raw whole-range textarea).
+    if (this.compositeListOriginalText !== null) {
+      this.compositeListInputEl.value = this.compositeListOriginalText;
+    }
+    // Phase 5L-2: revert the standalone task-list checkbox control too —
+    // a no-op (value already unchanged) whenever
+    // standaloneTaskListProjection is null (every non-task-list kind).
+    if (this.standaloneTaskListProjection) {
+      this.taskCheckboxInputEl.checked = this.standaloneTaskListProjection.checked;
+    }
+    // Phase 5L-3: revert the standalone ordered-list number input too —
+    // a no-op (value already unchanged) whenever
+    // standaloneOrderedListProjection is null (every non-ordered-list
+    // kind).
+    if (this.standaloneOrderedListProjection) {
+      this.orderedNumberInputEl.value = this.standaloneOrderedListProjection.number;
+    }
+    // Phase 5L-4: revert the checkbox/number controls when a multi-line
+    // leaf item's own first line is task/ordered respectively — a no-op
+    // whenever standaloneMultiLineListProjection is null, or whenever its
+    // own listKind is not the relevant one (see
+    // projectedMultiLineChecked/projectedMultiLineNumberText's own
+    // "always-readable default" doc comment). textareaEl.value was
+    // already reverted above (currentDisplayText already branches on
+    // this projection — see that method's own doc comment), so no
+    // separate textarea revert is needed here.
+    if (this.standaloneMultiLineListProjection?.listKind === "task") {
+      this.taskCheckboxInputEl.checked = projectedMultiLineChecked(this.standaloneMultiLineListProjection);
+    }
+    if (this.standaloneMultiLineListProjection?.listKind === "ordered") {
+      this.orderedNumberInputEl.value = projectedMultiLineNumberText(this.standaloneMultiLineListProjection);
+    }
+    // Phase 5L-6: revert the checkbox/number controls when a parent
+    // item's own-text first line is task/ordered respectively — same
+    // rationale, same "textareaEl.value already reverted above" note, as
+    // the multi-line case immediately above.
+    if (this.standaloneParentListItemProjection?.ownText.listKind === "task") {
+      this.taskCheckboxInputEl.checked = projectedParentChecked(this.standaloneParentListItemProjection);
+    }
+    if (this.standaloneParentListItemProjection?.ownText.listKind === "ordered") {
+      this.orderedNumberInputEl.value = projectedParentNumberText(this.standaloneParentListItemProjection);
+    }
+    // Phase 5L-8: revert the child inline editor's own controls too, when
+    // a child inline session is active — Cancel reverts BOTH the parent's
+    // own draft (above) and the currently-open child's own draft (this
+    // ticket's own explicit §8 requirement), WITHOUT closing the child
+    // editor itself (mirrors how Cancel never unloads the parent node
+    // either, only reverts its text).
+    if (this.childInlineSession) {
+      const session = this.childInlineSession;
+      this.childInlineTextareaEl.value = projectedChildBodyText(session.childProjection);
+      const kind = childEffectiveControlKind(session.childProjection);
+      if (kind === "task") {
+        this.childInlineTaskCheckboxInputEl.checked = projectedChildChecked(session.childProjection);
+      }
+      if (kind === "ordered") {
+        this.childInlineOrderedNumberInputEl.value = projectedChildNumberText(session.childProjection);
+      }
+    }
+    // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+    // a full pane-level Cancel discards BOTH a pending new-child draft
+    // AND a pending deletion mark entirely (§4's own "Cancel before Apply
+    // means it never existed" contract for Add; §5's own "A full
+    // pane-level Cancel undoes a pending deletion" contract for Delete) —
+    // unlike the existing-child revert immediately above (which reverts
+    // VALUES but keeps that editor open), both of THESE are removed from
+    // the session outright, so the preview must be re-rendered to reflect
+    // that (toggle the new-child editor closed, un-mark the pending-
+    // deletion row) — every other revert above only ever changes an
+    // already-visible control's own value, never a row's own visibility/
+    // interactivity, so this is the one addition that needs it.
+    // Phase 5L-10: a full pane-level Cancel ALSO discards a pending
+    // reorder plan entirely — same "Cancel before Apply means it never
+    // existed" contract as the new-child-draft/pending-deletion revert
+    // immediately below, extended to this ticket's own third pending
+    // slot. Reset to the IDENTITY order (never simply left as-is), so
+    // the read-only preview reverts to its original, un-reordered
+    // sequence — see this ticket's own explicit §8 "Cancel すると順序
+    // preview は元に戻ること" requirement.
+    const addDeleteSession = this.childAddDeleteSession;
+    if (
+      addDeleteSession &&
+      (addDeleteSession.newChildDraft ||
+        addDeleteSession.pendingDeletion ||
+        isPendingReorderDirty(addDeleteSession) ||
+        // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent
+        // Partial Edit Pane"): a full pane-level Cancel ALSO discards a
+        // pending indent/outdent entirely — same "Cancel before Apply
+        // means it never existed" contract as the new-child-draft/
+        // pending-deletion/pending-reorder revert immediately below,
+        // extended to this ticket's own fourth pending slot. See this
+        // ticket's own explicit §8 "Cancel must fully revert the pending
+        // transformation" requirement.
+        addDeleteSession.pendingIndentOutdent)
+    ) {
+      addDeleteSession.newChildDraft = null;
+      addDeleteSession.pendingDeletion = null;
+      addDeleteSession.pendingReorderOrder = addDeleteSession.childSlots.map((slot) => slot.nodeId);
+      addDeleteSession.pendingIndentOutdent = null;
+      this.renderParentChildPreview();
+    }
+    // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
+    // Mode B"): a full pane-level Cancel ALSO discards a pending Mode B
+    // "promote this leaf to a parent" draft entirely — same "Cancel
+    // before Apply means it never existed" contract as the addDeleteSession
+    // block immediately above, extended to this ticket's own fifth
+    // pending slot (deliberately a SEPARATE field/branch, never folded
+    // into the addDeleteSession block above — the two are mutually
+    // exclusive by construction, see pendingLeafFirstChild's own doc
+    // comment).
+    if (this.pendingLeafFirstChild) {
+      this.pendingLeafFirstChild = null;
+      this.renderLeafFirstChildAddRow();
+      this.renderNewChildEditor();
     }
     this.updateDirtyState();
   }
@@ -1990,19 +4688,133 @@ export class PartialEditView extends ItemView {
     // or the node/paragraph branches' own apply calls, and the reverse is
     // equally true — exactly one of nodeId/paragraphAnchor/compositeAnchor
     // is ever set (see this class's own doc comment), so the three paths
-    // cannot interfere with each other. Explicit scope reminder (Phase
-    // 5D-2A ticket): this pane
-    // is raw-Markdown-only for a CompositeBlock — this.quoteProjection is
-    // always null here (loadCompositeInternal never sets it), so
-    // this.textareaEl.value is already the raw text to splice, exactly
-    // like the non-projecting node branch below.
+    // cannot interfere with each other.
+    //
+    // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): a STRUCTURED
+    // session (this.quoteProjection !== null && this.compositeListOriginalText
+    // !== null — see loadCompositeInternal's own doc comment) composes
+    // applyCompositeBlockEdit's `newText` from the two member editors
+    // instead of reading it directly off this.textareaEl.value. A
+    // RAW-fallback session (quoteProjection === null, Phase 5D-2A's own
+    // original, unmodified behavior) is completely unaffected —
+    // newCompositeText is simply this.textareaEl.value, exactly as before
+    // this ticket. Either way, applyCompositeBlockEdit itself (imported,
+    // never modified) still performs the one and only conflict check and
+    // splice, against the SAME this.originalText whole-range snapshot as
+    // always — this ticket only changes what candidate text is offered to
+    // it, never how it is verified or applied.
     if (this.compositeAnchor) {
       const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+
+      let newCompositeText: string;
+      // Set only for a STRUCTURED session, and only once composition below
+      // succeeds — used after a successful Apply to rebuild this pane's
+      // own structured state fresh, mirroring how the standalone branch
+      // further below rebuilds its own quoteProjection after Apply.
+      let composedListLine: string | null = null;
+      let composedTrailingText: string | null = null;
+      if (this.quoteProjection && this.compositeListOriginalText !== null) {
+        // Phase 5D-1.5 parity: invert the trailing member's body back to
+        // raw Markdown via the exact same, UNMODIFIED
+        // edit/quotePrefixProjection.ts machinery the standalone branch
+        // below uses for a standalone callout/blockquote — never a
+        // second, duplicated implementation.
+        const inverted = invertQuotePrefixProjection(this.quoteProjection, this.textareaEl.value);
+        if (!inverted.ok) {
+          new Notice(this.plugin.t("partialEdit.quoteBodyEmptyUnsupported"));
+          return false;
+        }
+        let trailingRawText = inverted.rawText;
+
+        // Phase 5D-1A/5D-1B/5D-1C parity: reconstruct the trailing
+        // member's own header line from the title/type/marker controls'
+        // CURRENT values — identical logic, and the identical
+        // reconstructQuoteHeader call, as the standalone branch below.
+        const titleSlot = this.quoteProjection.titleSlot;
+        if (titleSlot) {
+          const newType = this.quoteTypeInputEl.value;
+          const newMarker = this.quoteMarkerSelectEl.value as CalloutFoldMarker;
+          const reconstructed = reconstructQuoteHeader(
+            titleSlot,
+            newType,
+            newMarker,
+            this.quoteTitleInputEl.value
+          );
+          if (!reconstructed.ok) {
+            if (reconstructed.reason === "newline") {
+              new Notice(this.plugin.t("partialEdit.quoteTitleNewlineUnsupported"));
+            } else if (reconstructed.reason === "invalid-type") {
+              new Notice(this.plugin.t("partialEdit.quoteTypeInvalidUnsupported"));
+            }
+            return false;
+          }
+          const bodyOnlyLines = trailingRawText.split("\n").slice(1);
+          trailingRawText = [reconstructed.header, ...bodyOnlyLines].join("\n");
+        }
+
+        // Same isolated re-verification the standalone branch performs
+        // below (own parseDocument/scanComplexBlocks call, never shared
+        // mutable state) — proves the trailing member's OWN edited text
+        // alone still forms one clean, fully-supported callout/blockquote
+        // BEFORE it is ever composed with the list line and handed to
+        // applyCompositeBlockEdit.
+        const candidateDoc = parseDocument(trailingRawText);
+        const candidateBlock = scanComplexBlocks(candidateDoc).blocks.find(
+          (b) => b.kind === this.quoteProjection!.kind
+        );
+        const expectedEndLine = trailingRawText.split("\n").length - 1;
+        const structurallyValid =
+          !!candidateBlock &&
+          candidateBlock.range.startLine === 0 &&
+          candidateBlock.range.endLine === expectedEndLine &&
+          candidateBlock.editability === "supported";
+        if (!structurallyValid) {
+          new Notice(this.plugin.t("partialEdit.quoteEditStructureInvalid"));
+          return false;
+        }
+
+        // Phase 5D-2C: when the list member is being edited marker-free
+        // (this.listMarkerProjection !== null), invert the list-member
+        // input's CURRENT body back to its own raw line via the exact
+        // same, UNMODIFIED edit/listMarkerProjection.ts machinery
+        // loadCompositeInternal already used to build it — mirrors the
+        // trailing member's own invert-then-reconstruct flow immediately
+        // above. A raw-fallback list row (this.listMarkerProjection ===
+        // null — an ordered/task-list marker, or a non-"single-line-list"
+        // kind) is completely unaffected: compositeListInputEl.value
+        // already holds the FULL raw line in that case, exactly like
+        // Phase 5D-2B's own original, unmodified behavior.
+        if (this.listMarkerProjection) {
+          const invertedList = invertListMarkerProjection(
+            this.listMarkerProjection,
+            this.compositeListInputEl.value
+          );
+          if (!invertedList.ok) {
+            // "multiline-body": the only reason — see
+            // edit/listMarkerProjection.ts's own top doc comment for why
+            // a single-line-list item can never accept a newline in its
+            // marker-free body. A genuine safety error (the list line
+            // cannot be safely reconstructed), not a grouping-rule
+            // concern — Apply is refused and every draft (list body,
+            // trailing member) is left exactly as the user had it.
+            new Notice(this.plugin.t("partialEdit.listBodyNewlineUnsupported"));
+            return false;
+          }
+          composedListLine = invertedList.rawLine;
+        } else {
+          composedListLine = this.compositeListInputEl.value;
+        }
+        composedTrailingText = trailingRawText;
+        newCompositeText = composeCompositeBlockMemberText(composedListLine, composedTrailingText);
+      } else {
+        newCompositeText = this.textareaEl.value;
+      }
+
       const outcome = applyCompositeBlockEdit(
         doc,
         this.compositeAnchor,
         this.originalText,
-        this.textareaEl.value,
+        newCompositeText,
         rules
       );
       if (!outcome.changed) {
@@ -2037,12 +4849,48 @@ export class PartialEditView extends ItemView {
         // this same pane session correctly falls through to the top guard's
         // "no node loaded" refusal, rather than silently operating against a
         // CompositeBlock that no longer exists.
-        this.originalText = this.textareaEl.value;
+        this.originalText = newCompositeText;
         this.compositeAnchor = outcome.resolvedSnapshot ?? null;
+        // Phase 5D-2B: re-split/re-project this pane's own structured state
+        // fresh from the just-applied pieces (never a re-parse — the
+        // pieces are already known from composition above), exactly like
+        // the standalone branch below rebuilds its own quoteProjection
+        // after Apply — a SECOND Apply within the same pane session then
+        // starts from a fully current basis. A raw-fallback session
+        // (composedListLine/composedTrailingText both null) stays raw,
+        // unaffected.
+        if (composedListLine !== null && composedTrailingText !== null) {
+          const kind = this.quoteProjection!.kind;
+          const rebuilt = buildQuotePrefixProjection(composedTrailingText, kind);
+          this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
+          if (rebuilt.ok) {
+            // Phase 5D-2C: re-project the just-applied list line
+            // marker-free too, exactly like loadCompositeInternal/
+            // performAutoReload's own re-projection — attempted fresh
+            // regardless of whether marker-free projection was active
+            // BEFORE this Apply (the composedListLine here is always a
+            // complete, valid single raw line — see the invert call
+            // above — so re-attempting costs nothing and lets a list line
+            // that only just NOW became eligible, e.g. a raw-edited task
+            // checkbox the user removed, pick up marker-free editing on
+            // the very next round within this same pane session).
+            const listRebuilt = buildListMarkerProjection(composedListLine);
+            this.listMarkerProjection = listRebuilt.ok ? listRebuilt.projection : null;
+            this.compositeListOriginalText = this.listMarkerProjection
+              ? this.listMarkerProjection.body
+              : composedListLine;
+          } else {
+            this.listMarkerProjection = null;
+            this.compositeListOriginalText = null;
+          }
+        }
         // Phase 5A-1 hardening §1: see the paragraph branch's identical
         // comment above — explicitly synced right after this pane's own
         // re-anchoring, regardless of what syncState held before Apply.
         this.syncState = "synced";
+        this.renderQuoteHeader();
+        this.renderCompositeListSlot();
+        this.textareaEl.value = this.currentDisplayText();
         this.updateDirtyState();
       } finally {
         this.isApplyingOwnEdit = false;
@@ -2091,7 +4939,19 @@ export class PartialEditView extends ItemView {
     // the splice call below, and no partial/best-effort splice is
     // attempted.
     let newRawText = this.textareaEl.value;
-    if (this.quoteProjection) {
+    // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
+    // Mode B"): a pending "promote this leaf to a parent" draft is
+    // present — checked BEFORE every other branch in this whole
+    // if/else-if chain, since none of them know how to also insert a
+    // brand-new first child (they only ever know how to write back the
+    // leaf's OWN body). Routed through its own dedicated method (never
+    // reusing `newRawText`/the generic outcome+applyLineEditOutcome tail
+    // below — see applyLeafFirstChildEdit's own doc comment for why it
+    // needs its own post-Apply full reload instead of that tail's own
+    // narrower rebuild).
+    if (this.pendingLeafFirstChild) {
+      return this.applyLeafFirstChildEdit(doc, editor);
+    } else if (this.quoteProjection) {
       const inverted = invertQuotePrefixProjection(this.quoteProjection, this.textareaEl.value);
       if (!inverted.ok) {
         new Notice(this.plugin.t("partialEdit.quoteBodyEmptyUnsupported"));
@@ -2186,9 +5046,224 @@ export class PartialEditView extends ItemView {
         new Notice(this.plugin.t("partialEdit.quoteEditStructureInvalid"));
         return false;
       }
+    } else if (this.standaloneListMarkerProjection) {
+      // Phase 5L-1: analogous to the CompositeBlock list-member inversion
+      // in this method's compositeAnchor branch above — reuses the exact
+      // same, unmodified edit/listMarkerProjection.ts machinery, and (per
+      // this ticket's own explicit requirement) writes back through this
+      // SAME applySubtreeEdit call below — no new Markdown write-back
+      // path. Mutually exclusive with the quoteProjection branch above: a
+      // node is never both a callout/blockquote and a list.
+      // "multiline-body" is the ONLY refusal reason
+      // invertListMarkerProjection can return — a genuine safety error
+      // (the raw line cannot be safely reconstructed), refused here
+      // BEFORE applySubtreeEdit is ever called, with every draft left
+      // exactly as the user had it — same Notice text/key the
+      // CompositeBlock branch already uses for the identical failure.
+      const invertedList = invertListMarkerProjection(
+        this.standaloneListMarkerProjection,
+        this.textareaEl.value
+      );
+      if (!invertedList.ok) {
+        new Notice(this.plugin.t("partialEdit.listBodyNewlineUnsupported"));
+        return false;
+      }
+      newRawText = invertedList.rawLine;
+    } else if (this.standaloneTaskListProjection) {
+      // Phase 5L-2: analogous to the standaloneListMarkerProjection
+      // branch immediately above — reuses the exact same, unmodified
+      // edit/taskListProjection.ts machinery, and (per this ticket's own
+      // explicit requirement) writes back through this SAME
+      // applySubtreeEdit call below — no new Markdown write-back path.
+      // Mutually exclusive with both branches above: a node is never
+      // both a callout/blockquote and a list, and never both a
+      // non-task-list and a task-list item at once (see
+      // buildStandaloneListProjections's own doc comment).
+      // "multiline-body" is the ONLY refusal reason
+      // invertTaskListProjection can return — a genuine safety error
+      // (the raw line cannot be safely reconstructed), refused here
+      // BEFORE applySubtreeEdit is ever called, with every draft
+      // (checkbox state AND body) left exactly as the user had it.
+      const invertedTask = invertTaskListProjection(
+        this.standaloneTaskListProjection,
+        this.taskCheckboxInputEl.checked,
+        this.textareaEl.value
+      );
+      if (!invertedTask.ok) {
+        new Notice(this.plugin.t("partialEdit.taskBodyNewlineUnsupported"));
+        return false;
+      }
+      newRawText = invertedTask.rawLine;
+    } else if (this.standaloneOrderedListProjection) {
+      // Phase 5L-3: analogous to the standaloneTaskListProjection branch
+      // immediately above — reuses the exact same, unmodified
+      // edit/orderedListProjection.ts machinery, and (per this ticket's
+      // own explicit requirement) writes back through this SAME
+      // applySubtreeEdit call below — no new Markdown write-back path.
+      // Mutually exclusive with every branch above (see
+      // buildStandaloneListProjections's own doc comment). Two distinct
+      // refusal reasons here, each refused BEFORE applySubtreeEdit is
+      // ever called, with every draft (number text AND body) left
+      // exactly as the user had it: "multiline-body" (the raw line
+      // cannot be safely reconstructed — a genuine safety error, same
+      // class as the sibling branches above) and "invalid-number" (the
+      // number input's current text fails
+      // isValidOrderedListNumberText — see
+      // edit/orderedListProjection.ts's own top doc comment's "The
+      // number field" section for the exhaustive rejection-case
+      // rationale). The delimiter itself is NEVER passed here — see that
+      // module's own top doc comment for why it can never be edited this
+      // phase.
+      const invertedOrdered = invertOrderedListProjection(
+        this.standaloneOrderedListProjection,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!invertedOrdered.ok) {
+        new Notice(
+          this.plugin.t(
+            invertedOrdered.reason === "invalid-number"
+              ? "partialEdit.orderedNumberInvalid"
+              : "partialEdit.orderedBodyNewlineUnsupported"
+          )
+        );
+        return false;
+      }
+      newRawText = invertedOrdered.rawLine;
+    } else if (this.standaloneMultiLineListProjection) {
+      // Phase 5L-4: analogous to the three single-line branches above —
+      // reuses edit/multiLineListItemProjection.ts's own
+      // invertMultiLineListItemProjection, and (per this ticket's own
+      // explicit requirement — design doc §4) writes back through this
+      // SAME applySubtreeEdit call below, no new Markdown write-back
+      // path. Mutually exclusive with every branch above (see
+      // loadNodeInternal's own doc comment). checked/number are ALWAYS
+      // passed, regardless of this projection's own listKind — the
+      // callee itself ignores whichever of the two does not apply (see
+      // that function's own doc comment), mirroring how
+      // taskCheckboxInputEl/orderedNumberInputEl are themselves always
+      // present, just conditionally visible, for the single-line case.
+      // "invalid-number" mirrors the standaloneOrderedListProjection
+      // branch's own identical refusal above; "unsafe-structure" is this
+      // module's own addition — a freshly reconstructed candidate that
+      // would introduce a nested child list item, or a callout/
+      // blockquote/fenced-code/table/thematic-break block, once
+      // canonically re-indented and re-parsed (see
+      // edit/multiLineListItemProjection.ts's own top doc comment and
+      // its validateMultiLineListItemCandidate's own doc comment for the
+      // exhaustive check list). Either way, every draft (checkbox/number
+      // control AND the full multi-line body) is left exactly as the
+      // user had it — no partial write of any kind.
+      const invertedMultiLine = invertMultiLineListItemProjection(
+        this.standaloneMultiLineListProjection,
+        this.taskCheckboxInputEl.checked,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!invertedMultiLine.ok) {
+        new Notice(
+          this.plugin.t(
+            invertedMultiLine.reason === "invalid-number"
+              ? "partialEdit.orderedNumberInvalid"
+              : "partialEdit.multiLineListStructureInvalid"
+          )
+        );
+        return false;
+      }
+      newRawText = invertedMultiLine.rawText;
+    } else if (this.standaloneParentListItemProjection && this.childAddDeleteSession?.pendingIndentOutdent) {
+      // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+      // Edit Pane"): a pending indent/outdent is present — checked
+      // BEFORE the hasAddDeleteActivity() branch immediately below
+      // (hasAddDeleteActivity() itself now ALSO returns true whenever a
+      // pending indent/outdent is set, purely so isDirty()/
+      // updateDirtyState keep showing Apply/Cancel — see that method's
+      // own doc comment), since applyParentChildAddDeleteCombinedEdit
+      // has no idea how to write an indent/outdent transformation. A
+      // pending indent/outdent NEVER coexists with a pending add/delete/
+      // reorder/open-existing-child-editor by construction (§6's own
+      // composition scope — see handleRequestIndentChild's/
+      // handleRequestOutdentChild's own doc comments for where that is
+      // enforced), so this dedicated method only ever needs to also
+      // consider the parent's own own-text draft.
+      return this.applyParentChildIndentOutdentEdit(doc, editor);
+    } else if (this.standaloneParentListItemProjection && this.hasAddDeleteActivity()) {
+      // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+      // a pending new-child draft and/or a pending deletion mark is
+      // present — checked BEFORE the plain childInlineSession-only branch
+      // immediately below (a pending add/delete may coexist with an open
+      // existing-child editor too), routed through this ticket's own
+      // generalized combined-apply method instead of either the
+      // single-range parent-only path or 5L-8's own fixed-two-range path.
+      return this.applyParentChildAddDeleteCombinedEdit(doc, editor);
+    } else if (this.standaloneParentListItemProjection && this.childInlineSession) {
+      // Phase 5L-8 ("Child Item Inline Structured Editing in Parent
+      // Partial Edit Pane"): a child inline session is active — the
+      // parent's own-text draft and the selected child's own-text draft
+      // are saved TOGETHER by this ONE Apply action, as exactly one
+      // atomic document mutation (never the single-range
+      // standaloneParentListItemProjection path immediately below, which
+      // knows nothing about a second, simultaneously-edited range).
+      // applyParentChildCombinedEdit owns this entire flow end to end
+      // (invert+validate, live write, editor mutation, state rebuild,
+      // Notice) and returns applyEdit()'s own boolean result directly —
+      // see that method's own doc comment.
+      return this.applyParentChildCombinedEdit(doc, editor);
+    } else if (this.standaloneParentListItemProjection) {
+      // Phase 5L-6 ("Parent List Item Structured Partial Edit"): analogous
+      // to the standaloneMultiLineListProjection branch immediately above,
+      // but reuses edit/parentListItemProjection.ts's own
+      // invertParentListItemProjection instead — see that module's own top
+      // doc comment for the two-stage safety design (own-text-alone
+      // re-parse, THEN own-text-spliced-with-the-ORIGINAL-child-subtree-
+      // snapshot re-parse). Unlike every branch above, the generic
+      // applySubtreeEdit call immediately below this whole if/else-if
+      // chain is NOT used for this kind — see the outcome computation
+      // immediately below for why (applySubtreeEdit's own whole-subtree
+      // conflict check would spuriously refuse this Apply the moment the
+      // CHILD subtree alone changes, which this ticket's own approved
+      // scope explicitly forbids). checked/number are ALWAYS passed,
+      // regardless of this projection's own ownText.listKind, mirroring
+      // the standaloneMultiLineListProjection branch's own identical
+      // convention. Every draft (checkbox/number control AND the own-text
+      // body) is left exactly as the user had it on any refusal — no
+      // partial write of any kind, and the child preview is never
+      // re-serialized either way.
+      const invertedParent = invertParentListItemProjection(
+        this.standaloneParentListItemProjection,
+        this.taskCheckboxInputEl.checked,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!invertedParent.ok) {
+        new Notice(
+          this.plugin.t(
+            invertedParent.reason === "invalid-number"
+              ? "partialEdit.orderedNumberInvalid"
+              : invertedParent.reason === "own-text-unsafe-structure"
+                ? "partialEdit.parentOwnTextStructureInvalid"
+                : "partialEdit.parentChildSubtreeStructureInvalid"
+          )
+        );
+        return false;
+      }
+      newRawText = invertedParent.ownTextRawText;
     }
 
-    const outcome = applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText);
+    // Phase 5L-6: the parent kind deliberately does NOT go through the
+    // generic applySubtreeEdit below — see the standaloneParentListItemProjection
+    // branch's own comment immediately above for why. Both outcome shapes
+    // expose the same `{changed, lines, newStartLine, reason?}` fields the
+    // shared tail below already only ever reads, so no further branching
+    // is needed past this point.
+    const outcome = this.standaloneParentListItemProjection
+      ? applyParentListItemOwnTextEdit(
+          doc,
+          this.nodeId!,
+          this.standaloneParentListItemProjection.ownText.rawText,
+          newRawText
+        )
+      : applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText);
     const node = doc.nodes.get(this.nodeId!);
     const startLine = node ? node.range.startLine : 0;
 
@@ -2218,7 +5293,37 @@ export class PartialEditView extends ItemView {
       // (never the textarea's own, possibly prefix-stripped, value) — for
       // every non-projecting kind newRawText === this.textareaEl.value
       // already, so this is byte-identical to the pre-5D-0.5 behavior there.
+      //
+      // Phase 5L-6: for the parent kind, `newRawText` holds ONLY the
+      // just-applied own-text candidate (never the child subtree — see the
+      // standaloneParentListItemProjection branch above) — originalText
+      // must still hold the FULL subtree snapshot (own-text + every
+      // descendant line), exactly like every other kind, since that is
+      // what extractSubtreeText/resolveCurrentTarget's own whole-subtree
+      // staleness comparison (unchanged by this ticket — see
+      // edit/parentListItemProjection.ts's own top doc comment for why
+      // narrowing THAT shared mechanism is deliberately out of scope) keeps
+      // comparing against. `this.standaloneParentListItemProjection` here
+      // still refers to the PRE-apply projection (the rebuild below hasn't
+      // run yet), so its own `childSubtreeText` is exactly the unchanged
+      // child-subtree snapshot to reattach.
       this.originalText = newRawText;
+      if (this.standaloneParentListItemProjection) {
+        // Phase 5L-6: override the re-anchor above — `newRawText` here holds
+        // ONLY the just-applied own-text candidate (never the child
+        // subtree), but originalText must still hold the FULL subtree
+        // snapshot (own-text + every descendant line), exactly like every
+        // other kind, since that is what extractSubtreeText/
+        // resolveCurrentTarget's own whole-subtree staleness comparison
+        // (unchanged by this ticket — see edit/parentListItemProjection.ts's
+        // own top doc comment for why narrowing THAT shared mechanism is
+        // deliberately out of scope) keeps comparing against.
+        // `this.standaloneParentListItemProjection` here still refers to the
+        // PRE-apply projection (the rebuild below hasn't run yet), so its
+        // own `childSubtreeText` is exactly the unchanged child-subtree
+        // snapshot to reattach.
+        this.originalText = newRawText + "\n" + this.standaloneParentListItemProjection.childSubtreeText;
+      }
       if (this.quoteProjection) {
         // Rebuild the projection/line-mapping fresh from the just-applied
         // raw text, rather than trusting the pre-apply projection's now
@@ -2250,6 +5355,117 @@ export class PartialEditView extends ItemView {
         // raw text back should reproduce exactly what the textarea already
         // shows.
         this.textareaEl.value = this.currentDisplayText();
+      } else if (this.standaloneListMarkerProjection) {
+        // Phase 5L-1: rebuild fresh from the just-applied raw line, same
+        // rationale as the quoteProjection rebuild immediately above — a
+        // second Apply within the same pane session then starts from a
+        // fully current basis. newRawText here is always exactly one
+        // line (invertListMarkerProjection above guarantees no embedded
+        // newline), so this can only ever fail via
+        // buildListMarkerProjection's own "ordered-marker"/
+        // "task-list-marker" refusals — unreachable in practice here,
+        // since neither the marker (untouched by this Apply path; see
+        // this method's own top-level requirement that marker changes
+        // have no UI) nor task-list-checkbox syntax (an untouched body
+        // prefix) can change as a RESULT of this edit — but handled the
+        // same safe way regardless: degrade to showing the raw line from
+        // here on, exactly like a rebuild failure already does for the
+        // quoteProjection branch above.
+        const rebuilt = buildListMarkerProjection(newRawText);
+        this.standaloneListMarkerProjection = rebuilt.ok ? rebuilt.projection : null;
+        this.textareaEl.value = this.currentDisplayText();
+      } else if (this.standaloneTaskListProjection) {
+        // Phase 5L-2: rebuild fresh from the just-applied raw line, same
+        // rationale as the standaloneListMarkerProjection rebuild
+        // immediately above — a second Apply within the same pane
+        // session then starts from a fully current basis. newRawText
+        // here is always exactly one line (invertTaskListProjection
+        // above guarantees no embedded newline), so this can only ever
+        // fail via buildTaskListProjection's own refusals — unreachable
+        // in practice here for the same reasons the standalone list
+        // branch's own comment above gives — but handled the same safe
+        // way regardless: degrade to showing the raw line from here on.
+        const rebuilt = buildTaskListProjection(newRawText);
+        this.standaloneTaskListProjection = rebuilt.ok ? rebuilt.projection : null;
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderTaskCheckboxRow();
+      } else if (this.standaloneOrderedListProjection) {
+        // Phase 5L-3: rebuild fresh from the just-applied raw line, same
+        // rationale as the standaloneTaskListProjection rebuild
+        // immediately above — a second Apply within the same pane
+        // session then starts from a fully current basis. newRawText
+        // here is always exactly one line (invertOrderedListProjection
+        // above guarantees no embedded newline), and its number text
+        // already passed isValidOrderedListNumberText, so this can only
+        // ever fail via buildOrderedListProjection's own refusals —
+        // unreachable in practice here for the same reasons the sibling
+        // branches' own comments above give — but handled the same safe
+        // way regardless: degrade to showing the raw line from here on.
+        const rebuilt = buildOrderedListProjection(newRawText);
+        this.standaloneOrderedListProjection = rebuilt.ok ? rebuilt.projection : null;
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderOrderedNumberRow();
+      } else if (this.standaloneMultiLineListProjection) {
+        // Phase 5L-4: rebuild fresh from the just-applied raw text, same
+        // rationale as the sibling rebuilds above — a second Apply within
+        // the same pane session then starts from a fully current basis.
+        // newRawText here already passed
+        // validateMultiLineListItemCandidate (invertMultiLineListItemProjection
+        // above never returns ok:true otherwise), so this can only ever
+        // fail via buildMultiLineListItemProjection's own "single-line"
+        // refusal — genuinely reachable here (the user may have deleted
+        // every continuation line, collapsing the item to one line) —
+        // handled the same safe way regardless: degrade to showing the
+        // raw (now single-line) text from here on, via originalText;
+        // this pane does NOT retroactively switch to a single-line
+        // projection here (loadNodeInternal's own three-single-line
+        // attempt only ever runs at LOAD time, not mid-session), matching
+        // every sibling rebuild's own "degrade to raw, never silently
+        // upgrade/downgrade to a different projection kind" contract.
+        const rebuilt = buildMultiLineListItemProjection(newRawText);
+        this.standaloneMultiLineListProjection = rebuilt.ok ? rebuilt.projection : null;
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderTaskCheckboxRow();
+        this.renderOrderedNumberRow();
+      } else if (this.standaloneParentListItemProjection) {
+        // Phase 5L-6: rebuild fresh from the just-applied, now-live editor
+        // content — unlike every sibling rebuild above (which operate on
+        // just `newRawText`, an already-isolated raw-text substring), this
+        // needs a freshly re-parsed ParsedDocument to re-resolve the
+        // own-text/child-subtree ranges via
+        // resolveParentListItemOwnTextRange again (that function needs
+        // `doc`/`node`, not raw text alone) — mirroring
+        // loadNodeInternal/performAutoReload's own identical
+        // re-derive-fresh-from-`doc` convention. A rebuild failure here
+        // (e.g. the user's own edit collapsed the item's own-text in a way
+        // that no longer resolves) degrades to showing the raw
+        // FULL-SUBTREE text from here on, via originalText — the same
+        // "degrade to raw, never silently upgrade/downgrade to a
+        // different projection kind" contract every sibling rebuild above
+        // already carries.
+        // Phase 5L-12: rebuild via the single shared
+        // reconcileStandaloneNodeState instead of this branch's own
+        // narrow "only ever re-verify standaloneParentListItemProjection,
+        // never discover a leaf projection" rebuild — see that method's
+        // own doc comment. This own-text-only Apply path can never
+        // actually change childIds.length (it never touches the child
+        // subtree at all), so in practice this remains exactly
+        // equivalent to the prior narrow rebuild; the only change is
+        // that it is no longer a fourth independent copy of the same
+        // eligibility-check/builder-call sequence.
+        const freshDoc = parseDocument(editor.getValue());
+        const freshNode = freshDoc.nodes.get(this.nodeId!);
+        const freshExtracted = extractSubtreeText(freshDoc, this.nodeId!);
+        this.reconcileStandaloneNodeState(
+          freshDoc,
+          this.nodeId!,
+          freshNode,
+          freshExtracted.ok ? freshExtracted.text : ""
+        );
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderTaskCheckboxRow();
+        this.renderOrderedNumberRow();
+        this.renderParentChildPreview();
       }
       // Phase 5A-1 hardening §1: see the paragraph branch's identical
       // comment above — explicitly synced right after this pane's own
@@ -2280,6 +5496,673 @@ export class PartialEditView extends ItemView {
         ? this.plugin.t("partialEdit.listSubtreeUpdated")
         : this.plugin.t("partialEdit.sectionUpdated")
     );
+    return true;
+  }
+
+  /**
+   * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
+   * Edit Pane"): the ONE place a combined parent-own-text + selected-
+   * child-own-text Apply is ever performed — called ONLY from applyEdit's
+   * own `standaloneParentListItemProjection && childInlineSession` branch,
+   * which returns this method's own result directly. Implements this
+   * ticket's own §7 twelve-step Apply procedure on top of
+   * edit/parentChildInlineEditSession.ts's own pure
+   * invertAndValidateParentChildCombinedEdit (steps 1–9, operating on
+   * snapshots) and applyParentChildInlineEditToDocument (steps 1–3, 6–7,
+   * 10 again, operating on the LIVE document, as ONE atomic `lines` array
+   * — see that function's own doc comment for why a partial write is
+   * structurally impossible). On ANY failure at either stage, this method
+   * returns `false` having shown a Notice and touched NEITHER the document
+   * NOR any draft field (step 11) — the shared `isApplyingOwnEdit`
+   * suppression span, `scheduleStaleCheck`, `scrollIntoView`, and
+   * selection-follow calls below all mirror applyEdit's own existing
+   * single-range branches exactly, so this pane's stale-detection/
+   * cursor-follow behavior stays consistent regardless of which Apply path
+   * actually ran.
+   */
+  private applyParentChildCombinedEdit(doc: ParsedDocument, editor: Editor): boolean {
+    const projection = this.standaloneParentListItemProjection;
+    const session = this.childInlineSession;
+    if (!projection || !session || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildInlineEditFailed"));
+      return false;
+    }
+
+    const parentDirty = this.textareaEl.value !== projectedParentBodyText(projection) ||
+      (projection.ownText.listKind === "task" &&
+        this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
+      (projection.ownText.listKind === "ordered" &&
+        this.orderedNumberInputEl.value !== projectedParentNumberText(projection));
+    const childDirty = this.isChildInlineDraftDirty();
+    if (!parentDirty && !childDirty) {
+      // Defensive only — Apply is only reachable while isDirty() (which
+      // already folds in childInlineDirty) is true.
+      return false;
+    }
+
+    // §7 steps 4–9: reconstruct both candidates from their ORIGINAL
+    // snapshots plus whichever controls are dirty, and validate the
+    // combined result — entirely off the live document.
+    const combined = invertAndValidateParentChildCombinedEdit({
+      parentProjection: projection,
+      session,
+      parentDirty,
+      childDirty,
+      editedParentChecked: this.taskCheckboxInputEl.checked,
+      editedParentNumberText: this.orderedNumberInputEl.value,
+      editedParentBody: this.textareaEl.value,
+      editedChildChecked: this.childInlineTaskCheckboxInputEl.checked,
+      editedChildNumberText: this.childInlineOrderedNumberInputEl.value,
+      editedChildBody: this.childInlineTextareaEl.value,
+    });
+    if (!combined.ok) {
+      new Notice(this.plugin.t(parentChildCombinedApplyReasonKey(combined.reason)));
+      return false;
+    }
+
+    // §7 steps 1–3, 6–7, 10: re-resolve fresh against the CURRENT
+    // document, re-check for an external conflict on whichever range is
+    // dirty, and build the ONE atomic replacement.
+    const liveOutcome = applyParentChildInlineEditToDocument(
+      doc,
+      this.nodeId,
+      session.childNodeId,
+      parentDirty,
+      childDirty,
+      projection.ownText.rawText,
+      session.originalChildRawText,
+      combined.parentOwnTextRawText,
+      combined.childRawText
+    );
+    if (!liveOutcome.changed) {
+      new Notice(this.plugin.t(parentChildLiveApplyReasonKey(liveOutcome.reason)));
+      return false;
+    }
+
+    // §7 step 11 is satisfied by construction above (every failure
+    // returned before this point, with `doc`/every draft untouched); from
+    // here on this mirrors applyEdit's own existing branches' own
+    // isApplyingOwnEdit-guarded mutation + rebuild sequence.
+    this.isApplyingOwnEdit = true;
+    try {
+      applyLineEditOutcome(
+        editor,
+        { line: liveOutcome.parentNewStartLine, ch: 0 },
+        liveOutcome.parentNewStartLine,
+        doc.lines,
+        { changed: true, lines: liveOutcome.lines, newStartLine: liveOutcome.parentNewStartLine },
+        () => {}
+      );
+
+      // §7 step 12: re-open the session fresh against the just-saved
+      // document — re-derive originalText (the FULL parent subtree
+      // snapshot, own-text + entire child subtree, exactly like the
+      // single-range parent branch already does), rebuild the parent
+      // projection, the child preview list, and the selected-child
+      // projection/session, all from a fresh parse of the now-live editor
+      // content.
+      // Phase 5L-12: rebuild via the single shared
+      // reconcileStandaloneNodeState — see that method's own doc
+      // comment. This Apply path edits an EXISTING child's own text
+      // only (never adds/removes a child), so childIds.length cannot
+      // actually change here; this remains exactly equivalent to the
+      // prior narrow rebuild (parent projection + childAddDeleteSession
+      // re-derived, childInlineSession reset to null), now via the same
+      // shared implementation every other rebuild site in this class
+      // uses instead of its own copy.
+      const freshDoc = parseDocument(editor.getValue());
+      const freshParentNode = freshDoc.nodes.get(this.nodeId);
+      const freshExtracted = extractSubtreeText(freshDoc, this.nodeId);
+      if (freshExtracted.ok) {
+        this.originalText = freshExtracted.text;
+      }
+      this.reconcileStandaloneNodeState(
+        freshDoc,
+        this.nodeId,
+        freshParentNode,
+        freshExtracted.ok ? freshExtracted.text : ""
+      );
+      if (freshParentNode && isListNode(freshParentNode) && this.standaloneParentListItemProjection) {
+        const rebuiltSession = buildParentChildInlineEditSession(
+          freshDoc,
+          freshParentNode,
+          this.standaloneParentListItemProjection,
+          session.childNodeId
+        );
+        if (rebuiltSession.ok) {
+          this.childInlineSession = rebuiltSession.session;
+        }
+        // A failed rebuild (should be unreachable — liveOutcome.changed
+        // already confirmed both the parent and the child structurally,
+        // moments ago) simply closes the child inline editor, degrading
+        // to the plain read-only preview — the same safe "degrade, never
+        // guess" contract every sibling rebuild in this class already
+        // carries.
+      }
+      this.textareaEl.value = this.currentDisplayText();
+      this.renderTaskCheckboxRow();
+      this.renderOrderedNumberRow();
+      this.renderParentChildPreview();
+      this.syncState = "synced";
+      this.updateDirtyState();
+    } finally {
+      this.isApplyingOwnEdit = false;
+    }
+    this.scheduleStaleCheck();
+
+    const lineLen = editor.getLine(liveOutcome.parentNewStartLine)?.length ?? 0;
+    editor.scrollIntoView(
+      {
+        from: { line: liveOutcome.parentNewStartLine, ch: 0 },
+        to: { line: liveOutcome.parentNewStartLine, ch: lineLen },
+      },
+      true
+    );
+    this.plugin.queueOutlineTreeSelectionFollow(liveOutcome.parentNewStartLine);
+    new Notice(this.plugin.t("partialEdit.parentChildInlineEditApplied"));
+    return true;
+  }
+
+  /**
+   * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
+   * the ONE place a combined parent-own-text + existing-selected-child +
+   * new-child-insertion + pending-deletion Apply is ever performed —
+   * called ONLY from applyEdit's own `hasAddDeleteActivity()` branch,
+   * which returns this method's own result directly. Generalizes
+   * applyParentChildCombinedEdit immediately above (Phase 5L-8's own
+   * fixed-two-range case) to this ticket's own variable-length plan — see
+   * edit/parentChildInlineEditSession.ts's own Phase 5L-9 section for the
+   * full invert/validate/write design this method is a thin UI-layer
+   * wrapper around. On ANY failure at either stage, this method returns
+   * `false` having shown a Notice and touched NEITHER the document NOR
+   * any draft (parent/existing-child/new-child/pending-deletion) at all.
+   */
+  private applyParentChildAddDeleteCombinedEdit(doc: ParsedDocument, editor: Editor): boolean {
+    const projection = this.standaloneParentListItemProjection;
+    const addDeleteSession = this.childAddDeleteSession;
+    if (!projection || !addDeleteSession || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildAddChildFailed"));
+      return false;
+    }
+    const existingChildSession = this.childInlineSession;
+
+    const parentDirty =
+      this.textareaEl.value !== projectedParentBodyText(projection) ||
+      (projection.ownText.listKind === "task" &&
+        this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
+      (projection.ownText.listKind === "ordered" &&
+        this.orderedNumberInputEl.value !== projectedParentNumberText(projection));
+    const existingChildDirty = this.isChildInlineDraftDirty();
+    const newChildDirty = this.isNewChildDraftDirty();
+    const hasDeletion = !!addDeleteSession.pendingDeletion;
+    const hasNewChild = !!addDeleteSession.newChildDraft;
+    // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+    // Pane"): shared with hasAddDeleteActivity() — see that method's own
+    // doc comment for the "net-no-op is not dirty" contract.
+    const reorderDirty = isPendingReorderDirty(addDeleteSession);
+
+    if (!parentDirty && !existingChildDirty && !hasDeletion && !hasNewChild && !reorderDirty) {
+      // Defensive only — this method is only ever reached while
+      // hasAddDeleteActivity() (hasNewChild || hasDeletion ||
+      // reorderDirty) is true.
+      return false;
+    }
+
+    // §7 steps 4–9: reconstruct every candidate that is actually present
+    // from its own ORIGINAL snapshot plus whichever controls are dirty,
+    // and validate the combined result — entirely off snapshots, never
+    // the live document.
+    const combined = invertAndValidateParentChildAddDeleteEdit({
+      parentProjection: projection,
+      addDeleteSession,
+      existingChildSession,
+      parentDirty,
+      existingChildDirty,
+      newChildDirty,
+      reorderDirty,
+      editedParentChecked: this.taskCheckboxInputEl.checked,
+      editedParentNumberText: this.orderedNumberInputEl.value,
+      editedParentBody: this.textareaEl.value,
+      editedExistingChildChecked: this.childInlineTaskCheckboxInputEl.checked,
+      editedExistingChildNumberText: this.childInlineOrderedNumberInputEl.value,
+      editedExistingChildBody: this.childInlineTextareaEl.value,
+      editedNewChildBody: this.newChildTextareaEl.value,
+    });
+    if (!combined.ok) {
+      new Notice(this.plugin.t(parentChildAddDeleteApplyReasonKey(combined.reason)));
+      return false;
+    }
+
+    // Phase 5L-10: the reorder's own live-apply input — non-null only
+    // while reorderDirty, per ReorderLiveApplyInput's own null-means-
+    // absent convention (mirrors `existingChild`/`deletion` immediately
+    // below).
+    const reorderInput: ReorderLiveApplyInput | null = reorderDirty
+      ? { orderedChildNodeIds: addDeleteSession.pendingReorderOrder, originalChildSubtreeText: projection.childSubtreeText }
+      : null;
+
+    // §7 steps 1–3, 6–7, 10: re-resolve fresh against the CURRENT
+    // document, re-check for an external conflict on whichever range is
+    // dirty, and build the ONE atomic replacement.
+    const liveOutcome = applyParentChildAddDeleteToDocument(
+      doc,
+      this.nodeId,
+      parentDirty,
+      projection.ownText.rawText,
+      combined.parentOwnTextRawText,
+      existingChildSession
+        ? {
+            childNodeId: existingChildSession.childNodeId,
+            dirty: existingChildDirty,
+            originalRawText: existingChildSession.originalChildRawText,
+            newRawText: combined.existingChildRawText ?? existingChildSession.originalChildRawText,
+          }
+        : null,
+      addDeleteSession.pendingDeletion
+        ? {
+            childNodeId: addDeleteSession.pendingDeletion.childNodeId,
+            originalRawText:
+              addDeleteSession.childSlots[addDeleteSession.pendingDeletion.childIndex]?.rawText ?? "",
+          }
+        : null,
+      combined.newChildRawText,
+      reorderInput
+    );
+    if (!liveOutcome.changed) {
+      new Notice(this.plugin.t(parentChildAddDeleteLiveApplyReasonKey(liveOutcome.reason)));
+      return false;
+    }
+
+    // §7 step 11 is satisfied by construction above (every failure
+    // returned before this point, with `doc`/every draft untouched); from
+    // here on this mirrors applyParentChildCombinedEdit's own existing
+    // isApplyingOwnEdit-guarded mutation + rebuild sequence.
+    this.isApplyingOwnEdit = true;
+    try {
+      applyLineEditOutcome(
+        editor,
+        { line: liveOutcome.parentNewStartLine, ch: 0 },
+        liveOutcome.parentNewStartLine,
+        doc.lines,
+        { changed: true, lines: liveOutcome.lines, newStartLine: liveOutcome.parentNewStartLine },
+        () => {}
+      );
+
+      // §7 step 13: rebuild everything fresh against the just-saved
+      // document — parent projection, child-add/delete session (its own
+      // childSlots — the pending draft/deletion themselves are always
+      // cleared here, since a successful Apply is exactly what commits
+      // them), and the existing-child session (if one was open for a
+      // DIFFERENT child than the one just deleted).
+      const freshDoc = parseDocument(editor.getValue());
+      const freshParentNode = freshDoc.nodes.get(this.nodeId);
+      const freshExtracted = extractSubtreeText(freshDoc, this.nodeId);
+      if (freshExtracted.ok) {
+        this.originalText = freshExtracted.text;
+      }
+      // Phase 5L-12: this rebuild used to hand-recompute only
+      // standaloneParentListItemProjection/childAddDeleteSession/
+      // childInlineSession=null via a narrow, locally-duplicated
+      // `stillEligible` eligibility check. Deleting the LAST remaining
+      // child here is a genuine parent->leaf transition
+      // (freshParentNode.childIds.length drops to 0), and the narrow
+      // rebuild never reconsidered the four leaf tiers or rebuilt
+      // ancestors/directChildren/siblingState, leaving this pane's own
+      // Apply able to strand it in a stale "neither parent nor leaf"
+      // state -- the same defect class Phase 5L-9b's Bug #2 fixed for
+      // the external-Undo case, now shown reachable from this pane's own
+      // Apply too. reconcileStandaloneNodeState re-derives every
+      // standalone projection tier plus navigation state fresh from
+      // freshDoc, so a last-child deletion correctly falls through to
+      // the leaf tiers instead of stranding the pane.
+      this.reconcileStandaloneNodeState(
+        freshDoc,
+        this.nodeId,
+        freshParentNode,
+        freshExtracted.ok ? freshExtracted.text : ""
+      );
+      if (
+        existingChildSession &&
+        freshParentNode &&
+        isListNode(freshParentNode) &&
+        this.standaloneParentListItemProjection
+      ) {
+        const rebuiltSession = buildParentChildInlineEditSession(
+          freshDoc,
+          freshParentNode,
+          this.standaloneParentListItemProjection,
+          existingChildSession.childNodeId
+        );
+        if (rebuiltSession.ok) {
+          this.childInlineSession = rebuiltSession.session;
+        }
+        // A failed rebuild (reachable here ONLY if the existing-child
+        // editor was open for a child that itself just got deleted —
+        // defensive otherwise, liveOutcome.changed already confirmed the
+        // parent and every touched range structurally moments ago)
+        // simply closes the child inline editor, degrading to the plain
+        // read-only preview — the same safe "degrade, never guess"
+        // contract every sibling rebuild in this class already carries.
+      }
+      this.textareaEl.value = this.currentDisplayText();
+      this.renderTaskCheckboxRow();
+      this.renderOrderedNumberRow();
+      this.renderBreadcrumb();
+      this.renderSiblingNav();
+      this.renderSubtreeNavigator();
+      this.renderParentChildPreview();
+      this.renderLeafFirstChildAddRow();
+      this.syncState = "synced";
+      this.updateDirtyState();
+    } finally {
+      this.isApplyingOwnEdit = false;
+    }
+    this.scheduleStaleCheck();
+
+    const lineLen = editor.getLine(liveOutcome.parentNewStartLine)?.length ?? 0;
+    editor.scrollIntoView(
+      {
+        from: { line: liveOutcome.parentNewStartLine, ch: 0 },
+        to: { line: liveOutcome.parentNewStartLine, ch: lineLen },
+      },
+      true
+    );
+    this.plugin.queueOutlineTreeSelectionFollow(liveOutcome.parentNewStartLine);
+    new Notice(this.plugin.t("partialEdit.parentChildAddDeleteApplied"));
+    return true;
+  }
+
+  /**
+   * Phase 5L-9b ("First Direct Child Addition for Leaf List Items — Mode
+   * B"): called ONLY from applyEdit's own `pendingLeafFirstChild` branch,
+   * which returns this method's own result directly. Inverts the
+   * CURRENTLY ACTIVE standalone-leaf own-text draft via the exact same
+   * per-kind invert*Projection dispatch every one of applyEdit's own four
+   * standalone-leaf branches already uses (never a fifth, duplicate
+   * inversion path — see edit/parentChildInlineEditSession.ts's own Phase
+   * 5L-9b section top doc comment), then hands the result plus the
+   * pending draft to applyLeafFirstChildAdditionToDocument for the actual
+   * (own-text + new-child, ONE ordinary applySubtreeEdit splice) write.
+   *
+   * On success, unlike every sibling combined-Apply method in this class
+   * (which each do a narrow, hand-rebuilt "refresh just the fields this
+   * kind of edit could have touched"), this one calls loadNodeInternal
+   * directly — Mode B's own transition is categorically bigger than any
+   * of theirs: the node crosses from ONE of the four leaf tiers to the
+   * FIFTH, parent tier (see view/PartialEditView.ts's own loadNodeInternal
+   * five-tier priority chain doc comment), which would otherwise require
+   * hand-duplicating that same five-tier resolution here. A fresh
+   * loadNodeInternal call already does exactly that resolution correctly,
+   * for free, exactly as this ticket's own §6 design guidance anticipates
+   * ("次回reloadで既存 parent projectionが自然にclaimする").
+   */
+  private applyLeafFirstChildEdit(doc: ParsedDocument, editor: Editor): boolean {
+    if (!this.nodeId || !this.pendingLeafFirstChild) {
+      new Notice(this.plugin.t("partialEdit.leafFirstChildAddFailed"));
+      return false;
+    }
+
+    let newOwnTextRawText: string;
+    if (this.standaloneListMarkerProjection) {
+      const inverted = invertListMarkerProjection(this.standaloneListMarkerProjection, this.textareaEl.value);
+      if (!inverted.ok) {
+        new Notice(this.plugin.t("partialEdit.listBodyNewlineUnsupported"));
+        return false;
+      }
+      newOwnTextRawText = inverted.rawLine;
+    } else if (this.standaloneTaskListProjection) {
+      const inverted = invertTaskListProjection(
+        this.standaloneTaskListProjection,
+        this.taskCheckboxInputEl.checked,
+        this.textareaEl.value
+      );
+      if (!inverted.ok) {
+        new Notice(this.plugin.t("partialEdit.taskBodyNewlineUnsupported"));
+        return false;
+      }
+      newOwnTextRawText = inverted.rawLine;
+    } else if (this.standaloneOrderedListProjection) {
+      const inverted = invertOrderedListProjection(
+        this.standaloneOrderedListProjection,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!inverted.ok) {
+        new Notice(
+          this.plugin.t(
+            inverted.reason === "invalid-number"
+              ? "partialEdit.orderedNumberInvalid"
+              : "partialEdit.orderedBodyNewlineUnsupported"
+          )
+        );
+        return false;
+      }
+      newOwnTextRawText = inverted.rawLine;
+    } else if (this.standaloneMultiLineListProjection) {
+      const inverted = invertMultiLineListItemProjection(
+        this.standaloneMultiLineListProjection,
+        this.taskCheckboxInputEl.checked,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!inverted.ok) {
+        new Notice(
+          this.plugin.t(
+            inverted.reason === "invalid-number"
+              ? "partialEdit.orderedNumberInvalid"
+              : "partialEdit.multiLineListStructureInvalid"
+          )
+        );
+        return false;
+      }
+      newOwnTextRawText = inverted.rawText;
+    } else {
+      // Defensive only — pendingLeafFirstChild is only ever set while
+      // exactly one of the four standalone-leaf projections is active
+      // (see handleRequestAddLeafFirstChild's own guard).
+      new Notice(this.plugin.t("partialEdit.leafFirstChildAddFailed"));
+      return false;
+    }
+
+    const outcome = applyLeafFirstChildAdditionToDocument(
+      doc,
+      this.nodeId,
+      this.originalText,
+      newOwnTextRawText,
+      this.pendingLeafFirstChild,
+      this.isNewChildDraftDirty(),
+      this.newChildTextareaEl.value
+    );
+    if (!outcome.ok) {
+      new Notice(this.plugin.t(leafFirstChildApplyReasonKey(outcome.reason)));
+      return false;
+    }
+
+    this.isApplyingOwnEdit = true;
+    try {
+      applyLineEditOutcome(
+        editor,
+        { line: outcome.newStartLine, ch: 0 },
+        outcome.newStartLine,
+        doc.lines,
+        { changed: true, lines: outcome.lines, newStartLine: outcome.newStartLine },
+        () => {}
+      );
+      this.pendingLeafFirstChild = null;
+      // See this method's own doc comment for why a full reload (rather
+      // than a hand-rebuilt subset of fields) is the correct rebuild here.
+      this.loadNodeInternal(this.nodeId);
+    } finally {
+      this.isApplyingOwnEdit = false;
+    }
+    this.scheduleStaleCheck();
+
+    const lineLen = editor.getLine(outcome.newStartLine)?.length ?? 0;
+    editor.scrollIntoView(
+      {
+        from: { line: outcome.newStartLine, ch: 0 },
+        to: { line: outcome.newStartLine, ch: lineLen },
+      },
+      true
+    );
+    this.plugin.queueOutlineTreeSelectionFollow(outcome.newStartLine);
+    new Notice(this.plugin.t("partialEdit.leafFirstChildAdded"));
+    return true;
+  }
+
+  /**
+   * Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+   * Edit Pane"): called ONLY from applyEdit's own
+   * `childAddDeleteSession?.pendingIndentOutdent` branch, which returns
+   * this method's own result directly. A thin UI-layer wrapper around
+   * edit/parentChildInlineEditSession.ts's own
+   * applyParentChildIndentOutdentToDocument — see that function's own
+   * doc comment for the full "why one fresh pass is enough" design. On
+   * ANY failure, this method returns `false` having shown a Notice and
+   * touched NEITHER the document NOR the pending transformation (nor the
+   * parent's own draft) at all.
+   */
+  private applyParentChildIndentOutdentEdit(doc: ParsedDocument, editor: Editor): boolean {
+    const projection = this.standaloneParentListItemProjection;
+    const addDeleteSession = this.childAddDeleteSession;
+    const pending = addDeleteSession?.pendingIndentOutdent ?? null;
+    if (!projection || !addDeleteSession || !pending || !this.nodeId) {
+      new Notice(this.plugin.t("partialEdit.parentChildInlineEditFailed"));
+      return false;
+    }
+
+    const parentDirty =
+      this.textareaEl.value !== projectedParentBodyText(projection) ||
+      (projection.ownText.listKind === "task" &&
+        this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
+      (projection.ownText.listKind === "ordered" &&
+        this.orderedNumberInputEl.value !== projectedParentNumberText(projection));
+
+    // §6/§7 (indent/outdent's own simplified composition scope): the
+    // parent's own own-text draft, if dirty, is inverted+validated FIRST
+    // — exactly like every other combined-Apply path in this file — a
+    // failure here leaves both the parent's own draft AND the pending
+    // indent/outdent completely untouched.
+    let newParentOwnTextRaw = projection.ownText.rawText;
+    if (parentDirty) {
+      const inverted = invertParentListItemProjection(
+        projection,
+        this.taskCheckboxInputEl.checked,
+        this.orderedNumberInputEl.value,
+        this.textareaEl.value
+      );
+      if (!inverted.ok) {
+        const reason: ParentChildCombinedApplyRejectReason =
+          inverted.reason === "invalid-number"
+            ? "parent-invalid-number"
+            : inverted.reason === "own-text-unsafe-structure"
+              ? "parent-own-text-unsafe-structure"
+              : inverted.reason === "child-subtree-detached"
+                ? "parent-child-subtree-detached"
+                : "parent-child-subtree-changed";
+        new Notice(this.plugin.t(parentChildCombinedApplyReasonKey(reason)));
+        return false;
+      }
+      newParentOwnTextRaw = inverted.ownTextRawText;
+    }
+
+    const liveOutcome = applyParentChildIndentOutdentToDocument(
+      doc,
+      this.nodeId,
+      parentDirty,
+      projection.ownText.rawText,
+      newParentOwnTextRaw,
+      pending,
+      projection.childSubtreeText
+    );
+    if (!liveOutcome.changed) {
+      new Notice(this.plugin.t(parentChildIndentOutdentApplyReasonKey(liveOutcome.reason)));
+      return false;
+    }
+
+    this.isApplyingOwnEdit = true;
+    try {
+      applyLineEditOutcome(
+        editor,
+        { line: liveOutcome.parentNewStartLine, ch: 0 },
+        liveOutcome.parentNewStartLine,
+        doc.lines,
+        { changed: true, lines: liveOutcome.lines, newStartLine: liveOutcome.parentNewStartLine },
+        () => {}
+      );
+
+      // §7 step 13: rebuild everything fresh against the just-saved
+      // document — mirrors applyParentChildAddDeleteCombinedEdit's own
+      // identical rebuild sequence (parent projection, child-add/delete
+      // session — its own pendingIndentOutdent is always cleared here,
+      // since a successful Apply is exactly what commits it — and the
+      // existing-child session, always null here since a pending
+      // indent/outdent never coexists with one — see this ticket's own
+      // §6 composition scope).
+      const freshDoc = parseDocument(editor.getValue());
+      const freshParentNode = freshDoc.nodes.get(this.nodeId);
+      const freshExtracted = extractSubtreeText(freshDoc, this.nodeId);
+      if (freshExtracted.ok) {
+        this.originalText = freshExtracted.text;
+      }
+      // Phase 5L-12: mirrors applyParentChildAddDeleteCombinedEdit's own
+      // Phase 5L-12 rebuild shape (see that method's doc comment), but
+      // for a DIFFERENT reason: unlike add/delete, indent/outdent can
+      // never make freshParentNode.childIds.length itself drop to 0 --
+      // evaluateChildIndentEligibility always requires a PRECEDING
+      // SIBLING (so at least one direct child remains after an indent),
+      // and evaluateChildOutdentEligibility only ever PROMOTES a
+      // grandchild into a new direct child of freshParentNode (so
+      // outdent only ever grows freshParentNode's own childIds, never
+      // shrinks it) -- so this pane's own root target never transitions
+      // parent->leaf through this method. What indent/outdent DOES
+      // always change, though, is the target's own set of DIRECT
+      // children (indent removes one, outdent adds one) -- and the OLD
+      // narrow `stillEligible` rebuild never recomputed
+      // ancestors/directChildren/siblingState at all, so the Subtree
+      // Navigator (which lists exactly those direct children) kept
+      // showing the PRE-transform set until the next unrelated reload.
+      // reconcileStandaloneNodeState fixes that staleness and, for full
+      // consistency with every sibling rebuild site in this class, also
+      // re-resolves the standalone-projection tier fresh (a no-op here
+      // in practice, since childIds.length never reaches 0, but it means
+      // this call site can never silently drift out of sync with the
+      // shared contract if that invariant ever changes).
+      // childInlineSession/pendingLeafFirstChild are always safely reset
+      // fresh here too: a pending indent/outdent never coexists with an
+      // open existing-child editor or a pending Mode B draft (this
+      // ticket's own §6 composition scope).
+      this.reconcileStandaloneNodeState(
+        freshDoc,
+        this.nodeId,
+        freshParentNode,
+        freshExtracted.ok ? freshExtracted.text : ""
+      );
+      this.textareaEl.value = this.currentDisplayText();
+      this.renderTaskCheckboxRow();
+      this.renderOrderedNumberRow();
+      this.renderBreadcrumb();
+      this.renderSiblingNav();
+      this.renderSubtreeNavigator();
+      this.renderParentChildPreview();
+      this.renderLeafFirstChildAddRow();
+      this.syncState = "synced";
+      this.updateDirtyState();
+    } finally {
+      this.isApplyingOwnEdit = false;
+    }
+    this.scheduleStaleCheck();
+
+    const lineLen = editor.getLine(liveOutcome.parentNewStartLine)?.length ?? 0;
+    editor.scrollIntoView(
+      {
+        from: { line: liveOutcome.parentNewStartLine, ch: 0 },
+        to: { line: liveOutcome.parentNewStartLine, ch: lineLen },
+      },
+      true
+    );
+    this.plugin.queueOutlineTreeSelectionFollow(liveOutcome.parentNewStartLine);
+    new Notice(this.plugin.t("partialEdit.parentChildAddDeleteApplied"));
     return true;
   }
 
@@ -2388,6 +6271,101 @@ export class PartialEditView extends ItemView {
     const titleDirty = titleSlot !== null && this.quoteTitleInputEl.value !== titleSlot.title;
     const markerDirty = titleSlot !== null && this.quoteMarkerSelectEl.value !== titleSlot.marker;
     const typeDirty = titleSlot !== null && this.quoteTypeInputEl.value !== titleSlot.type;
+    // Phase 5D-2B: ALSO dirty when the structured composite session's own
+    // list-member input differs from its loaded raw line —
+    // compositeListOriginalText is null for every case except a
+    // successfully-split-and-projected composite, so this is a no-op
+    // addition for every other kind (including a composite that fell back
+    // to the raw whole-range textarea).
+    const listDirty =
+      this.compositeListOriginalText !== null &&
+      this.compositeListInputEl.value !== this.compositeListOriginalText;
+    // Phase 5L-2: ALSO dirty when the standalone task-list checkbox
+    // control's current .checked value differs from its loaded
+    // projection's own checked state — standaloneTaskListProjection is
+    // null for every case except a successfully-projected standalone
+    // task-list item, so this is a no-op addition for every other kind.
+    const taskCheckedDirty =
+      this.standaloneTaskListProjection !== null &&
+      this.taskCheckboxInputEl.checked !== this.standaloneTaskListProjection.checked;
+    // Phase 5L-3: ALSO dirty when the standalone ordered-list number
+    // input's current text differs from its loaded projection's own
+    // number text — standaloneOrderedListProjection is null for every
+    // case except a successfully-projected standalone ordered-list item,
+    // so this is a no-op addition for every other kind. Deliberately a
+    // plain STRING comparison against the ORIGINAL number text (never a
+    // numeric comparison, and never gated on isValidOrderedListNumberText)
+    // — the control is dirty the moment its raw text differs at all,
+    // including a currently-invalid in-progress edit; Apply-time
+    // validation (applyEdit, via invertOrderedListProjection) is what
+    // actually decides whether that edit is acceptable, not this check.
+    const orderedNumberDirty =
+      this.standaloneOrderedListProjection !== null &&
+      this.orderedNumberInputEl.value !== this.standaloneOrderedListProjection.number;
+    // Phase 5L-4: ALSO dirty when a multi-line leaf item's own checkbox/
+    // number control (task/ordered kind respectively) differs from its
+    // loaded projection's own value — same rationale, same plain-string-
+    // comparison policy, as taskCheckedDirty/orderedNumberDirty above.
+    // The shared textarea's own body-dirtiness for a multi-line
+    // projection is ALREADY covered by this function's own top-level
+    // `this.textareaEl.value !== this.currentDisplayText()` check below
+    // (currentDisplayText already branches on
+    // standaloneMultiLineListProjection — see that method's own doc
+    // comment), so no separate "multi-line body dirty" flag is needed
+    // here.
+    const multiLineTaskCheckedDirty =
+      this.standaloneMultiLineListProjection?.listKind === "task" &&
+      this.taskCheckboxInputEl.checked !== projectedMultiLineChecked(this.standaloneMultiLineListProjection);
+    const multiLineNumberDirty =
+      this.standaloneMultiLineListProjection?.listKind === "ordered" &&
+      this.orderedNumberInputEl.value !== projectedMultiLineNumberText(this.standaloneMultiLineListProjection);
+    // Phase 5L-6: ALSO dirty when a parent item's own-text checkbox/
+    // number control (task/ordered kind respectively) differs from its
+    // loaded projection's own value — same rationale, same plain-string-
+    // comparison policy, as multiLineTaskCheckedDirty/multiLineNumberDirty
+    // immediately above. The shared textarea's own own-text-body-dirtiness
+    // is ALREADY covered by this function's own top-level
+    // `this.textareaEl.value !== this.currentDisplayText()` check below
+    // (currentDisplayText already branches on
+    // standaloneParentListItemProjection), so no separate "parent body
+    // dirty" flag is needed here. The read-only child preview never
+    // participates in dirty tracking at all — it has no editable control
+    // for this function to compare against.
+    const parentTaskCheckedDirty =
+      this.standaloneParentListItemProjection?.ownText.listKind === "task" &&
+      this.taskCheckboxInputEl.checked !== projectedParentChecked(this.standaloneParentListItemProjection);
+    const parentNumberDirty =
+      this.standaloneParentListItemProjection?.ownText.listKind === "ordered" &&
+      this.orderedNumberInputEl.value !== projectedParentNumberText(this.standaloneParentListItemProjection);
+    // Phase 5L-8: ALSO dirty when the child inline editor's own controls
+    // (body/checkbox/number, whichever apply to its own kind) differ from
+    // `childInlineSession`'s loaded snapshot — `isChildInlineDraftDirty()`
+    // is `false` whenever no child session is open, so this is a no-op
+    // addition for every other case. This is what makes "the parent's own
+    // draft AND/OR the currently-open child's own draft" ONE combined
+    // dirty state for Apply/Cancel visibility, requestLoadNode's own
+    // unsaved-edit guard, AND handleStartChildInlineEdit's own
+    // switch-to-a-different-child guard — per this ticket's own explicit
+    // §8 requirement.
+    const childInlineDirty = this.isChildInlineDraftDirty();
+    // Phase 5L-9: ALSO dirty whenever a new-child draft is PRESENT (even
+    // if its own body is still untouched — §4's own "Apply with an
+    // untouched body is allowed" contract means Apply must still be
+    // reachable, so this counts as dirty by presence, not just by
+    // isNewChildDraftDirty()) and/or a pending deletion is marked — both
+    // gated on `childAddDeleteSession` itself being non-null (null for
+    // every case except a currently-projected parent — see that field's
+    // own doc comment), same "no-op addition for every other case"
+    // pattern as childInlineDirty immediately above.
+    const addDeleteDirty = this.hasAddDeleteActivity();
+    // Phase 5L-9b: ALSO dirty whenever a Mode B "promote this leaf to a
+    // parent" draft is PRESENT — same "presence, not just body-dirtiness"
+    // rationale as addDeleteDirty's own newChildDraft half immediately
+    // above (an untouched-body pending first child must still reach
+    // Apply). `null` for every case except a currently-eligible
+    // standalone leaf with a pending draft — see pendingLeafFirstChild's
+    // own doc comment.
+    const leafFirstChildDirty = this.pendingLeafFirstChild !== null;
     // Phase 5D-2A: ALSO counts a loaded CompositeBlock (compositeAnchor)
     // as "something is loaded" here — otherwise a composite-wide edit
     // would never register as dirty, silently defeating the unsaved-edit
@@ -2395,7 +6373,20 @@ export class PartialEditView extends ItemView {
     // requestLoadComposite call already relies on via `if (!this.isDirty())`.
     return (
       (this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null) &&
-      (this.textareaEl.value !== this.currentDisplayText() || titleDirty || markerDirty || typeDirty)
+      (this.textareaEl.value !== this.currentDisplayText() ||
+        titleDirty ||
+        markerDirty ||
+        typeDirty ||
+        listDirty ||
+        taskCheckedDirty ||
+        orderedNumberDirty ||
+        multiLineTaskCheckedDirty ||
+        multiLineNumberDirty ||
+        parentTaskCheckedDirty ||
+        parentNumberDirty ||
+        childInlineDirty ||
+        addDeleteDirty ||
+        leafFirstChildDirty)
     );
   }
 
@@ -2729,6 +6720,33 @@ export class PartialEditView extends ItemView {
       const rebuilt = buildQuotePrefixProjection(newText, kind);
       this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
     }
+    // Phase 5L-12: the five-tier standalone-list-item projection chain,
+    // the Mode A/B session fields (childAddDeleteSession/
+    // childInlineSession/pendingLeafFirstChild), and the ancestors/
+    // directChildren/siblingState navigation trio are now ALL derived by
+    // the single shared reconcileStandaloneNodeState — the SAME method
+    // loadNodeInternal's own initial load now calls too (see that
+    // method's own doc comment). This replaces what used to be two
+    // separately-gated blocks here: a "leaf" block that only re-derived
+    // the four standalone-leaf projections when at least one was ALREADY
+    // active pre-reload, and a "parent" block that only re-derived
+    // standaloneParentListItemProjection when IT was already active —
+    // between them, a node that reloaded from real-parent state down to
+    // a genuine childless leaf (Phase 5L-9b's own real-device bug: an
+    // editor Undo right after this pane's own Mode B Apply removing the
+    // only child it just added) started with all four leaf fields null,
+    // so neither block's own gate ever fired, leaving the pane stuck
+    // showing neither a parent NOR a leaf. reconcileStandaloneNodeState
+    // is called here unconditionally instead (never gated on "was some
+    // projection already active"), which is safe precisely because this
+    // method is only ever reached via classifySyncOutcome's own
+    // clean-pane-auto-reload branch (`!isDirty()`) — see
+    // reconcileStandaloneNodeState's own doc comment for the full
+    // argument for why nothing pending can be lost by this.
+    if (this.nodeId) {
+      const reloadedNode = doc.nodes.get(this.nodeId);
+      this.reconcileStandaloneNodeState(doc, this.nodeId, reloadedNode, newText);
+    }
     if (this.paragraphAnchor) {
       this.paragraphAnchor = { ...this.paragraphAnchor, originalText: newText };
     }
@@ -2737,11 +6755,67 @@ export class PartialEditView extends ItemView {
       const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
       if (extracted.ok && extracted.resolvedSnapshot) {
         this.compositeAnchor = extracted.resolvedSnapshot;
+        // Phase 5D-2B: re-split/re-project the structured composite
+        // session's own state too, exactly like loadCompositeInternal's
+        // own initial load does — otherwise an auto-reload would refresh
+        // originalText/textareaEl but leave compositeListOriginalText/
+        // compositeListInputEl showing stale content. A split/projection
+        // failure here degrades to the raw whole-range textarea, same as
+        // at initial load.
+        this.quoteProjection = null;
+        this.compositeListOriginalText = null;
+        // Phase 5D-2C: reset alongside compositeListOriginalText above —
+        // see this field's own doc comment.
+        this.listMarkerProjection = null;
+        const memberSplit = splitCompositeBlockMembers(doc.lines, extracted.resolvedSnapshot);
+        if (memberSplit.ok) {
+          const built = buildQuotePrefixProjection(
+            memberSplit.split.trailingRawText,
+            memberSplit.split.trailingKind
+          );
+          if (built.ok) {
+            this.quoteProjection = built.projection;
+            // Phase 5D-2C: re-project the list member's own raw line
+            // marker-free too, exactly like loadCompositeInternal's own
+            // initial-load gate (kind === "single-line-list" AND
+            // buildListMarkerProjection succeeds) — see that method's own
+            // doc comment for the full rationale.
+            const listBuilt = isListMemberEligibleForMarkerFreeProjection(
+              extracted.resolvedSnapshot.members[0].kind
+            )
+              ? buildListMarkerProjection(memberSplit.split.listLineText)
+              : null;
+            this.listMarkerProjection = listBuilt?.ok ? listBuilt.projection : null;
+            this.compositeListOriginalText = this.listMarkerProjection
+              ? this.listMarkerProjection.body
+              : memberSplit.split.listLineText;
+          }
+        }
       }
     }
+    // Phase 5L-12: the ancestors/directChildren/siblingState trio for the
+    // node-target case is now recomputed by reconcileStandaloneNodeState
+    // above (nothing left to do here for it) — this used to be a
+    // separate, duplicate recompute added as Phase 5L-9b's own real-device
+    // bug fix; see reconcileStandaloneNodeState's own doc comment for
+    // where that logic now lives.
     this.syncState = "synced";
     this.textareaEl.value = this.currentDisplayText();
+    // Phase 5L-9b (bug fix, same real-device finding as the trio
+    // recompute immediately above): rendered here for the first time in
+    // this method, alongside the recompute that now keeps their own
+    // backing fields fresh — mirrors renderLoadedState's own call order
+    // for these three (breadcrumb, then sibling nav, then Subtree
+    // Navigator) exactly.
+    this.renderBreadcrumb();
+    this.renderSiblingNav();
+    this.renderSubtreeNavigator();
     this.renderQuoteHeader();
+    this.renderCompositeListSlot();
+    this.renderTaskCheckboxRow();
+    this.renderOrderedNumberRow();
+    this.renderParentChildPreview();
+    this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
   }
 
@@ -2903,6 +6977,36 @@ type DiscardChangesChoice = "apply" | "discard" | "cancel";
  * regardless, so such wording would only mislead the user about what this
  * dialog can do.
  */
+/**
+ * Button-row consolidation (2026-09-16 ticket, real-device UX feedback):
+ * the Partial Edit Pane's own top-level toolbar has exactly two buttons,
+ * "Apply"/"Cancel" (where its "Cancel" discards and closes). This modal
+ * previously showed THREE buttons, "Apply"/"Discard"/"Cancel", where its
+ * own "Cancel" meant something different (stay, do nothing) from the
+ * pane's "Cancel" -- a semantic collision. Fixed by presentation only:
+ *   - The explicit "Cancel" button (internal choice `"cancel"`) is
+ *     REMOVED from the button row. "Stay here, keep editing" is reached
+ *     only via x/Escape/outside-click, exactly as onClose() already
+ *     implemented before this change (see its own comment below) -- no
+ *     new code path, just one fewer redundant explicit control for it.
+ *   - The "Discard" button's internal choice is UNCHANGED
+ *     (`"discard"`); only its DISPLAYED label changes, via
+ *     `discardButtonKey`'s new default `partialEdit
+ *     .unsavedChangesDiscardButtonLabel` ("Cancel"/"キャンセル") instead
+ *     of the old default `common.discard` ("Discard"/"破棄") -- so this
+ *     button now reads "Cancel" to match the pane's own top-level button,
+ *     while still meaning discard-and-proceed internally.
+ *   - The "Apply" button (`"apply"`) is untouched.
+ * DiscardChangesChoice's three values, and every caller's switch over
+ * them (requestLoadNode/requestLoadParagraphAtCursor/requestLoadComposite/
+ * performReload/the Phase 5L-8 and 5L-9 target-switch guards), are
+ * UNCHANGED -- this is a wording/button-count change only, never a
+ * remapping of what any internal choice means. One structural side
+ * effect: performReload's Reload confirmation (`showApply: false`, its
+ * own `discardButtonKey`) now shows a single visible button, since it
+ * never had an explicit Cancel button of its own either -- stay-here for
+ * that dialog was, and remains, x/Escape/outside-click only.
+ */
 interface DiscardChangesModalOptions {
   showApply?: boolean;
   titleKey?: TranslationKey;
@@ -2940,11 +7044,9 @@ class DiscardChangesModal extends Modal {
       applyEl.addEventListener("click", () => this.choose("apply"));
     }
     const discardEl = buttonsEl.createEl("button", {
-      text: this.plugin.t(this.options.discardButtonKey ?? "common.discard"),
+      text: this.plugin.t(this.options.discardButtonKey ?? "partialEdit.unsavedChangesDiscardButtonLabel"),
     });
     discardEl.addEventListener("click", () => this.choose("discard"));
-    const cancelEl = buttonsEl.createEl("button", { text: this.plugin.t("common.cancel") });
-    cancelEl.addEventListener("click", () => this.choose("cancel"));
   }
 
   private choose(choice: DiscardChangesChoice): void {
@@ -2957,6 +7059,61 @@ class DiscardChangesModal extends Modal {
     this.contentEl.empty();
     if (!this.resolved) {
       this.onChoice("cancel");
+    }
+  }
+}
+
+/**
+ * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"): the
+ * delete confirmation Modal §5 requires ("a real Obsidian-style Modal with
+ * at minimum '削除する'/'キャンセル' choices"). Deliberately a separate,
+ * simpler two-choice Modal — never DiscardChangesModal reused with
+ * `showApply: false` — because this one is not itself an unsaved-changes
+ * guard at all (it fires REGARDLESS of whether the target child's own body
+ * is empty, per §5's own "confirmation is required regardless of whether
+ * the child's body is empty" requirement); reusing DiscardChangesModal's
+ * own "apply/discard/cancel" vocabulary here would misleadingly imply an
+ * Apply option exists. Dismissing any other way (Escape, clicking
+ * outside) resolves to "not confirmed" — mirrors DiscardChangesModal's own
+ * "any other dismissal is Cancel" contract exactly.
+ */
+class ChildDeleteConfirmModal extends Modal {
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private readonly plugin: UnifiedOutlinerPlugin,
+    private readonly onChoice: (confirmed: boolean) => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.plugin.t("partialEdit.parentChildDeleteConfirmTitle"));
+    this.contentEl.createEl("p", { text: this.plugin.t("partialEdit.parentChildDeleteConfirmBody") });
+
+    const buttonsEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-modal-buttons",
+    });
+    const confirmEl = buttonsEl.createEl("button", {
+      text: this.plugin.t("partialEdit.parentChildDeleteConfirmButton"),
+      cls: "mod-warning",
+    });
+    confirmEl.addEventListener("click", () => this.choose(true));
+    const cancelEl = buttonsEl.createEl("button", { text: this.plugin.t("common.cancel") });
+    cancelEl.addEventListener("click", () => this.choose(false));
+  }
+
+  private choose(confirmed: boolean): void {
+    this.resolved = true;
+    this.close();
+    this.onChoice(confirmed);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) {
+      this.onChoice(false);
     }
   }
 }

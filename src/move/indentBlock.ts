@@ -75,8 +75,20 @@ const DEFAULT_OPTIONS: IndentBlockOptions = {
  * `prev` has no children yet do we fall back to a fixed TAB_WIDTH step;
  * matching a document-wide indent convention in that case is a known MVP
  * simplification (same policy as renumber.ts's "1." normalization).
+ *
+ * Exported (Phase 5L-11, "Direct Child Leaf Indent/Outdent in Parent
+ * Partial Edit Pane") for reuse by edit/parentChildInlineEditSession.ts's
+ * own indent transformation — that module's own "target is being nested
+ * under an immediately-preceding sibling, which may already own its own
+ * child subtree" problem shape is exactly this function's own, so it is
+ * imported directly there rather than re-derived as a second copy (unlike
+ * that same module's own computeNewChildIndent, which solves a genuinely
+ * different problem — an absolute indent for a brand-NEW empty line, not a
+ * delta for an EXISTING item being moved — and so deliberately mirrors
+ * this function only as a PATTERN, never by import; see that function's
+ * own doc comment).
  */
-function buildIndentPrefix(
+export function buildIndentPrefix(
   doc: ParsedDocument,
   prev: ListBlockNode,
   node: ListBlockNode

@@ -374,13 +374,25 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     // The three original call sites (requestLoadNode/
     // requestLoadParagraphAtCursor/requestLoadComposite) must still call
     // the constructor with exactly 3 arguments (no options object). The
-    // literal `new DiscardChangesModal(` string appears 5 times total: the
-    // 3 original constructor calls, the 1 new Reload constructor call, and
+    // literal `new DiscardChangesModal(` string appears 9 times total: the
+    // 3 original constructor calls, the 1 new Reload constructor call,
+    // the 2 new Phase 5L-8 child-inline-edit call sites (switching to a
+    // different eligible child while the current one has an unsaved
+    // structural edit, and stopping child-inline-editing altogether while
+    // dirty — both reuse this exact same modal, never a reimplementation),
     // 1 more inside this class's own doc comment (documenting that exact
-    // unchanged call shape in prose) — only the actual Reload call site
-    // passes a 4th argument, verified separately below.
+    // unchanged call shape in prose), 1 Phase 5L-9 handleStopNewChildDraft
+    // call site (stopping a pending new-child draft while its own body is
+    // dirty — reuses this exact same modal too, never a reimplementation),
+    // and 1 new Phase 5L-9b handleStopLeafFirstChildDraft call site
+    // (stopping a pending Mode B "promote this leaf to a parent" draft
+    // while its own body is dirty — the exact same modal yet again). Like
+    // the 3 original call sites, every new call site calls the
+    // constructor with exactly 3 arguments (no options object, so
+    // showApply stays at its default of true) — only the actual Reload
+    // call site passes a 4th argument, verified separately below.
     const callSites = viewTs.split("new DiscardChangesModal(").length - 1;
-    expect(callSites).toBe(5);
+    expect(callSites).toBe(9);
     // The exact call-site check (only performReload's own body actually
     // passes `showApply: false,` as a real constructor argument, not just
     // in prose) is covered by the dedicated "the new dirty+stale/
@@ -398,11 +410,11 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
   // ---- Reload confirmation main-button wording (2026-09-08 UX fix,
   // real-device B-1 feedback) ------------------------------------------
 
-  it("DiscardChangesModalOptions gains an optional discardButtonKey, defaulting to common.discard so the three node-switch call sites are unaffected", () => {
+  it("DiscardChangesModalOptions gains an optional discardButtonKey, defaulting to partialEdit.unsavedChangesDiscardButtonLabel (2026-09-16 button-row consolidation) so callers that don't override it show a 'Cancel'-labeled discard button", () => {
     expect(viewTs).toContain("interface DiscardChangesModalOptions {");
     expect(viewTs).toContain("discardButtonKey?: TranslationKey;");
     expect(viewTs).toContain(
-      'text: this.plugin.t(this.options.discardButtonKey ?? "common.discard"),'
+      'text: this.plugin.t(this.options.discardButtonKey ?? "partialEdit.unsavedChangesDiscardButtonLabel"),'
     );
   });
 
@@ -484,6 +496,94 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     }
   });
 
+  // ---- Button-row consolidation (2026-09-16 ticket): DiscardChangesModal
+  // goes from three visible buttons (Apply/Discard/Cancel) to two
+  // (Apply/Cancel) — a presentation-only change. The internal
+  // DiscardChangesChoice type, onClose()'s x/Escape/outside-click
+  // fallback to "cancel", and every call site's own choice-handling logic
+  // must all stay exactly as they were. --------------------------------
+
+  function discardChangesModalClassBody(): string {
+    const start = viewTs.indexOf("class DiscardChangesModal extends Modal {");
+    if (start === -1) {
+      throw new Error("DiscardChangesModal class not found — has it been renamed or removed?");
+    }
+    const end = viewTs.indexOf("class ChildDeleteConfirmModal extends Modal", start);
+    if (end === -1 || end <= start) {
+      throw new Error(
+        "Could not bound DiscardChangesModal's class body — ChildDeleteConfirmModal may have moved."
+      );
+    }
+    return viewTs.slice(start, end);
+  }
+
+  it("(1) DiscardChangesModal's button row creates exactly two buttons (Apply, Discard) and no longer creates an explicit third Cancel button", () => {
+    const classBody = discardChangesModalClassBody();
+    const onOpenBody = bodyOf(classBody, "onOpen(): void {", "DiscardChangesModal.onOpen");
+    const buttonCreations = (onOpenBody.match(/buttonsEl\.createEl\("button"/g) ?? []).length;
+    expect(buttonCreations).toBe(2); // applyEl (when showApply) + discardEl only
+    expect(onOpenBody).not.toContain("cancelEl");
+    expect(onOpenBody).not.toContain('this.plugin.t("common.cancel")');
+  });
+
+  it("(2) the remaining discard button (displayed as 'Cancel' by default) still resolves the internal choice 'discard', never 'cancel' — the internal DiscardChangesChoice mapping is unchanged", () => {
+    const classBody = discardChangesModalClassBody();
+    const onOpenBody = bodyOf(classBody, "onOpen(): void {", "DiscardChangesModal.onOpen");
+    expect(onOpenBody).toContain(
+      'text: this.plugin.t(this.options.discardButtonKey ?? "partialEdit.unsavedChangesDiscardButtonLabel"),'
+    );
+    expect(onOpenBody).toContain('discardEl.addEventListener("click", () => this.choose("discard"));');
+  });
+
+  it("(3)+(4) x/Escape/outside-click still resolve to the internal choice 'cancel' via onClose()'s unchanged fallback, and onClose() does nothing besides emptying the DOM and firing that fallback — no draft-clearing call was added, so drafts are preserved and the pane stays in place", () => {
+    const classBody = discardChangesModalClassBody();
+    const onCloseBody = bodyOf(classBody, "onClose(): void {", "DiscardChangesModal.onClose");
+    expect(onCloseBody.replace(/\s+/g, " ").trim()).toBe(
+      'onClose(): void { this.contentEl.empty(); if (!this.resolved) { this.onChoice("cancel"); }'
+    );
+  });
+
+  it("(5) every existing DiscardChangesModal call site (node-switch guard x3, Reload confirmation, Phase 5L-8 child-inline-edit x2, Phase 5L-9 new-child-draft, Phase 5L-9b leaf-first-child-draft) is untouched — call-site count stays 9, none pass a 'cancel'-labeled button option", () => {
+    const callSites = viewTs.split("new DiscardChangesModal(").length - 1;
+    expect(callSites).toBe(9);
+    expect(viewTs).not.toContain("cancelButtonKey");
+  });
+
+  it("(6) the internal DiscardChangesChoice type and the choose()/resolved-flag mechanics are byte-for-byte unchanged", () => {
+    expect(viewTs).toContain('type DiscardChangesChoice = "apply" | "discard" | "cancel";');
+    const classBody = discardChangesModalClassBody();
+    const chooseBody = bodyOf(classBody, "private choose(choice: DiscardChangesChoice): void {", "DiscardChangesModal.choose");
+    expect(chooseBody.replace(/\s+/g, " ").trim()).toBe(
+      "private choose(choice: DiscardChangesChoice): void { this.resolved = true; this.close(); this.onChoice(choice);"
+    );
+  });
+
+  it("partialEdit.unsavedChangesDiscardButtonLabel is defined exactly once in each of en/ja, reads 'Cancel'/'キャンセル' to match the pane's own top-level Cancel button, and common.discard/common.cancel keep their original, untouched values", () => {
+    const occurrences = i18nTs.split('"partialEdit.unsavedChangesDiscardButtonLabel":').length - 1;
+    expect(occurrences).toBe(2); // one in en, one in ja
+    const en = createTranslator("en");
+    const ja = createTranslator("ja");
+    expect(en("partialEdit.unsavedChangesDiscardButtonLabel")).toBe("Cancel");
+    expect(ja("partialEdit.unsavedChangesDiscardButtonLabel")).toBe("キャンセル");
+    expect(en("common.discard")).toBe("Discard");
+    expect(ja("common.discard")).toBe("破棄");
+    expect(en("common.cancel")).toBe("Cancel");
+    expect(ja("common.cancel")).toBe("キャンセル");
+  });
+
+  it("partialEdit.unsavedChangesBody describes the two visible choices (Apply / Cancel-to-discard) and a brief note that closing the dialog keeps editing here", () => {
+    const en = createTranslator("en");
+    const ja = createTranslator("ja");
+    const enBody = en("partialEdit.unsavedChangesBody");
+    const jaBody = ja("partialEdit.unsavedChangesBody");
+    expect(enBody.toLowerCase()).toContain("apply");
+    expect(enBody.toLowerCase()).toContain("cancel");
+    expect(enBody.toLowerCase()).toContain("close this dialog");
+    expect(jaBody).toContain("適用");
+    expect(jaBody).toContain("キャンセル");
+    expect(jaBody).toContain("閉じ");
+  });
+
   // ---- Fresh load resets syncState ----------------------------------------
 
   it("every fresh load (node/paragraph/composite), the empty state, a re-sync back to matching content, a successful auto-reload, and a successful self-Apply's own re-anchoring all set syncState to synced", () => {
@@ -495,8 +595,17 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     // §1: applyEdit's own paragraph/composite/node branches, each setting
     // this unconditionally right after its own successful re-anchoring
     // (see the dedicated applyEdit-scoped hardening §1 test above for why
-    // this is a reset, never a gate).
-    expect(occurrences).toBe(9);
+    // this is a reset, never a gate) — PLUS one more added by Phase 5L-8's
+    // applyParentChildCombinedEdit, right after its own §7 step 12 fresh
+    // re-parse/re-anchor, mirroring every other successful-Apply branch —
+    // PLUS one more added by Phase 5L-9's own
+    // applyParentChildAddDeleteCombinedEdit, right after ITS OWN
+    // equivalent §7 step 13 fresh re-parse/re-anchor, mirroring the exact
+    // same successful-Apply convention — PLUS one more added by Phase
+    // 5L-11's own applyParentChildIndentOutdentEdit, right after ITS OWN
+    // equivalent §7 step 13 fresh re-parse/re-anchor, mirroring the
+    // identical successful-Apply convention yet again.
+    expect(occurrences).toBe(12);
   });
 
   // ---- Safe no-op after onClose --------------------------------------------

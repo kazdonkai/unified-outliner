@@ -51,8 +51,21 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
   it("currentDisplayText() returns projectedDisplayText(quoteProjection) when set, else raw originalText — never the reverse", () => {
     const body = bodyOf(viewTs, "private currentDisplayText(): string {", "currentDisplayText()");
     expect(body).toContain(
-      "this.quoteProjection ? projectedDisplayText(this.quoteProjection) : this.originalText"
+      "if (this.quoteProjection) return projectedDisplayText(this.quoteProjection);"
     );
+    // Phase 5L-1: quoteProjection is still checked FIRST, then the new
+    // standalone-list marker-free projection, then plain originalText —
+    // a node is never both a callout/blockquote and a list, but pinning
+    // this ordering down makes a future third projection kind less likely
+    // to be inserted ahead of quoteProjection by accident.
+    const quoteIdx = body.indexOf(
+      "if (this.quoteProjection) return projectedDisplayText(this.quoteProjection);"
+    );
+    const listIdx = body.indexOf("if (this.standaloneListMarkerProjection)");
+    const rawIdx = body.indexOf("return this.originalText;");
+    expect(quoteIdx).toBeGreaterThan(-1);
+    expect(listIdx).toBeGreaterThan(quoteIdx);
+    expect(rawIdx).toBeGreaterThan(listIdx);
   });
 
   it("loadNodeInternal: buildQuotePrefixProjection runs, and a 'nested' refusal returns, strictly BEFORE this.nodeId is ever assigned — a refusal must leave the pane's prior state completely untouched", () => {

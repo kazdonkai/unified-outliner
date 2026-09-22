@@ -22,7 +22,8 @@ Obsidian's built-in Outline is excellent for navigating headings. List-focused o
 | Move a whole heading section with its body and child sections | No | Not the primary focus | Yes |
 | Move or reparent a nested list subtree | No | Often supported | Yes |
 | Display headings and list items together in one structural tree | No | Varies | Yes, optional list display |
-| Edit one selected section or list subtree in a focused pane | No | Varies | Yes, with explicit Apply and conflict protection |
+| Edit one selected section or list subtree in a focused pane, with the Markdown marker/checkbox/number separated from the body text | No | Varies | Yes, with explicit Apply and conflict protection |
+| Edit a parent item's direct children (add, delete, reorder, indent/outdent, inline edit) without leaving the pane | No | Varies | Yes, for leaf children, one level at a time |
 | Preserve view folding per file | No | Varies | Yes, synchronized across open Outline Tree Views |
 
 Unified Outliner does not try to replace search, task managers, Dataview-style aggregation, or AI writing tools. Its purpose is dependable structural editing of Markdown notes.
@@ -103,6 +104,8 @@ The Partial Edit Pane keeps the selected section or list subtree visible while p
 
 Apply writes back only after the pane verifies that its original source range has not changed. This protects the note from an accidental overwrite during a concurrent edit.
 
+> The two screenshots above predate the structured, marker-free editing and the parent/child controls described under "Edit a focused subtree" below — they still show the pane's original plain-textarea layout for a raw block. The underlying Apply/Cancel/conflict-protection flow they illustrate is unchanged; only the editor surface inside the pane has since gained the additional controls documented below.
+
 ### Short video walkthroughs
 
 | Task | Video |
@@ -112,6 +115,8 @@ Apply writes back only after the pane verifies that its original source range ha
 | Follow a selected item in the tree | [Watch the 21-second MP4](docs/media/outline-focus.mp4) |
 | Move a list subtree | [Watch the 14-second MP4](docs/media/outline-list-move.mp4) |
 | Edit a selected subtree in the Partial Edit Pane | [Watch the 49-second MP4](docs/media/partial-edit.mp4) |
+
+These videos, like the two screenshots above, predate the structured marker-free/parent-child editing controls; they still demonstrate the current Apply/Cancel/conflict-protection flow accurately.
 
 ## How to use it
 
@@ -144,15 +149,19 @@ The tree — in either sidebar — is a working view, not only a navigator.
 - **On mobile**: tap a row to select it, tap an already-selected row again to start renaming it, and long-press a row to open its context menu.
 - Section rows and list rows are visually distinguishable by an optional background or edge-stripe highlight, configurable in the plugin settings and further customizable through Style Settings (see below).
 
+Reordering across levels — reparenting a subtree under a different ancestor, or moving it several positions at once — is a tree operation; it is not available from inside the Partial Edit Pane (see "What the Outline Tree and the Partial Edit Pane each do" below).
+
 ### Work with paragraphs
 
 Enable **Show body paragraphs in Outline Tree View** in the plugin settings to display ordinary body paragraphs as read-only navigation nodes (marked with ¶) alongside headings and list items — for top-level and section-direct paragraphs only, not ones nested inside a list item. Once shown, a paragraph row can be renamed in place like any other row, and its context menu adds **Move up/down**, **Move to top/bottom**, **Move before/after sibling…**, **Insert paragraph before/after**, **Delete paragraph** (with confirmation), and **Edit paragraph…**, which opens it in the Partial Edit Pane. From the body editor, **Move block up/down** also treats the paragraph at the cursor as a movable unit, and the **Edit paragraph at cursor** command opens the Partial Edit Pane for it directly.
 
 ### Work with callouts, blockquotes, and extended blocks
 
-A standalone callout or blockquote — one not grouped into an extended block below — appears in the tree as its own node, with a context menu offering **Move up/down** and **Open in Partial Edit** (including a popout option), the same focused-editing experience available for sections and list subtrees. Fenced code blocks (including Mermaid) and tables remain read-only in the tree for now; **Move block** can still move one of these as a whole when the cursor is inside it in the body editor.
+A standalone callout or blockquote — one not grouped into an extended block below — appears in the tree as its own node, with a context menu offering **Move up/down** and **Open in Partial Edit** (including a popout option), the same focused-editing experience available for sections and list subtrees.
 
-**List + Callout** and **List + Quote** are two Outline Tree grouping rules (see Settings → Extended blocks). They group a single-line list item that is immediately followed, with no blank line, by a callout or blockquote, into one collapsible unit in the tree. These rules are structural — they do not require an image embed, OCR content, or any particular callout type. **Move extended block up/down** (Command Palette or the tree's context menu) moves the whole group together, and **Delete extended block** removes it as a unit — the grouped list item and callout/blockquote are not yet editable together as a group; edit either one individually in the body editor. Disabling a rule does not change the Markdown; the affected list item, callout, and blockquote are simply shown individually again, following their own normal Outline Tree display rules.
+**List + Callout** and **List + Quote** are two Outline Tree grouping rules (see Settings → Extended blocks). They group a single-line list item that is immediately followed, with no blank line, by a callout or blockquote, into one collapsible unit in the tree. These rules are structural — they do not require an image embed, OCR content, or any particular callout type. **Move extended block up/down** (Command Palette or the tree's context menu) moves the whole group together, and **Delete extended block** removes it as a unit. Opening an extended block's own row in the Partial Edit Pane edits its list member and its trailing callout/blockquote member together, in one Apply, whenever the block's shape allows a clean split (see "Structured, marker-free editing" below); disabling a grouping rule does not change the Markdown — the affected list item, callout, and blockquote are simply shown individually again, following their own normal Outline Tree display rules.
+
+Fenced code blocks (including Mermaid) and tables are recognized internally as safe, atomic units — **Move block** can still move one of these as a whole when the cursor is inside it in the body editor — but they do not currently appear as their own nodes in the Outline Tree, and have no Outline Tree or Partial Edit Pane support of their own yet (see Roadmap).
 
 For example, this Markdown:
 
@@ -191,9 +200,37 @@ The callout member gets the same **▣** prefix used for standalone callouts; th
 
 Use **Open partial edit pane for current section** from the Command Palette, or choose the corresponding action from an Outline Tree View context menu. For a paragraph specifically, use **Edit paragraph at cursor** (or the Outline Tree's **Edit paragraph…** context-menu item) to open it here directly.
 
-The **Partial Edit Pane** opens the selected section or list subtree in a dedicated editor. Make your changes, then select **Apply** to write them back to the source note. If the source area changed after the pane opened, the pane protects the note by refusing to apply conflicting content. Reload the target and review the change instead of overwriting it.
+The **Partial Edit Pane** opens the selected section, list subtree, standalone callout/blockquote, or extended block in a dedicated editor. Make your changes, then select **Apply** to write them back to the source note — the note's Markdown is always the single source of truth; the pane's structured controls (described below) are only a view onto it, never a separate model that could drift from what the note actually contains. If the source area changed after the pane opened, the pane protects the note by refusing to apply conflicting content; reload the target and review the change instead of overwriting it. If the note changes elsewhere — another pane, the Outline Tree, or an Undo/Redo in the body editor — while this pane is open with no unsaved changes, it resynchronizes automatically to match, including switching its own display between a leaf item's editor and a parent item's editor when that change adds or removes the last child.
 
 An ancestor breadcrumb and a Subtree Navigator let you move up to a parent block or into a child block without leaving the pane. The pane can also be popped out into its own window from a node's context menu, and it asks for confirmation before navigating away from unsaved changes.
+
+#### Structured, marker-free editing for list items
+
+For an eligible standalone list item, the pane hides the Markdown syntax that carries no meaning to type directly — the list marker (`-`/`*`/`+`), the task-list checkbox (`[ ]`/`[x]`), or the ordered-list number and its delimiter — and shows only the item's own text, plus a small checkbox or number control alongside it when relevant. Apply always restores the original marker, checkbox syntax, delimiter, and indentation exactly, so the underlying Markdown only ever changes in the way you actually edited it.
+
+This applies to a leaf list item (one with no nested child list) that is either a single line or spans multiple lines — including blank lines within its own continuation — whether unordered, task-list, or ordered. An item falls back to its full, raw Markdown line instead (no structured controls) whenever it: is part of an extended block that can't be cleanly split into its list and callout/blockquote members; contains a nested callout, blockquote, fenced code block, table, or thematic break within its continuation; has a continuation line indented more shallowly than the item's own text; or otherwise can't be safely reduced to a single list item by the note's own parser. This fallback is deliberate — an edit is never guessed at or forced through when a block's true boundaries can't be confidently resolved; ordered-list sibling numbering is likewise never auto-renumbered.
+
+#### Editing a parent item and its direct children
+
+Opening a list item that has its own children shows that item's own text in the same structured, marker-free editor described above, with its direct children shown just below as a live, read-only preview. From there, without leaving the pane, you can:
+
+- Navigate into any previewed child (or grandchild) to open it as the pane's new target.
+- Inline-edit one eligible direct child at a time, right inside the preview.
+- Add a new, empty child to the end of the direct-child list.
+- Delete an eligible direct child (behind a confirmation dialog).
+- Reorder direct children with up/down controls, as long as there's no blank line separating them.
+- Indent an eligible direct child into its immediately preceding sibling, or outdent a grandchild back out to a direct child — one level at a time.
+- Add a first child to a leaf item that doesn't have one yet, right from that leaf's own editor.
+
+All of these save together with the parent's own text in a single Apply, except indent/outdent, which cannot combine with an add, delete, reorder, or inline child edit in the same Apply (it can still combine with an edit to the parent's own text). Only a leaf direct child — one with no grandchildren of its own — can be inline-edited, deleted, or moved by indent/outdent; a child that itself has children must be opened as its own target to go any deeper. Deleting a parent's last remaining child returns that item to its own leaf editor; adding a first child to a leaf promotes it to a parent, with the same child preview and controls immediately available for it.
+
+#### What the Outline Tree and the Partial Edit Pane each do
+
+The **Outline Tree View** is where you reorganize the note's overall shape: reordering sections and list subtrees — including reparenting across levels — by drag-and-drop or the move/indent/outdent commands, renaming a row in place, and navigating by click or keyboard. It does not offer the marker-free body editing described above, and it does not let you edit a child's own text inline.
+
+The **Partial Edit Pane** is scoped to one block and its direct children at a time. It does not move a block relative to its siblings, reparent it under a different, arbitrarily chosen ancestor, or edit a grandchild in place without first navigating to it — those remain Outline Tree operations.
+
+A standalone callout or blockquote, and an extended block's own row, open in the Partial Edit Pane with their own structured, prefix-free editors (title, type, fold marker, and body edited separately for a callout/blockquote; an extended block's list member has its marker hidden the same way a standalone list item's does). For an extended block, the list member and the trailing callout/blockquote member are edited together and saved in a single Apply whenever the block's structure allows a clean split; an unsupported shape falls back to one raw-Markdown editor for the whole block, as before.
 
 ### Node-only heading actions
 
@@ -239,13 +276,13 @@ Structural changes alter Markdown text. Keep normal vault backups and review an 
 
 - Unified Outliner works within the active note only. It does not move content between notes.
 - Frontmatter is excluded from all structural operations.
-- A standalone callout or blockquote can be moved and opened in the Partial Edit Pane directly from the Outline Tree View (see Visual guide above). Fenced code blocks (including Mermaid) and tables are still shown there as read-only nodes. Move block can still move any of these four kinds as a whole when the cursor is inside it in the body editor.
-- A list item grouped with its callout or blockquote into a **List + Callout** or **List + Quote** extended block (see Settings → Extended blocks) moves and deletes as one unit from the Outline Tree View, but is not yet editable as a group — edit the list item or the callout/blockquote individually in the body editor.
-- A focused edit is applied only when the original target has not changed since it was loaded.
+- A standalone callout or blockquote, and an extended block (**List + Callout**/**List + Quote**), can be moved and opened in the Partial Edit Pane directly from the Outline Tree View (see Visual guide and "Edit a focused subtree" above); an extended block's two members are edited together and saved in one Apply whenever their structure allows a clean split. Fenced code blocks (including Mermaid) and tables are not yet shown as their own nodes in the Outline Tree and have no Partial Edit Pane support, though **Move block** can still move one of these as a whole when the cursor is inside it in the body editor.
+- Editing a parent list item's direct children from the Partial Edit Pane (add, delete, reorder, inline edit, indent/outdent) is limited to leaf children — one with grandchildren of its own must be opened as its own target — and to one level of indent/outdent at a time; see "Editing a parent item and its direct children" above for exactly what can combine in a single Apply.
+- A focused edit is applied only when the original target has not changed since it was loaded; if the note changes elsewhere while the pane is clean, it resynchronizes automatically rather than showing stale content.
 
 ## Roadmap
 
-Pop-out windows, breadcrumb navigation, Outline Tree inline rename, paragraph display and editing, a configurable left/right Outline Tree sidebar, and move/edit support for standalone callouts and blockquotes and for grouped extended blocks are now available (see above). Fenced code blocks and tables remain read-only in the tree; extending them to the same move/insert/delete support is a later step.
+Structural move and level commands, Outline Tree navigation and editing, a Partial Edit Pane with structured marker-free editing for list items and their direct children (add, delete, reorder, indent/outdent, inline edit, one level at a time), and structured editing for standalone callouts/blockquotes and extended blocks are now available (see above). Fenced code blocks and tables are recognized internally as safe atomic units for Move block, but do not yet have their own Outline Tree display or Partial Edit Pane support; free movement to an arbitrary depth or parent, full subtree-level operations beyond one level of indent/outdent, drag-and-drop inside the Partial Edit Pane, and integrated code/table editing all remain future work, not yet started.
 
 See the concise [roadmap](ROADMAP.md) for later directions and deliberate non-goals.
 
