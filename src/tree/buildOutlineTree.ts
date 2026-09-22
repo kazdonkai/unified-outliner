@@ -342,6 +342,18 @@ export interface BuildOutlineTreeOptions {
    */
   standaloneComplexBlocks?: {
     blocks: ComplexBlockInfo[];
+    /**
+     * Phase 5E-0: widen isStandaloneComplexBlockEligible (below) to also
+     * accept kind "fenced-code" (still gated by editability ===
+     * "supported", exactly like callout/blockquote). Omitted/false is
+     * byte-identical to every pre-Phase-5E-0 caller — mirrors the
+     * `paragraphs` option's own "presence/flag is the gate, off by
+     * default" convention. Independent of `includeTables` below per this
+     * ticket's own confirmed "別々のスイッチ2つ" user decision.
+     */
+    includeFencedCode?: boolean;
+    /** Phase 5E-0: the table counterpart of includeFencedCode above. */
+    includeTables?: boolean;
   };
   /**
    * UXP-04 (2026-08-15, "Configurable List Marker Prefix Display"):
@@ -670,6 +682,17 @@ export function complexMemberDisplayLabel(
  */
 export const STANDALONE_CALLOUT_PREFIX = "▣ ";
 export const STANDALONE_BLOCKQUOTE_PREFIX = "❝ ";
+/**
+ * Phase 5E-0 ("Fenced Code Block / Markdown Table 読み取り専用 Outline
+ * Tree 投影基盤"): the fenced-code/table counterparts of
+ * STANDALONE_CALLOUT_PREFIX/STANDALONE_BLOCKQUOTE_PREFIX above — same
+ * role (a decorative glyph for a STANDALONE row, isStandalone: true),
+ * same "plain display constant, not an i18n key" convention. Chosen to
+ * be visually distinct from every existing prefix/icon already in use
+ * (▣ callout, ❝ blockquote, ◉/❖ composite rules, ¶ paragraph).
+ */
+export const STANDALONE_FENCED_CODE_PREFIX = "◫ ";
+export const STANDALONE_TABLE_PREFIX = "▦ ";
 
 /**
  * Phase 5C-2: maximum length (in characters) of a standalone
@@ -755,11 +778,111 @@ export function standaloneComplexBlockLabel(
     }
     return t("tree.complexMember.calloutFallback");
   }
+  if (info.kind === "fenced-code") {
+    return standaloneFencedCodeLabel(doc, info, t);
+  }
+  if (info.kind === "table") {
+    return standaloneTableLabel(doc, info, t);
+  }
+  // Only "blockquote" remains — the four ComplexBlockKind values this
+  // function is ever called with (isStandaloneComplexBlockEligible's own
+  // allow-list): callout (handled above), fenced-code/table (handled
+  // just above), and blockquote here.
   for (let l = info.range.startLine; l <= info.range.endLine; l++) {
     const body = stripQuotePrefixForDisplay(doc.lines[l] ?? "");
     if (body.length > 0) return truncateStandaloneLabel(body);
   }
   return t("tree.complexMember.blockquoteFallback");
+}
+
+/**
+ * Phase 5E-0: display label for a STANDALONE fenced-code row — a
+ * kind/language PREFIX (Mermaid/Dataview/DataviewJS get their own
+ * literal, untranslated proper-noun-like prefix per this ticket's
+ * approved spec; any other non-empty info string is used verbatim as
+ * the prefix; an EMPTY info string falls back to the translated
+ * "Code block" text as the prefix instead) followed by ": " and the
+ * first non-empty, whitespace-normalized BODY line — i.e. never the
+ * opening/closing fence line itself (the body scan runs strictly
+ * between range.startLine+1 and range.endLine-1 inclusive). When the
+ * body has no non-empty line at all (an empty code block), the prefix
+ * alone is returned, matching callout/blockquote's own "kind name
+ * alone" empty-body fallback shape. Never executes, renders, or
+ * otherwise interprets the code body — this is plain string scanning,
+ * exactly like every other standalone label tier in this file.
+ */
+function standaloneFencedCodeLabel(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo,
+  t: Translator
+): string {
+  const infoString = (info.infoString ?? "").trim();
+  const lang = infoString.toLowerCase();
+  const prefix =
+    lang === "mermaid"
+      ? "Mermaid"
+      : lang === "dataview"
+        ? "Dataview"
+        : lang === "dataviewjs"
+          ? "DataviewJS"
+          : infoString.length > 0
+            ? infoString
+            : t("tree.complexMember.fencedCodeFallback");
+  for (let l = info.range.startLine + 1; l < info.range.endLine; l++) {
+    const body = normalizeParagraphLabelText(doc.lines[l] ?? "");
+    if (body.length > 0) return truncateStandaloneLabel(`${prefix}: ${body}`);
+  }
+  return truncateStandaloneLabel(prefix);
+}
+
+/**
+ * Phase 5E-0: a small, LOCAL, display-only pipe-row splitter —
+ * deliberately NOT a reuse of parser/complexBlocks.ts's own private
+ * splitTableRow (that module's scanner-tuned helper is not exported,
+ * and this ticket's approved scope explicitly forbids introducing a
+ * full table parser here just to generate a label: "ラベル生成のため
+ * に完全な table parser を新設しない"). Strips one optional leading
+ * and trailing `|`, splits on `|` (no escaped-pipe handling — a
+ * deliberately simple, best-effort summary, never a correctness-
+ * critical parse), normalizes each cell's whitespace, and drops empty
+ * cells. Returns null (never `""` or an all-empty-cell array) when
+ * there is nothing worth showing, so the caller can fall through to
+ * the fixed "Table" label instead of a blank/near-blank one.
+ */
+function standaloneTableHeaderSummary(headerLine: string): string | null {
+  let body = headerLine.trim();
+  if (body.length === 0) return null;
+  if (body.startsWith("|")) body = body.slice(1);
+  if (body.endsWith("|")) body = body.slice(0, -1);
+  const cells = body
+    .split("|")
+    .map((c) => normalizeParagraphLabelText(c))
+    .filter((c) => c.length > 0);
+  if (cells.length === 0) return null;
+  return cells.join(" / ");
+}
+
+/**
+ * Phase 5E-0: display label for a STANDALONE table row —
+ * "<Table>: <header column names, short summary>", or just the fixed,
+ * translated "Table" label (standaloneTableHeaderSummary returning
+ * null) when the header row cannot be safely/usefully summarized —
+ * per this ticket's own "複雑なヘッダーを安全に要約できなければ
+ * 'Table' 固定ラベルに戻す" requirement. `info.range.startLine` is
+ * always the table's own header row (never the delimiter row below
+ * it) — see parser/complexBlocks.ts#scanTableBlocks's own range
+ * construction.
+ */
+function standaloneTableLabel(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo,
+  t: Translator
+): string {
+  const headerLine = doc.lines[info.range.startLine] ?? "";
+  const summary = standaloneTableHeaderSummary(headerLine);
+  const tableWord = t("tree.complexMember.tableFallback");
+  if (!summary) return tableWord;
+  return truncateStandaloneLabel(`${tableWord}: ${summary}`);
 }
 
 /**
@@ -895,8 +1018,23 @@ export function buildParagraphOrdinals(blocks: ComplexBlockInfo[]): Map<string, 
  * other ComplexBlockKind (fenced-code/table/paragraph/thematic-break) is
  * out of scope for this ticket and excluded unconditionally.
  */
-function isStandaloneComplexBlockEligible(info: ComplexBlockInfo): boolean {
-  return (info.kind === "callout" || info.kind === "blockquote") && info.editability === "supported";
+function isStandaloneComplexBlockEligible(
+  info: ComplexBlockInfo,
+  includeFencedCode: boolean,
+  includeTables: boolean
+): boolean {
+  if (info.editability !== "supported") return false;
+  if (info.kind === "callout" || info.kind === "blockquote") return true;
+  // Phase 5E-0: fenced-code/table are each independently opt-in — see
+  // BuildOutlineTreeOptions.standaloneComplexBlocks.includeFencedCode/
+  // includeTables's own doc comments. Every other ComplexBlockKind
+  // (paragraph/thematic-break) remains unconditionally excluded here,
+  // exactly as before this ticket — paragraph has its own entirely
+  // separate projection path (groupParagraphBlocks), and thematic-break
+  // has no standalone Tree row of any kind, by design.
+  if (info.kind === "fenced-code") return includeFencedCode;
+  if (info.kind === "table") return includeTables;
+  return false;
 }
 
 /**
@@ -1003,11 +1141,13 @@ function groupStandaloneComplexBlocks(
   doc: ParsedDocument,
   blocks: ComplexBlockInfo[],
   consumedComplexBlockIds: Set<string>,
-  t: Translator
+  t: Translator,
+  includeFencedCode: boolean,
+  includeTables: boolean
 ): Map<string | null, { info: ComplexBlockInfo; label: string }[]> {
   const byParentKey = new Map<string | null, ComplexBlockInfo[]>();
   for (const info of blocks) {
-    if (!isStandaloneComplexBlockEligible(info)) continue;
+    if (!isStandaloneComplexBlockEligible(info, includeFencedCode, includeTables)) continue;
     if (consumedComplexBlockIds.has(info.id)) continue;
     const groupKey = resolveStandaloneGroupKey(doc, info.parentId);
     const list = byParentKey.get(groupKey) ?? [];
@@ -1047,7 +1187,14 @@ function buildStandaloneComplexNode(
     id: info.id,
     complexKind: info.kind,
     label,
-    prefix: info.kind === "callout" ? STANDALONE_CALLOUT_PREFIX : STANDALONE_BLOCKQUOTE_PREFIX,
+    prefix:
+      info.kind === "callout"
+        ? STANDALONE_CALLOUT_PREFIX
+        : info.kind === "blockquote"
+          ? STANDALONE_BLOCKQUOTE_PREFIX
+          : info.kind === "fenced-code"
+            ? STANDALONE_FENCED_CODE_PREFIX
+            : STANDALONE_TABLE_PREFIX,
     isStandalone: true,
     line: info.range.startLine,
     children: [],
@@ -1573,7 +1720,14 @@ export function buildOutlineTree(
   // Phase 5C-5: renamed from standaloneBySection — the map's keys are no
   // longer exclusively section ids (or null); see resolveStandaloneGroupKey.
   const standaloneByParentId = options?.standaloneComplexBlocks
-    ? groupStandaloneComplexBlocks(doc, options.standaloneComplexBlocks.blocks, consumedComplexBlockIds, t)
+    ? groupStandaloneComplexBlocks(
+        doc,
+        options.standaloneComplexBlocks.blocks,
+        consumedComplexBlockIds,
+        t,
+        options.standaloneComplexBlocks.includeFencedCode ?? false,
+        options.standaloneComplexBlocks.includeTables ?? false
+      )
     : undefined;
   const listPrefixStyle = options?.listPrefixStyle ?? "none";
   // Phase 5P-3: options.paragraphs is the ENTIRE gate — its mere presence

@@ -414,15 +414,34 @@ describe("extractSubtreeText (Phase 5C-2: standalone callout/blockquote resoluti
     expect(outcome.reason).toBe("resolve-failed");
   });
 
-  it("still resolves a fenced-code complex-block id as resolve-failed (out of scope for Partial Edit in this revision)", () => {
-    const text = ["# H", "```", "code", "```"].join("\n");
+  it("still resolves a table complex-block id as resolve-failed (table stays read-only)", () => {
+    // Phase 5E-1 widened extractSubtreeText/extractComplexBlockText to
+    // also accept kind "fenced-code" (see the new "resolves a standalone
+    // fenced-code block" test just below) — this out-of-scope case is
+    // re-pointed at "table", which remains genuinely unsupported (see
+    // docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3).
+    const text = ["| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
     const doc = parseDocument(text);
-    const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code");
+    const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "table");
     expect(info).toBeDefined();
 
     const outcome = extractSubtreeText(doc, info!.id);
     expect(outcome.ok).toBe(false);
     expect(outcome.reason).toBe("resolve-failed");
+  });
+
+  it("Phase 5E-1: resolves a standalone fenced-code block's own range as raw text, fence lines included", () => {
+    const text = ["# H", "```js", "code", "```"].join("\n");
+    const doc = parseDocument(text);
+    const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code");
+    expect(info).toBeDefined();
+
+    const outcome = extractSubtreeText(doc, info!.id);
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.kind).toBe("fenced-code");
+      expect(outcome.text).toBe(["```js", "code", "```"].join("\n"));
+    }
   });
 });
 

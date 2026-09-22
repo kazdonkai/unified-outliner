@@ -2,12 +2,17 @@
  * Phase 5T-5A (implements Phase 5T-5D's 案A): resolves which Tree node the
  * BODY EDITOR's cursor line CURRENTLY corresponds to, extended beyond the
  * pre-existing section/list-only resolveHighlightedSectionId.ts to also
- * cover the 3 ComplexBlockKind values that actually have their own Tree
- * row today — paragraph, callout, blockquote (see
- * docs/phase5t5_cursor_to_tree_highlight_design.md §3-3: fenced-code/
- * table/thematic-break never have a Tree row of their own, standalone or
- * as a composite member, so they are not — and cannot be — resolved to
- * anything more specific than the existing section/list fallback below).
+ * cover the ComplexBlockKind values that have their own Tree row today —
+ * paragraph, callout, blockquote, and, as of Phase 5E-0 and only when the
+ * corresponding opt-in Outline Tree display setting is on, fenced-code
+ * and table (see docs/phase5t5_cursor_to_tree_highlight_design.md §3-3
+ * for the ORIGINAL, pre-5E-0 rationale, and
+ * docs/phase5e0_fenced-code-table-tree-projection-design-memo.md for why
+ * fenced-code/table were later added without needing to revisit anything
+ * else in this file: thematic-break alone remains permanently without a
+ * Tree row of any kind, standalone or as a composite member, so it is not
+ * — and cannot be — resolved to anything more specific than the existing
+ * section/list fallback below).
  *
  * This is a genuinely NEW file rather than an extension of
  * resolveHighlightedSectionId.ts itself (design doc §4, 案A vs 案B): that
@@ -97,11 +102,14 @@ export function resolveCurrentPositionNodeId(
  * this can never disagree with what was actually rendered); callout/
  * blockquote reuse their own ComplexBlockInfo.id verbatim (both standalone
  * and composite-member rows use `id: info.id` — see
- * buildStandaloneComplexNode/buildMemberNode). fenced-code/table/
- * thematic-break have no Tree id form at all today (design doc §3-3) and
- * always return null here — `nodeById` would never contain such an id
- * anyway, so this is purely a defensive short-circuit, not a behavior
- * difference.
+ * buildStandaloneComplexNode/buildMemberNode). As of Phase 5E-0,
+ * fenced-code/table do too, whenever they are currently projected as a
+ * standalone row (opt-in display setting on) — see
+ * buildStandaloneComplexNode's own prefix/kind handling, unchanged in
+ * shape by this addition. thematic-break alone still has no Tree id form
+ * at all and always returns null here — `nodeById` would never contain
+ * such an id anyway, so this remains purely a defensive short-circuit for
+ * that one kind, not a behavior difference.
  */
 function candidateTreeId(
   info: ComplexBlockInfo,
@@ -112,6 +120,19 @@ function candidateTreeId(
     return ordinal === undefined ? null : paragraphViewId(ordinal);
   }
   if (info.kind === "callout" || info.kind === "blockquote") {
+    return info.id;
+  }
+  // Phase 5E-0: fenced-code/table now ALSO reuse ComplexBlockInfo.id
+  // verbatim as their Tree row id, exactly like callout/blockquote —
+  // see tree/buildOutlineTree.ts's buildStandaloneComplexNode, which
+  // was already doing `id: info.id` for every standalone kind before
+  // this phase; only isStandaloneComplexBlockEligible's own kind
+  // allow-list (and the two opt-in display settings gating it) ever
+  // decided whether such a row exists at all. The `nodeById.has(id)`
+  // check in resolveComplexBlockCandidate below (unchanged by this
+  // edit) is what correctly makes this a no-op when the corresponding
+  // setting is off and no such row is currently displayed.
+  if (info.kind === "fenced-code" || info.kind === "table") {
     return info.id;
   }
   return null;

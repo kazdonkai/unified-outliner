@@ -54,11 +54,29 @@ describe("buildStandaloneComplexBlockSnapshot", () => {
     });
   });
 
-  it("returns null for a non-callout/blockquote kind (defense-in-depth)", () => {
-    const text = ["```", "code", "```"].join("\n");
+  it("returns null for a non-callout/blockquote/fenced-code kind (defense-in-depth)", () => {
+    // Phase 5E-1 widened buildStandaloneComplexBlockSnapshot to also
+    // accept kind "fenced-code" (see this file's own new "accepts a
+    // standalone fenced-code block" test below) — this defense-in-depth
+    // case is re-pointed at "table", which remains genuinely unsupported
+    // (table stays read-only; see docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3).
+    const text = ["| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
+    const { complexScan } = pipeline(text);
+    const table = complexScan.blocks.find((b) => b.kind === "table")!;
+    expect(buildStandaloneComplexBlockSnapshot(table)).toBeNull();
+  });
+
+  it("Phase 5E-1: accepts a standalone fenced-code block, projecting the same kind/range/parentId shape as callout/blockquote", () => {
+    const text = ["# H", "```js", "code", "```"].join("\n");
     const { complexScan } = pipeline(text);
     const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
-    expect(buildStandaloneComplexBlockSnapshot(fenced)).toBeNull();
+    const snapshot = buildStandaloneComplexBlockSnapshot(fenced);
+    expect(snapshot).toEqual({
+      id: fenced.id,
+      kind: "fenced-code",
+      range: { startLine: fenced.range.startLine, endLine: fenced.range.endLine },
+      parentId: fenced.parentId,
+    });
   });
 });
 

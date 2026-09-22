@@ -181,6 +181,28 @@ export interface UnifiedOutlinerSettings {
    * Outline Tree View leaf re-renders immediately in either direction.
    */
   showParagraphsInOutline: boolean;
+  /**
+   * Phase 5E-0 ("Fenced Code Block / Markdown Table 読み取り専用 Outline
+   * Tree 投影基盤"): opt-in, independent toggle for projecting a
+   * STANDALONE fenced-code block (kind "fenced-code", editability
+   * "supported") as its own read-only Outline Tree row — see
+   * tree/buildOutlineTree.ts's BuildOutlineTreeOptions
+   * .standaloneComplexBlocks.includeFencedCode. Off by default, mirroring
+   * showParagraphsInOutline above and every other opt-in display toggle in
+   * this file. Deliberately a SEPARATE toggle from showTablesInOutline
+   * below rather than one shared switch — per this ticket's own explicit
+   * user decision ("別々のスイッチ2つ"), so code-block and table
+   * visibility can be turned on independently.
+   */
+  showFencedCodeInOutline: boolean;
+  /**
+   * Phase 5E-0: the table counterpart of showFencedCodeInOutline above —
+   * opt-in, independent toggle for projecting a STANDALONE table block
+   * (kind "table", editability "supported") as its own read-only Outline
+   * Tree row. Off by default; see showFencedCodeInOutline's own doc
+   * comment for why this is a separate toggle rather than a shared one.
+   */
+  showTablesInOutline: boolean;
 }
 
 /** See UnifiedOutlinerSettings.headingPrefixStyle's doc comment. */
@@ -286,6 +308,8 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   outlineTreeSidebarPosition: "right",
   listPrefixStyle: "none",
   showParagraphsInOutline: false,
+  showFencedCodeInOutline: false,
+  showTablesInOutline: false,
 };
 
 /**

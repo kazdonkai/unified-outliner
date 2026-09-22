@@ -118,7 +118,14 @@ export function extractSectionText(
   return { ok: false, text: "", startLine: -1, endLine: -1, reason: "not-a-heading" };
 }
 
-export type SubtreeKind = "section" | "list" | "callout" | "blockquote";
+// Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") adds
+// "fenced-code" — a standalone fenced code block (including Mermaid,
+// Dataview, DataviewJS, or any other info string, since Phase 5C never
+// makes Mermaid a distinct ComplexBlockKind) is now resolvable and
+// editable here, raw, exactly like callout/blockquote. "table" remains
+// deliberately NOT added — table stays read-only, unchanged from Phase
+// 5E-0 (see extractComplexBlockText's own updated doc comment below).
+export type SubtreeKind = "section" | "list" | "callout" | "blockquote" | "fenced-code";
 
 export type NoExtractSubtreeReason = "resolve-failed" | "not-editable" | "unsafe-indent";
 
@@ -221,9 +228,17 @@ function extractComplexBlockText(
   doc: ParsedDocument,
   complexBlock: ComplexBlockInfo | undefined
 ): ExtractSubtreeOutcome {
+  // Phase 5E-1: widened to also accept kind "fenced-code" — see
+  // SubtreeKind's own updated doc comment above. "table" is deliberately
+  // NOT added here (stays read-only, unchanged from Phase 5E-0) — this is
+  // the SECOND, independent defense layer for that read-only status (the
+  // first is view/OutlineTreeView.ts's own context-menu kind guard), per
+  // this whole codebase's established two-layer read-only convention.
   if (
     !complexBlock ||
-    (complexBlock.kind !== "callout" && complexBlock.kind !== "blockquote") ||
+    (complexBlock.kind !== "callout" &&
+      complexBlock.kind !== "blockquote" &&
+      complexBlock.kind !== "fenced-code") ||
     complexBlock.editability !== "supported"
   ) {
     return { ok: false, kind: null, text: "", startLine: -1, endLine: -1, reason: "resolve-failed" };
@@ -294,7 +309,19 @@ export function applySectionEdit(
   return { changed: true, lines, newStartLine: current.startLine };
 }
 
-export type NoApplySubtreeEditReason = NoExtractSubtreeReason | "conflict";
+/**
+ * Phase 5E-1 adds "fenced-code-invalid-open"/"fenced-code-invalid-close":
+ * Apply-time shape validation specific to kind "fenced-code" (see
+ * isValidFencedCodeOpenLine/isValidFencedCodeCloseLine and their call site
+ * inside applySubtreeEdit below). Never reachable for section/list/
+ * callout/blockquote — those kinds have no equivalent "must start/end
+ * with this exact syntax" constraint for this pane to enforce.
+ */
+export type NoApplySubtreeEditReason =
+  | NoExtractSubtreeReason
+  | "conflict"
+  | "fenced-code-invalid-open"
+  | "fenced-code-invalid-close";
 
 export interface ApplySubtreeEditOutcome {
   changed: boolean;
@@ -316,6 +343,52 @@ export interface ApplySubtreeEditOutcome {
  * unsafe all along and slipped past an earlier check) is caught here too,
  * for free — no separate check needed.
  */
+/**
+ * Phase 5E-1: the same opening-fence shape parser/complexBlocks.ts's own
+ * FENCE_OPEN_RE recognizes (`[ \t]*(`{3,}|~{3,})[ \t]*(.*)$`) — deliberately
+ * NOT imported (that constant is module-private to complexBlocks.ts), but
+ * kept byte-identical in shape so this Apply-time check never disagrees
+ * with what the scanner itself would recognize as an opening fence.
+ */
+const FENCE_OPEN_LINE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*(.*)$/;
+
+/**
+ * True when `line` is a valid fenced-code OPENING line — 3+ of the same
+ * fence character (backtick or tilde), optionally preceded by whitespace,
+ * with anything (an info string) after it. Mirrors
+ * parser/complexBlocks.ts's own FENCE_OPEN_RE shape exactly (see
+ * FENCE_OPEN_LINE_RE's own doc comment above).
+ */
+function isValidFencedCodeOpenLine(line: string): { valid: boolean; fenceChar: string; fenceLength: number } {
+  const m = line.match(FENCE_OPEN_LINE_RE);
+  if (!m) return { valid: false, fenceChar: "", fenceLength: 0 };
+  return { valid: true, fenceChar: m[1][0], fenceLength: m[1].length };
+}
+
+/**
+ * Phase 5E-1's own dedicated, STRICTER closing-fence check — deliberately
+ * NOT the same looseness as parser/complexBlocks.ts's own scanner-time
+ * close check (which only compares the closing line's first fence
+ * character, via `closeMatch[1][0] === fenceChar`, and never requires the
+ * closing run's length to be >= the opening run's, nor requires the line
+ * to contain nothing else). This ticket's design memo §2 requires: the
+ * SAME fence character, a run of AT LEAST the opening fence's own length,
+ * and NOTHING ELSE on the line besides optional leading/trailing
+ * whitespace — i.e. a "pure" closing fence line, matching CommonMark's own
+ * closing-fence requirement more closely than the scanner's boundary-
+ * detection pass does. This intentional strictness only applies to what
+ * the Partial Edit Pane will ACCEPT on Apply; it never changes how
+ * parser/complexBlocks.ts itself detects a block's boundary.
+ */
+const FENCE_CLOSE_ONLY_LINE_RE = /^[ \t]*(`+|~+)[ \t]*$/;
+
+function isValidFencedCodeCloseLine(line: string, fenceChar: string, minLength: number): boolean {
+  const m = line.match(FENCE_CLOSE_ONLY_LINE_RE);
+  if (!m) return false;
+  if (m[1][0] !== fenceChar) return false;
+  return m[1].length >= minLength;
+}
+
 export function applySubtreeEdit(
   doc: ParsedDocument,
   nodeId: string,
@@ -336,6 +409,25 @@ export function applySubtreeEdit(
   }
 
   const newLines = newText.split("\n");
+
+  // Phase 5E-1: fenced-code-only Apply-time shape validation — see this
+  // module's own SubtreeKind/isValidFencedCodeOpenLine/
+  // isValidFencedCodeCloseLine doc comments above. Never runs for any
+  // other SubtreeKind. Checked AFTER the conflict check (so a stale-note
+  // conflict is always reported before a shape problem — matching this
+  // codebase's "the first failing condition, in a fixed order" convention
+  // seen throughout move/delete's own rejection-reason functions).
+  if (current.kind === "fenced-code") {
+    const open = isValidFencedCodeOpenLine(newLines[0] ?? "");
+    if (!open.valid) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-open" };
+    }
+    const lastLine = newLines.length > 1 ? newLines[newLines.length - 1] : "";
+    if (newLines.length < 2 || !isValidFencedCodeCloseLine(lastLine, open.fenceChar, open.fenceLength)) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-close" };
+    }
+  }
+
   const lines = [
     ...doc.lines.slice(0, current.startLine),
     ...newLines,

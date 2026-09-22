@@ -224,6 +224,13 @@ import {
 } from "../edit/moveStandaloneComplexBlock";
 import { dropStandaloneComplexBlock } from "../edit/dropStandaloneComplexBlock";
 import {
+  buildStandaloneComplexBlockDeleteSnapshot,
+  deleteStandaloneComplexBlock,
+  StandaloneComplexBlockDeleteSnapshot,
+  standaloneComplexBlockDeleteReasonText,
+} from "../edit/deleteStandaloneComplexBlock";
+import { ConfirmFencedCodeDeleteModal } from "./ConfirmFencedCodeDeleteModal";
+import {
   resolveStandaloneComplexBlockDropTarget,
   StandaloneComplexBlockDropTargetHint,
   StandaloneComplexBlockDropZone,
@@ -978,7 +985,18 @@ export class OutlineTreeView extends ItemView {
       // groupStandaloneComplexBlocks filters this full, unfiltered
       // `complexScan.blocks` list down to callout/blockquote +
       // editability "supported" + not-already-a-composite-member itself.
-      standaloneComplexBlocks: { blocks: complexScan.blocks },
+      // Phase 5E-0: each independently opt-in (settings.
+      // showFencedCodeInOutline / showTablesInOutline — both default
+      // false, so an existing vault's Tree is byte-identical to before
+      // this phase until the user turns either on). See
+      // tree/buildOutlineTree.ts's BuildOutlineTreeOptions
+      // .standaloneComplexBlocks.includeFencedCode/includeTables doc
+      // comments.
+      standaloneComplexBlocks: {
+        blocks: complexScan.blocks,
+        includeFencedCode: this.plugin.settings.showFencedCodeInOutline,
+        includeTables: this.plugin.settings.showTablesInOutline,
+      },
       // Phase 5P-3 ("本文 paragraph の任意 Outline Tree 表示", design doc
       // §1/§3): "presence of the option is the gate" — same pattern as
       // standaloneComplexBlocks above, no separate boolean flag inside
@@ -1813,20 +1831,63 @@ export class OutlineTreeView extends ItemView {
         evt.preventDefault();
         this.showCompositeCommandMenu(evt, node.id);
       });
-    } else if (isComplexMember && node.isStandalone) {
+    } else if (
+      isComplexMember &&
+      node.isStandalone &&
+      (node.complexKind === "callout" || node.complexKind === "blockquote" || node.complexKind === "fenced-code")
+    ) {
       // Phase 5C-2: a THIRD, separate menu path — for a STANDALONE
-      // callout/blockquote row only (node.isStandalone === true). A
+      // callout/blockquote/fenced-code row only (node.isStandalone ===
+      // true). A
+      //
+      // Phase 5E-0 ADDED the explicit complexKind guard above (originally
+      // callout/blockquote only): once isStandaloneComplexBlockEligible
+      // (tree/buildOutlineTree.ts) was widened to also produce
+      // isStandalone: true rows for kind "fenced-code"/"table", this
+      // branch would otherwise ALSO match those rows and unconditionally
+      // call showStandaloneComplexBlockMenu — which itself unconditionally
+      // offers "Open in Partial Edit"/"Open in new window" (its Move
+      // items are already separately guarded by
+      // buildStandaloneComplexBlockSnapshot returning null for any
+      // unsupported kind). Phase 5E-1 WIDENS the guard again to also admit
+      // "fenced-code" — table alone now remains excluded and therefore
+      // read-only, per this phase's own brief ("table のみを読み取り専用として
+      // 残す"). This mirrors the pre-existing composite-member branch
+      // immediately below, which intentionally still excludes fenced-code
+      // (fenced-code can never be a composite member — see that branch's
+      // own doc comment — so it is left unchanged). With this guard in
+      // place, a standalone table row still falls through every remaining
+      // branch (not composite-member shaped, not a paragraph) and gets NO
+      // context menu at all — the correct, read-only-by-construction
+      // outcome for table. This is layer ONE of this ticket's required
+      // two-layer defense; layer TWO is edit/partialEdit.ts's own
+      // extractComplexBlockText, which independently rejects any
+      // unsupported kind even if this UI guard were somehow bypassed.
       // composite-member complex-member row (isStandalone === false) still
       // gets NO context menu at all, exactly as before this ticket — this
       // branch is only ever reached for the new row kind. Deliberately
       // NOT gated by `!readOnly` either, same reasoning as the composite
-      // branch above (complex-member rows are always in readOnlyNodeIds).
-      // Unlike showCompositeCommandMenu, this menu is never empty and
-      // never re-checks eligibility at menu-build time — its one item
-      // ("Open in Partial Edit") re-verifies its own target fresh at
-      // click time anyway (activatePartialEditView -> PartialEditView's
+      // branch above (complex-member rows are always in readOnlyNodeIds —
+      // Phase 5E-1 deliberately does NOT alter
+      // tree/buildOutlineTree.ts#collectReadOnlyOutlineNodeIds's kind-
+      // inclusion logic; see this ticket's own design memo §3 for why:
+      // excluding fenced-code from that set would silently also grant it
+      // several unrelated GENERIC Tree capabilities — a drag handle,
+      // generic double-click rename, and fully generic arbitrary-target
+      // drag-and-drop — none of which this phase asked for, and the last
+      // of which directly contradicts this phase's own explicit
+      // same-parent-adjacent-only move constraint. Fenced-code instead
+      // reaches full Move/Delete/Partial-Edit capability the exact same
+      // way callout/blockquote always have: via this dedicated,
+      // `!readOnly`-independent menu branch, never via exclusion from the
+      // read-only set). Unlike showCompositeCommandMenu, this menu is
+      // never empty and never re-checks eligibility at menu-build time —
+      // its "Open in Partial Edit" item re-verifies its own target fresh
+      // at click time anyway (activatePartialEditView -> PartialEditView's
       // own extractSubtreeText re-parse), matching how the section/list
-      // "Open partial edit pane" items already work.
+      // "Open partial edit pane" items already work; its Move/Delete items
+      // each independently re-verify at click time too (see
+      // showStandaloneComplexBlockMenu's own doc comment).
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showStandaloneComplexBlockMenu(evt, node.id);
@@ -3369,6 +3430,48 @@ export class OutlineTreeView extends ItemView {
           );
         }
       }
+
+      // Phase 5E-1: a "Delete" item, fenced-code ONLY — deliberately not
+      // offered for callout/blockquote (no such capability was requested
+      // for those kinds this phase; see
+      // edit/deleteStandaloneComplexBlock.ts's own top doc comment for why
+      // this is intentionally a NEW, narrowly kind-scoped module rather
+      // than a widened reuse of anything callout/blockquote already has).
+      // Mirrors showCompositeCommandMenu's own delete item exactly:
+      // build the delete snapshot at menu-build time, gate on it being
+      // buildable at all (mirrors that method's `deletability.deletable`
+      // gate), and defer all actual re-verification to
+      // deleteStandaloneComplexBlock's own re-parse/re-scan/re-match job,
+      // run only once "Delete" is confirmed in the modal.
+      if (target.kind === "fenced-code") {
+        const deleteSnapshot = buildStandaloneComplexBlockDeleteSnapshot(target);
+        if (deleteSnapshot) {
+          const rowNode = this.nodeById.get(nodeId);
+          const label = rowNode && isOutlineComplexMemberNode(rowNode) ? rowNode.label : "";
+          menu.addItem((item) =>
+            item
+              .setTitle(this.plugin.t("tree.menu.deleteFencedCodeBlock"))
+              .setIcon("trash-2")
+              .setWarning(true)
+              .onClick(() => {
+                new ConfirmFencedCodeDeleteModal(
+                  this.app,
+                  this.plugin,
+                  label,
+                  deleteSnapshot.range,
+                  (confirmed) => {
+                    if (confirmed) {
+                      this.dispatchAndApplyStandaloneComplexBlockDelete(
+                        deleteSnapshot,
+                        getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks)
+                      );
+                    }
+                  }
+                ).open();
+              })
+          );
+        }
+      }
     }
 
     this.showTrackedMenu(menu, evt);
@@ -3566,6 +3669,70 @@ export class OutlineTreeView extends ItemView {
         true
       );
       this.queueSelectionFollow(outcome.newStartLine);
+      this.refresh();
+    }
+    return changed;
+  }
+
+  /**
+   * Phase 5E-1: dedicated, thin dispatch for standalone fenced-code-block
+   * delete — mirrors dispatchAndApplyCompositeDelete's own structure
+   * exactly (same multi-cursor guard, same "read the editor's CURRENT
+   * text and hand it to the pure function along with the menu-time
+   * snapshot" shape, same applyLineEditOutcome/scroll/refresh tail). All
+   * Markdown re-parsing, ComplexBlock re-scan, snapshot re-match, and
+   * shape/composite-membership re-verification are
+   * deleteStandaloneComplexBlock's own job (see
+   * edit/deleteStandaloneComplexBlock.ts) — nothing here duplicates any of
+   * it.
+   *
+   * Reason -> Notice text goes through
+   * edit/deleteStandaloneComplexBlock.ts's own exported
+   * standaloneComplexBlockDeleteReasonText, not this view's own
+   * reasonText — mirrors dispatchAndApplyStandaloneComplexBlockMove's
+   * identical choice for the exact same reason (dedicated wording per
+   * NoStandaloneComplexBlockDeleteReason value, not the generic
+   * "reason." + reason lookup every other outcome in this view shares).
+   *
+   * `snapshot` reaches this function only via a closure captured at
+   * menu-build time (showStandaloneComplexBlockMenu ->
+   * ConfirmFencedCodeDeleteModal -> here) — never a bare complex-block id,
+   * for the same reason dispatchAndApplyCompositeDelete's own doc comment
+   * explains.
+   */
+  private dispatchAndApplyStandaloneComplexBlockDelete(
+    snapshot: StandaloneComplexBlockDeleteSnapshot,
+    rules: CompositeBlockRule[]
+  ): boolean {
+    const view = this.activeMarkdownView.get();
+    if (!view) return false;
+    const editor: Editor = view.editor;
+
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return false;
+    }
+
+    const text = editor.getValue();
+    const outcome = deleteStandaloneComplexBlock(text, snapshot, rules);
+
+    const cursor = { line: snapshot.range.startLine, ch: 0 };
+    const changed = applyLineEditOutcome(
+      editor,
+      cursor,
+      snapshot.range.startLine,
+      text.split("\n"),
+      outcome,
+      () => this.notify(standaloneComplexBlockDeleteReasonText((k) => this.plugin.t(k), outcome.reason))
+    );
+
+    if (changed) {
+      const cur = editor.getCursor();
+      const lineLen = editor.getLine(cur.line)?.length ?? 0;
+      editor.scrollIntoView(
+        { from: { line: cur.line, ch: 0 }, to: { line: cur.line, ch: lineLen } },
+        true
+      );
       this.refresh();
     }
     return changed;

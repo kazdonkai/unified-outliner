@@ -95,6 +95,12 @@ const en = {
   "settings.showParagraphsInOutline.name": "Show body paragraphs in Outline Tree View",
   "settings.showParagraphsInOutline.desc":
     "Show ordinary body paragraphs as navigation nodes (marked with ¶) in the Outline Tree View. Top-level and section-direct paragraphs can also be edited, inserted, deleted, and moved from the Tree (via its context menu or double-click) — paragraphs nested inside a list item are shown for navigation only. Off by default.",
+  "settings.showFencedCodeInOutline.name": "Show fenced code blocks in Outline Tree View",
+  "settings.showFencedCodeInOutline.desc":
+    "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
+  "settings.showTablesInOutline.name": "Show tables in Outline Tree View",
+  "settings.showTablesInOutline.desc":
+    "Show Markdown tables as read-only navigation nodes in the Outline Tree View. Click a row to jump to its header row; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
   "settings.followKeyboardSelectionIntoBody.name":
     "Follow keyboard selection into body editor",
   "settings.followKeyboardSelectionIntoBody.desc":
@@ -251,6 +257,8 @@ const en = {
   "tree.emptyComplexMember": "(empty)",
   "tree.complexMember.calloutFallback": "Callout",
   "tree.complexMember.blockquoteFallback": "Quote",
+  "tree.complexMember.fencedCodeFallback": "Code block",
+  "tree.complexMember.tableFallback": "Table",
   // Phase 5P-3 (design doc §4 priority tier 3): fallback label for a
   // paragraph Tree node when its normalized preview text has no letter/
   // digit content to show (whitespace-only, symbol-only, or otherwise
@@ -289,6 +297,7 @@ const en = {
   "tree.menu.deleteListSubtree": "Delete list subtree",
   "tree.menu.unavailableSuffix": " — unavailable",
   "tree.menu.deleteCompositeBlock": "Delete extended block",
+  "tree.menu.deleteFencedCodeBlock": "Delete",
   "tree.menu.compositeMoveUp": "Move extended block up",
   "tree.menu.compositeMoveDown": "Move extended block down",
   // Phase 5D-2A: the CompositeBlock parent's own, whole-block Partial Edit
@@ -878,6 +887,12 @@ const en = {
   "modal.deleteParagraphBody": 'This will remove "{label}" (lines {startLine}–{endLine}) from the note.',
   "modal.deleteParagraphUndoNote": "This can be undone with Obsidian's own Undo.",
 
+  // ---- Fenced code block delete confirmation modal
+  // (ConfirmFencedCodeDeleteModal.ts, Phase 5E-1) ---------------------------
+  "modal.deleteFencedCodeTitle": "Unified Outliner: delete code block",
+  "modal.deleteFencedCodeBody": 'This will remove "{label}" (lines {startLine}–{endLine}) from the note.',
+  "modal.deleteFencedCodeUndoNote": "This can be undone with Obsidian's own Undo.",
+
   // ---- Shared button labels ------------------------------------------------
   "common.apply": "Apply",
   "common.discard": "Discard",
@@ -1058,6 +1073,24 @@ const en = {
     "Unified Outliner: could not confirm this block's boundary — the move was skipped for safety.",
   "reason.standaloneMoveNoTarget":
     "Unified Outliner: could not determine a safe move target.",
+
+  // ---- Fenced code block delete (Phase 5E-1, deleteStandaloneComplexBlock.ts) ---
+  "reason.standaloneFencedCodeDeleteNotSupported":
+    "Unified Outliner: this block cannot be deleted (unsupported, ambiguous, or read-only content).",
+  "reason.standaloneFencedCodeDeleteCompositeMember":
+    "Unified Outliner: this block is part of an extended block and cannot be deleted on its own.",
+  "reason.standaloneFencedCodeDeleteBoundaryChanged":
+    "Unified Outliner: the note changed since this block was selected — the delete was cancelled to avoid affecting the wrong content.",
+  "reason.standaloneFencedCodeDeleteRangeInvalid":
+    "Unified Outliner: could not confirm this block's boundary — the delete was skipped for safety.",
+
+  // ---- Fenced code block raw Partial Edit Apply validation (Phase 5E-1,
+  // partialEdit.ts). Keys are the literal hyphenated reason strings per the
+  // generic "reason." + outcome.reason pattern used by PartialEditView.ts. ---
+  "reason.fenced-code-invalid-open":
+    "Unified Outliner: the first line must be a valid opening code fence (three or more backticks or tildes).",
+  "reason.fenced-code-invalid-close":
+    "Unified Outliner: the last line must be a valid closing code fence (same fence character, at least as many marks, and nothing else on the line).",
 
   // ---- Partial Edit Pane source-note safety valve (Phase 5C-4,
   // view/partialEditSourceNoteCheck.ts). An ADDITIONAL, path-based check —
@@ -1252,6 +1285,12 @@ const ja: Record<TranslationKey, string> = {
   "settings.showParagraphsInOutline.name": "本文段落も Outline Tree に表示する",
   "settings.showParagraphsInOutline.desc":
     "本文の通常の段落を、¶ マーク付きのナビゲーションノードとしてアウトラインツリーに表示する。トップレベルおよびセクション直下の段落は、ツリー上のコンテキストメニューやダブルクリックから編集・追加（挿入）・削除・移動も行える（リスト項目内の段落は表示のみで、これらの操作の対象外）。既定ではオフ。",
+  "settings.showFencedCodeInOutline.name": "アウトラインツリーにコードブロックを表示",
+  "settings.showFencedCodeInOutline.desc":
+    "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
+  "settings.showTablesInOutline.name": "アウトラインツリーに表を表示",
+  "settings.showTablesInOutline.desc":
+    "Markdown の表を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックするとヘッダー行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
   "settings.followKeyboardSelectionIntoBody.name": "キーボード選択を本文エディタに追従させる",
   "settings.followKeyboardSelectionIntoBody.desc":
     "アウトラインツリーを矢印キーで移動する際、行をクリックした場合と同様に本文エディタのカーソルとスクロール位置も移動する。オフにすると矢印キーによる移動はツリーパネル内に留まる（Enter キーは引き続き本文へジャンプする）。",
@@ -1397,6 +1436,8 @@ const ja: Record<TranslationKey, string> = {
   "tree.emptyComplexMember": "（空）",
   "tree.complexMember.calloutFallback": "コールアウト",
   "tree.complexMember.blockquoteFallback": "引用",
+  "tree.complexMember.fencedCodeFallback": "コードブロック",
+  "tree.complexMember.tableFallback": "テーブル",
   "tree.paragraphFallback": "段落 {n}",
 
   // ---- アウトラインツリービュー -------------------------------------------
@@ -1429,6 +1470,7 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.deleteListSubtree": "リストサブツリーを削除",
   "tree.menu.unavailableSuffix": "（利用不可）",
   "tree.menu.deleteCompositeBlock": "拡張ブロックを削除",
+  "tree.menu.deleteFencedCodeBlock": "削除",
   "tree.menu.compositeMoveUp": "拡張ブロックを上へ移動",
   "tree.menu.compositeMoveDown": "拡張ブロックを下へ移動",
   // Phase 5D-2A
@@ -1712,6 +1754,12 @@ const ja: Record<TranslationKey, string> = {
   "modal.deleteParagraphBody": "「{label}」（{startLine}〜{endLine}行目）をノートから削除する。",
   "modal.deleteParagraphUndoNote": "この操作はObsidian本体のUndoで元に戻せる。",
 
+  // ---- fenced code block 削除確認モーダル
+  // （ConfirmFencedCodeDeleteModal.ts、Phase 5E-1） --------------------------
+  "modal.deleteFencedCodeTitle": "Unified Outliner: コードブロックを削除",
+  "modal.deleteFencedCodeBody": "「{label}」（{startLine}〜{endLine}行目）をノートから削除する。",
+  "modal.deleteFencedCodeUndoNote": "この操作はObsidian本体のUndoで元に戻せる。",
+
   // ---- 共有ボタンラベル -----------------------------------------------------
   "common.apply": "適用",
   "common.discard": "破棄",
@@ -1869,6 +1917,24 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: このブロックの範囲を確認できなかったため、安全のため移動をスキップした。",
   "reason.standaloneMoveNoTarget":
     "Unified Outliner: 安全な移動先を特定できなかった。",
+
+  // ---- fenced code block 削除（Phase 5E-1、deleteStandaloneComplexBlock.ts） ---
+  "reason.standaloneFencedCodeDeleteNotSupported":
+    "Unified Outliner: このブロックは削除できない（未対応・境界不確定・読み取り専用のいずれか）。",
+  "reason.standaloneFencedCodeDeleteCompositeMember":
+    "Unified Outliner: このブロックは拡張ブロックの一部であり、単体では削除できない。",
+  "reason.standaloneFencedCodeDeleteBoundaryChanged":
+    "Unified Outliner: このブロックを選択した後にノートが変更されたため、誤った内容に影響しないよう削除をキャンセルした。",
+  "reason.standaloneFencedCodeDeleteRangeInvalid":
+    "Unified Outliner: このブロックの範囲を確認できなかったため、安全のため削除をスキップした。",
+
+  // ---- fenced code block の raw Partial Edit Apply 検証（Phase 5E-1、
+  // partialEdit.ts）。PartialEditView.ts の汎用パターン（"reason." +
+  // outcome.reason）に合わせ、reason 文字列そのものをハイフン区切りのキーとする。 ---
+  "reason.fenced-code-invalid-open":
+    "Unified Outliner: 先頭行は有効な開始フェンス（バッククォートまたはチルダ3つ以上）である必要がある。",
+  "reason.fenced-code-invalid-close":
+    "Unified Outliner: 末尾行は有効な終了フェンス（開始と同じフェンス文字・同数以上・他に何もない行）である必要がある。",
 
   // ---- 部分編集ペインの元ノート同一性チェック（Phase 5C-4、
   // view/partialEditSourceNoteCheck.ts）。追加の、パスに基づく安全弁 —

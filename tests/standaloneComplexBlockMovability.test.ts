@@ -165,13 +165,27 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a fenced-code block (out of scope)", () => {
-    const text = ["# H", "> [!note] one", "> body", "", "```", "code", "```"].join("\n");
+  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a table block (out of scope — table stays read-only)", () => {
+    // Phase 5E-1 widened fenced-code into the standalone-move-eligible set
+    // (see the new "eligible: true ... fenced-code" test just below), so
+    // this out-of-scope fixture is re-pointed at "table", which remains
+    // genuinely out of scope — see
+    // docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3.
+    const text = ["# H", "> [!note] one", "> body", "", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
       eligible: false,
       reason: "no-adjacent-compatible-unit",
+    });
+  });
+
+  it("Phase 5E-1: eligible: true, direction 'down', when a standalone callout sits adjacent to a standalone fenced-code block (one blank line)", () => {
+    const text = ["# H", "> [!note] one", "> body", "", "```", "code", "```"].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    const one = calloutOrBlockquoteOf(complexScan, "one", doc);
+    expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
+      eligible: true,
     });
   });
 

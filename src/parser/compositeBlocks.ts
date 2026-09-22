@@ -820,7 +820,18 @@ export function describeCompositeBlockRejection(
  * isStandaloneComplexBlockMoveCandidate.
  */
 export function isStandaloneComplexBlockShapeEligible(doc: ParsedDocument, info: ComplexBlockInfo): boolean {
-  if (info.kind !== "callout" && info.kind !== "blockquote") return false;
+  // Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除"): widened
+  // to also accept kind "fenced-code" — reusing this exact same shape-
+  // eligibility gate (editability/nested-in-list checks unchanged) rather
+  // than writing a parallel fenced-code-specific eligibility function. A
+  // standalone fenced-code block nested inside a list item is therefore
+  // excluded from Move for the identical reason a nested callout/
+  // blockquote already was (see the "nested-in-list" check just below) —
+  // deliberately NOT special-cased for fenced-code, per this ticket's own
+  // "既存の callout/blockquote の操作経路を最大限再利用する" instruction.
+  // table is deliberately NOT added here — Phase 5E-1 leaves table
+  // read-only, unchanged from Phase 5E-0.
+  if (info.kind !== "callout" && info.kind !== "blockquote" && info.kind !== "fenced-code") return false;
   if (info.editability !== "supported") return false;
   if (info.parentId) {
     const owner = doc.nodes.get(info.parentId);
@@ -954,7 +965,10 @@ export function evaluateStandaloneComplexBlockMovability(
   allComposites: CompositeBlockInfo[],
   allowComposedMember = false
 ): StandaloneComplexBlockMovability {
-  if (target.kind !== "callout" && target.kind !== "blockquote") {
+  // Phase 5E-1: widened alongside isStandaloneComplexBlockShapeEligible
+  // above to also accept "fenced-code" — see that function's own updated
+  // doc comment for the full rationale (table stays excluded/read-only).
+  if (target.kind !== "callout" && target.kind !== "blockquote" && target.kind !== "fenced-code") {
     return { eligible: false, reason: "not-supported" };
   }
   if (target.editability !== "supported") {

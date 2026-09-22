@@ -71,8 +71,18 @@ import { swapBlocks } from "../move/moveBlock";
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
 import { TranslationKey } from "../i18n";
 
-/** The two ComplexBlockKind values Phase 5C-3 ever moves — narrower than the full ComplexBlockKind union (paragraph/fenced-code/table/thematic-break are all explicitly out of scope, per approval's "A案のみ"). */
-export type StandaloneComplexBlockMoveKind = Extract<ComplexBlockKind, "callout" | "blockquote">;
+/**
+ * The ComplexBlockKind values a standalone complex-block move ever targets.
+ * Phase 5C-3 originally scoped this to callout/blockquote only ("A案").
+ * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") widens it
+ * to also include "fenced-code" — reusing this exact same move pipeline
+ * (findRangeInvalidReason/snapshotMatches/moveStandaloneComplexBlock below,
+ * and isStandaloneComplexBlockShapeEligible/evaluateStandaloneComplexBlockMovability
+ * in parser/compositeBlocks.ts) rather than writing a parallel fenced-code-
+ * specific move engine. paragraph/table/thematic-break remain out of scope
+ * — table in particular stays read-only, unchanged from Phase 5E-0.
+ */
+export type StandaloneComplexBlockMoveKind = Extract<ComplexBlockKind, "callout" | "blockquote" | "fenced-code">;
 
 /**
  * A point-in-time capture of a standalone ComplexBlockInfo, taken by the
@@ -112,7 +122,9 @@ export interface StandaloneComplexBlockSnapshot {
  * policy for an input shape this function cannot itself verify further.
  */
 export function buildStandaloneComplexBlockSnapshot(info: ComplexBlockInfo): StandaloneComplexBlockSnapshot | null {
-  if (info.kind !== "callout" && info.kind !== "blockquote") return null;
+  // Phase 5E-1: widened to also accept "fenced-code" — see
+  // StandaloneComplexBlockMoveKind's own updated doc comment above.
+  if (info.kind !== "callout" && info.kind !== "blockquote" && info.kind !== "fenced-code") return null;
   return {
     id: info.id,
     kind: info.kind,
@@ -198,7 +210,11 @@ export function findRangeInvalidReason(
   snapshot: StandaloneComplexBlockSnapshot,
   lineCount: number
 ): "range-invalid" | null {
-  if (snapshot.kind !== "callout" && snapshot.kind !== "blockquote") return "range-invalid";
+  // Phase 5E-1: widened to also accept "fenced-code" — see
+  // StandaloneComplexBlockMoveKind's own updated doc comment above.
+  if (snapshot.kind !== "callout" && snapshot.kind !== "blockquote" && snapshot.kind !== "fenced-code") {
+    return "range-invalid";
+  }
   const { startLine, endLine } = snapshot.range;
   if (startLine < 0 || endLine < startLine || endLine >= lineCount) return "range-invalid";
   return null;

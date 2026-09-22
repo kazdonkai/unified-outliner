@@ -1,0 +1,89 @@
+/**
+ * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除"): confirmation
+ * modal shown before deleting a standalone fenced-code block from the
+ * Outline Tree. Deliberately mirrors view/ConfirmParagraphDeleteModal.ts
+ * byte-for-byte in structure (itself mirroring
+ * view/ConfirmCompositeDeleteModal.ts) — same `resolved` flag, same
+ * `onChoice` firing exactly once whether from an explicit button click
+ * (choose()) or an implicit dismiss (onClose(), Escape/backdrop click),
+ * with the implicit-dismiss case always resolving to the SAFE choice
+ * ("not confirmed").
+ *
+ * Shows only a minimal summary — the block's own short Tree-row label and
+ * its 1-based line range — never the fenced-code block's own body text.
+ * Exactly like ConfirmParagraphDeleteModal's own doc comment explains:
+ * this is display-only information for the user's own judgment; it plays
+ * no role in whether the deletion is actually safe — that is decided
+ * entirely by edit/deleteStandaloneComplexBlock.ts's own
+ * re-parse/re-scan/re-resolve/re-verify pipeline at the moment "Delete" is
+ * clicked (see view/OutlineTreeView.ts#dispatchAndApplyStandaloneComplexBlockDelete).
+ *
+ * No `.focus()` call is made on either button, for the exact same reason
+ * ConfirmParagraphDeleteModal's own doc comment gives: Obsidian's Modal API
+ * gives no documented guarantee about which element (if any) receives
+ * initial keyboard focus, so Enter is intentionally left unbound to
+ * "Delete".
+ */
+import { App, Modal } from "obsidian";
+import type UnifiedOutlinerPlugin from "../main";
+import { LineRange } from "../model/block";
+
+export class ConfirmFencedCodeDeleteModal extends Modal {
+  private resolved = false;
+
+  constructor(
+    app: App,
+    private readonly plugin: UnifiedOutlinerPlugin,
+    private readonly label: string,
+    private readonly range: LineRange,
+    private readonly onChoice: (confirmed: boolean) => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.titleEl.setText(this.plugin.t("modal.deleteFencedCodeTitle"));
+
+    // 1-based, human-facing line numbers — range.startLine/endLine
+    // themselves are the existing 0-based ParsedDocument convention used
+    // everywhere else in this codebase; this is display-only, never fed
+    // back into deleteStandaloneComplexBlock.
+    this.contentEl.createEl("p", {
+      text: this.plugin.t("modal.deleteFencedCodeBody", {
+        label: this.label,
+        startLine: this.range.startLine + 1,
+        endLine: this.range.endLine + 1,
+      }),
+    });
+    this.contentEl.createEl("p", {
+      text: this.plugin.t("modal.deleteFencedCodeUndoNote"),
+      cls: "unified-outliner-fenced-code-delete-modal-undo-note",
+    });
+
+    const buttonsEl = this.contentEl.createDiv({
+      cls: "unified-outliner-fenced-code-delete-modal-buttons",
+    });
+    // Cancel listed first (the safe default) and intentionally NOT
+    // `.focus()`ed — see this class's own doc comment.
+    const cancelEl = buttonsEl.createEl("button", { text: this.plugin.t("common.cancel") });
+    cancelEl.addEventListener("click", () => this.choose(false));
+    const deleteEl = buttonsEl.createEl("button", {
+      text: this.plugin.t("common.delete"),
+      cls: "mod-warning",
+    });
+    deleteEl.addEventListener("click", () => this.choose(true));
+  }
+
+  private choose(confirmed: boolean): void {
+    this.resolved = true;
+    this.close();
+    this.onChoice(confirmed);
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) {
+      this.onChoice(false);
+    }
+  }
+}

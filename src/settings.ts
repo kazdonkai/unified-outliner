@@ -232,6 +232,38 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           })
       );
 
+    // Phase 5E-0 ("Fenced Code Block / Markdown Table 読み取り専用 Outline
+    // Tree 投影基盤"): same on/off -> refreshOutlineTreeViews() shape as
+    // showParagraphsInOutline just above. Two SEPARATE toggles (not one
+    // shared switch) per this ticket's own confirmed user decision — see
+    // settingsDefaults.ts's showFencedCodeInOutline/showTablesInOutline
+    // doc comments.
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.showFencedCodeInOutline.name"))
+      .setDesc(this.plugin.t("settings.showFencedCodeInOutline.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.showFencedCodeInOutline)
+          .onChange(async (v) => {
+            this.plugin.settings.showFencedCodeInOutline = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.showTablesInOutline.name"))
+      .setDesc(this.plugin.t("settings.showTablesInOutline.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.showTablesInOutline)
+          .onChange(async (v) => {
+            this.plugin.settings.showTablesInOutline = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
     new Setting(containerEl)
       .setName(this.plugin.t("settings.outlineTreeAppearanceHeading"))
       .setHeading();
