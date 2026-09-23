@@ -294,6 +294,9 @@ const en = {
   "tree.menu.editListSubtreeInNewWindow": "Edit list subtree in new window",
   "tree.menu.insertListItemAfter": "Insert list item after",
   "tree.menu.insertChildListItem": "Insert child list item",
+  // Phase 5E-3a (view/OutlineTreeView.ts#addStructuredInsertMenuItems)
+  "tree.menu.insertCodeBlockBelow": "Insert code block below",
+  "tree.menu.insertTableBelow": "Insert table below",
   "tree.menu.deleteListSubtree": "Delete list subtree",
   "tree.menu.unavailableSuffix": " — unavailable",
   "tree.menu.deleteCompositeBlock": "Delete extended block",
@@ -873,6 +876,30 @@ const en = {
   // ---- Insert-section heading-level modal (HeadingLevelModal.ts) --------
   "modal.insertSectionTitle": "Unified Outliner: insert section",
   "modal.chooseHeadingLevel": "Choose the heading level for the new section.",
+
+  // ---- Phase 5E-3a: fenced-code / table insert (CodeBlockPresetModal.ts,
+  // TableTemplateModal.ts, edit/insertStructuredBlock.ts reasons) ---------
+  "modal.insertCodeBlockTitle": "Unified Outliner: insert code block",
+  "modal.insertCodeBlockCustomPlaceholder": "Info string (e.g. rust)",
+  "modal.insertCodeBlockInvalidInfoString":
+    "The info string can't contain a backtick or a line break (max 64 characters).",
+  "modal.insertBlockConfirm": "Insert",
+  "modal.insertTableTitle": "Unified Outliner: insert table",
+  "modal.insertTableColumnsLabel": "Number of columns ({min}–{max})",
+  "modal.insertTableInvalidColumns": "Enter a whole number from {min} to {max}.",
+  "modal.insertTableDefault": "Insert minimal table ({columns} × 1)",
+  "reason.structured-insert-not-a-target":
+    "Unified Outliner: a code block or table can only be inserted below a heading or a list item.",
+  "reason.structured-insert-inside-list":
+    "Unified Outliner: inserting here would place the block inside a list or split it — only the last top-level item of a list accepts a block after it.",
+  "reason.structured-insert-unsafe-position":
+    "Unified Outliner: could not confidently determine a safe block boundary here — insert cancelled.",
+  "reason.structured-insert-invalid-template":
+    "Unified Outliner: the block template is invalid — insert cancelled.",
+  "reason.structured-insert-structure-changed":
+    "Unified Outliner: inserting here would change the structure of surrounding blocks (e.g. an extended block or code fence) — insert cancelled.",
+  "reason.structured-insert-not-recognized":
+    "Unified Outliner: the inserted block could not be recognized — insert cancelled.",
 
   // ---- Composite block delete confirmation modal (ConfirmCompositeDeleteModal.ts,
   // Phase 5C-1 ticket 3b) --------------------------------------------------
@@ -1501,6 +1528,8 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.editListSubtreeInNewWindow": "リストサブツリーを新しいウィンドウで編集",
   "tree.menu.insertListItemAfter": "後にリスト項目を挿入",
   "tree.menu.insertChildListItem": "子リスト項目を挿入",
+  "tree.menu.insertCodeBlockBelow": "下にコードブロックを挿入",
+  "tree.menu.insertTableBelow": "下に表を挿入",
   "tree.menu.deleteListSubtree": "リストサブツリーを削除",
   "tree.menu.unavailableSuffix": "（利用不可）",
   "tree.menu.deleteCompositeBlock": "拡張ブロックを削除",
@@ -1775,6 +1804,27 @@ const ja: Record<TranslationKey, string> = {
   // ---- セクション挿入時の見出しレベル選択モーダル（HeadingLevelModal.ts） -
   "modal.insertSectionTitle": "Unified Outliner: セクションを挿入",
   "modal.chooseHeadingLevel": "新しいセクションの見出しレベルを選んでほしい。",
+  "modal.insertCodeBlockTitle": "Unified Outliner: コードブロックを挿入",
+  "modal.insertCodeBlockCustomPlaceholder": "info string（例: rust）",
+  "modal.insertCodeBlockInvalidInfoString":
+    "info string にはバッククォートと改行を含められない（最大64文字）。",
+  "modal.insertBlockConfirm": "挿入",
+  "modal.insertTableTitle": "Unified Outliner: 表を挿入",
+  "modal.insertTableColumnsLabel": "列数（{min}〜{max}）",
+  "modal.insertTableInvalidColumns": "{min}〜{max} の整数を入力してほしい。",
+  "modal.insertTableDefault": "最小テンプレートを挿入（{columns}列 × 1行）",
+  "reason.structured-insert-not-a-target":
+    "Unified Outliner: コードブロック・表は見出しかリスト項目の下にのみ挿入できる。",
+  "reason.structured-insert-inside-list":
+    "Unified Outliner: この位置に挿入するとリストの内部に入るかリストが分断されるため挿入しなかった。リストの最後のトップレベル項目の後にのみ挿入できる。",
+  "reason.structured-insert-unsafe-position":
+    "Unified Outliner: 安全なブロック境界を確定できないため挿入しなかった。",
+  "reason.structured-insert-invalid-template":
+    "Unified Outliner: ブロックのテンプレートが不正なため挿入しなかった。",
+  "reason.structured-insert-structure-changed":
+    "Unified Outliner: 挿入すると周囲のブロック構成（拡張ブロックやコードフェンスなど）が変わるため挿入しなかった。",
+  "reason.structured-insert-not-recognized":
+    "Unified Outliner: 挿入したブロックを認識できなかったため挿入しなかった。",
 
   // ---- 複合ブロック削除確認モーダル（ConfirmCompositeDeleteModal.ts、
   // Phase 5C-1 チケット3b） --------------------------------------------------

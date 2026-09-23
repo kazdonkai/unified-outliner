@@ -160,6 +160,7 @@ import { SiblingNavigationState, getSiblingNavigationState } from "../tree/sibli
 import { applyLineEditOutcome } from "../commands/applyLineEditOutcome";
 import { checkPartialEditSourceNote } from "./partialEditSourceNoteCheck";
 import { TranslationKey } from "../i18n";
+import { CODE_BLOCK_PRESETS } from "../edit/codeBlockPresets";
 import { resolveParagraphAtCursor } from "../resolver/resolveParagraphAtCursor";
 import {
   applyParagraphEdit,
@@ -929,21 +930,16 @@ export class PartialEditView extends ItemView {
     value: string;
     aliases: string[];
     labelKey: TranslationKey;
-  }[] = [
-    { value: "", aliases: [""], labelKey: "partialEdit.fencedCode.lang.plain" },
-    { value: "mermaid", aliases: ["mermaid"], labelKey: "partialEdit.fencedCode.lang.mermaid" },
-    { value: "dataview", aliases: ["dataview"], labelKey: "partialEdit.fencedCode.lang.dataview" },
-    { value: "dataviewjs", aliases: ["dataviewjs"], labelKey: "partialEdit.fencedCode.lang.dataviewjs" },
-    { value: "javascript", aliases: ["javascript", "js"], labelKey: "partialEdit.fencedCode.lang.javascript" },
-    { value: "typescript", aliases: ["typescript", "ts"], labelKey: "partialEdit.fencedCode.lang.typescript" },
-    { value: "python", aliases: ["python"], labelKey: "partialEdit.fencedCode.lang.python" },
-    { value: "bash", aliases: ["bash", "sh"], labelKey: "partialEdit.fencedCode.lang.bash" },
-    { value: "sql", aliases: ["sql"], labelKey: "partialEdit.fencedCode.lang.sql" },
-    { value: "json", aliases: ["json"], labelKey: "partialEdit.fencedCode.lang.json" },
-    { value: "yaml", aliases: ["yaml"], labelKey: "partialEdit.fencedCode.lang.yaml" },
-    { value: "css", aliases: ["css"], labelKey: "partialEdit.fencedCode.lang.css" },
-    { value: "html", aliases: ["html"], labelKey: "partialEdit.fencedCode.lang.html" },
-  ];
+  }[] =
+    // Phase 5E-3a: derived from the single CodeBlockPreset registry
+    // (edit/codeBlockPresets.ts) so the Tree's insert-time selector and this
+    // edit-time selector can never drift apart. Same order/values/aliases/
+    // label keys as the Phase 5E-3 inline table this replaced.
+    CODE_BLOCK_PRESETS.map((preset) => ({
+      value: preset.infoString,
+      aliases: [...preset.aliases],
+      labelKey: preset.labelKey,
+    }));
 
   private titleEl!: HTMLElement;
   /**

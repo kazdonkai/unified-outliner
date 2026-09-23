@@ -310,6 +310,16 @@ import {
   SectionRenameSnapshot,
 } from "../edit/renameBlock";
 import { HeadingLevelModal } from "./HeadingLevelModal";
+import { CodeBlockPresetModal } from "./CodeBlockPresetModal";
+import { TableTemplateModal } from "./TableTemplateModal";
+import { buildFencedCodeBlockLines, buildTableTemplateLines } from "../edit/codeBlockPresets";
+import {
+  findInsertedStructuredBlockId,
+  insertStructuredBlockBelowNode,
+  resolveStructuredInsertionPoint,
+  StructuredBlockKind,
+  StructuredInsertOutcome,
+} from "../edit/insertStructuredBlock";
 import { ConfirmCompositeDeleteModal } from "./ConfirmCompositeDeleteModal";
 import {
   ContainsCheckable,
@@ -3029,6 +3039,8 @@ export class OutlineTreeView extends ItemView {
         .setIcon("plus")
         .onClick(() => this.runInsertSiblingSectionCommand(sectionId))
     );
+    // Phase 5E-3a: new fenced-code / table block right below this heading.
+    this.addStructuredInsertMenuItems(menu, doc, sectionId);
     menu.addItem((item) =>
       item
         .setTitle(this.plugin.t("tree.menu.deleteSectionSubtree"))
@@ -3199,6 +3211,9 @@ export class OutlineTreeView extends ItemView {
       childInsertFeasible,
       () => this.runInsertChildListItemCommand(listId)
     );
+    // Phase 5E-3a: new fenced-code / table block right after this list
+    // (only offered as available on the list's last root-level item).
+    this.addStructuredInsertMenuItems(menu, doc, listId);
     menu.addItem((item) =>
       item
         .setTitle(this.plugin.t("tree.menu.deleteListSubtree"))
@@ -4883,6 +4898,91 @@ export class OutlineTreeView extends ItemView {
       );
       if (changed) this.autoRenameAfterInsert();
     }).open();
+  }
+
+  // ---- Phase 5E-3a: fenced-code / table insert from the Tree ------------
+
+  /**
+   * Adds "Insert code block below" / "Insert table below" to a section or
+   * list-item menu. Placement feasibility is judged at menu-build time with
+   * the same pure resolver the insert itself uses
+   * (edit/insertStructuredBlock.ts#resolveStructuredInsertionPoint). An
+   * infeasible item is still shown with the usual "— unavailable" styling
+   * but stays CLICKABLE, and clicking it only shows the refusal reason via
+   * Notice (ticket §1: "no-op とし、Notice で理由を示す") — never a modal,
+   * never an edit.
+   */
+  private addStructuredInsertMenuItems(menu: Menu, doc: ParsedDocument, nodeId: string): void {
+    const point = resolveStructuredInsertionPoint(doc, nodeId);
+    const add = (titleKey: TranslationKey, icon: string, kind: StructuredBlockKind) => {
+      const title = this.plugin.t(titleKey);
+      menu.addItem((item) =>
+        item
+          .setTitle(point.ok ? title : `${title}${this.plugin.t("tree.menu.unavailableSuffix")}`)
+          .setIcon(point.ok ? icon : OutlineTreeView.UNAVAILABLE_ICON)
+          .setWarning(!point.ok)
+          .onClick(() => {
+            if (!point.ok) {
+              this.notify(this.reasonText(point.reason));
+              return;
+            }
+            this.runInsertStructuredBlockCommand(nodeId, kind);
+          })
+      );
+    };
+    add("tree.menu.insertCodeBlockBelow", "code", "fenced-code");
+    add("tree.menu.insertTableBelow", "table", "table");
+  }
+
+  /**
+   * Opens the kind-specific chooser (CodeBlockPresetModal / TableTemplateModal),
+   * then inserts through the SAME dispatchAndApply -> applyLineEditOutcome
+   * write path every other Tree command uses (one replaceRange = one Undo
+   * step; dispatchAndApply re-parses the editor's CURRENT text when the
+   * modal's callback fires, so the placement and the post-insert structure
+   * check both run against live content, never the menu-time snapshot).
+   * On success the new block is re-located by its inserted range (complex
+   * block ids are sequence-based and must be looked up fresh) and opened in
+   * the Partial Edit Pane. Opening the pane does not edit the note, so the
+   * whole operation remains a single Undo unit.
+   */
+  private runInsertStructuredBlockCommand(nodeId: string, kind: StructuredBlockKind): void {
+    const insertWith = (blockLines: string[]) => {
+      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      let outcome: StructuredInsertOutcome | null = null;
+      const changed = this.dispatchAndApply(
+        nodeId,
+        (doc) => {
+          outcome = insertStructuredBlockBelowNode(doc.lines.join("\n"), nodeId, kind, blockLines, rules);
+          return outcome;
+        },
+        false
+      );
+      const applied = outcome as StructuredInsertOutcome | null;
+      if (!changed || !applied?.insertedRange) return;
+      const view = this.activeMarkdownView.get();
+      if (!view) return;
+      const newId = findInsertedStructuredBlockId(view.editor.getValue(), kind, applied.insertedRange);
+      if (!newId) {
+        this.notify(this.reasonText("structured-insert-not-recognized"));
+        return;
+      }
+      void this.plugin.activatePartialEditView(newId);
+    };
+
+    if (kind === "fenced-code") {
+      new CodeBlockPresetModal(this.app, this.plugin, (choice) => {
+        if (!choice) return;
+        insertWith(buildFencedCodeBlockLines(choice.infoString, choice.bodyTemplate));
+      }).open();
+    } else {
+      new TableTemplateModal(this.app, this.plugin, (columns) => {
+        if (columns === null) return;
+        const lines = buildTableTemplateLines(columns);
+        if (!lines) return;
+        insertWith(lines);
+      }).open();
+    }
   }
 
   /**
