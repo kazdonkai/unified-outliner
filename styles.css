@@ -1322,15 +1322,30 @@ settings:
 }
 
 .unified-outliner-partial-edit-table-mode-align-button {
-  flex: 1 1 auto;
+  /* Phase 5E-3c follow-up: was a flex-1 text button showing the full
+     translated label ("左揃え"/"中央揃え"/"右揃え"/"揃えなし"), which
+     overflowed and overlapped at this width in Japanese. Now renders a
+     single icon glyph (setIcon) centered in a small fixed square, with
+     the full label moved to the tooltip — same sizing idiom as the
+     delete/add/move icon buttons below. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
   border: none;
   border-radius: 3px;
   background-color: rgba(128, 128, 128, 0.06);
   color: var(--uo-text-color);
-  font-size: calc(var(--uo-font-size, 14px) - 3px);
   opacity: 0.7;
-  padding: 1px 2px;
+  padding: 1px;
   cursor: pointer;
+}
+
+.unified-outliner-partial-edit-table-mode-align-button svg {
+  width: 12px;
+  height: 12px;
 }
 
 .unified-outliner-partial-edit-table-mode-align-button-active {

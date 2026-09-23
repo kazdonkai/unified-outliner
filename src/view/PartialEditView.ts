@@ -4708,19 +4708,35 @@ export class PartialEditView extends ItemView {
       });
       const alignRowEl = cellEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-align-row" });
       (["left", "center", "right", "none"] as TableColumnAlignment[]).forEach((alignment) => {
+        const alignLabelKey =
+          alignment === "left"
+            ? "partialEdit.tableMode.alignLeft"
+            : alignment === "center"
+              ? "partialEdit.tableMode.alignCenter"
+              : alignment === "right"
+                ? "partialEdit.tableMode.alignRight"
+                : "partialEdit.tableMode.alignNone";
+        // Phase 5E-3c follow-up: the 4 alignment toggles used to render
+        // their full translated label as button TEXT ("左揃え"/"中央揃え"/
+        // "右揃え"/"揃えなし"), which overflows and overlaps at this
+        // button's width in Japanese. Render a compact icon instead (same
+        // setIcon/setTooltip idiom as every other icon button in this
+        // grid — see deleteColButtonEl/addColumnButtonEl/upButtonEl
+        // above) and keep the full translated label as the tooltip only.
+        const alignIcon =
+          alignment === "left"
+            ? "align-left"
+            : alignment === "center"
+              ? "align-center"
+              : alignment === "right"
+                ? "align-right"
+                : "ban";
         const alignButtonEl = alignRowEl.createEl("button", {
           cls: "unified-outliner-partial-edit-table-mode-align-button",
-          text: this.plugin.t(
-            alignment === "left"
-              ? "partialEdit.tableMode.alignLeft"
-              : alignment === "center"
-                ? "partialEdit.tableMode.alignCenter"
-                : alignment === "right"
-                  ? "partialEdit.tableMode.alignRight"
-                  : "partialEdit.tableMode.alignNone"
-          ),
           attr: { type: "button" },
         });
+        setIcon(alignButtonEl, alignIcon);
+        setTooltip(alignButtonEl, this.plugin.t(alignLabelKey));
         alignButtonEl.toggleClass(
           "unified-outliner-partial-edit-table-mode-align-button-active",
           table.alignments[columnIndex] === alignment
