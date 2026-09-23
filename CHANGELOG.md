@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-09-24
+
+### Added
+
+- Phase 5E-3c: a lightweight Table Mode for the Partial Edit pane, built on Phase 5E-3b's `EditableMarkdownTable`/`parseMarkdownTable`/`serializeMarkdownTable` foundation. Opening a table block in Partial Edit now shows Raw and Table tabs above the shared editor (a fenced-code block still shows only its existing language-selector editor, with no Table tab). The Table tab renders each header and data cell as an inline-editable text field, per-column Left/Center/Right/None alignment toggles, row handles with move-up/move-down and delete controls, an "add row" button, per-column delete buttons, and an "add column" button — all as pure functions over `EditableMarkdownTable` (`src/edit/tableModeOperations.ts`), so Apply always routes through the existing `applySubtreeEdit`/`dispatchAndApply` write path with no new write path added. Switching Raw → Table re-parses the textarea's current text and refuses the switch (showing the failure reason) if it isn't a valid table; switching Table → Raw re-serializes first, so both tabs always reflect the same underlying edit. Deleting the last remaining row or column is refused with a Notice rather than silently emptying the table; moving the first row up or the last row down is a no-op with the corresponding button disabled, by design. Cell text is treated as plain text (no WYSIWYG rendering of inline Markdown), and the generated Markdown keeps the existing single-space cell padding — no column-width alignment/formatting. The alignment toggle buttons render as compact icons (with the full label as a tooltip) rather than translated text, avoiding label overflow/overlap at narrow column widths in Japanese. See `docs/phase5e3c_table-mode-design-memo.md` for the full design and real-device verification record (confirmed on the Method Vault Test note).
+
 ## [0.7.6] - 2026-09-24
 
 ### Added
