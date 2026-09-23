@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-09-23
+
+### Added
+
+- Phase 5E-3 fenced code block Partial Edit UX improvement: building on Phase 5E-1's raw fenced-code Partial Edit, the fence lines (open and close) are now hidden from the editable textarea, replaced by an independent language/info-string selector UI (a dropdown of 13 common languages plus a "Custom…" free-text option) shown above it. Table, Move, Delete, and Table Mode remain completely untouched, as do fenced-code's own Move and Delete. `extractComplexBlockText` now returns body-only text for fenced-code (interior lines only, fence lines excluded) alongside a new `fencedCode` metadata object (`infoString`/`bodyText`/`fenceChar`/`fenceLength`/`openLineIndent`); callout/blockquote/table return values are unchanged. `applySubtreeEdit` gains an optional `fencedCodeInfoString` parameter and reconstructs both fence lines at Apply time from that metadata and the UI's current selection, validating the reconstructed lines with the existing fence validators. An unchanged selector reproduces the original open line exactly, except that a fence/info-string pair with no original space between them normalizes to one space after any Apply round-trip (an intentional side effect of the reconstruction formula, semantically identical under CommonMark). See `docs/phase5e3_fenced-code-language-selector-design-memo.md` for the full design.
+
 ## [0.7.2] - 2026-09-23
 
 ### Added
