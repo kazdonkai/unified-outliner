@@ -12,6 +12,7 @@ The Partial Edit Pane now hides the Markdown list marker, task-list checkbox, an
 
 ## Next Focus
 
+- **Declarative settings API (0.7.4)**: Implement `PluginSettingTab.getSettingDefinitions()` (Obsidian 1.13.0+) in `src/settings.ts`, mirroring the current `display()` items, while keeping `display()` for Obsidian 1.12.x and earlier (flagged as a warning by the Obsidian Community review of 0.7.3).
 - **Table move/delete and a lightweight Table Mode**: Extend the fenced-code-block Move/Delete support to Markdown tables (Partial Edit with structural validation is done as of Phase 5E-2A); cell-level structured editing and a full Table Mode are tracked separately, beyond this next step.
 - **Free movement to an arbitrary depth or parent**: Explore letting a list item or child move to any chosen ancestor or depth, beyond today's one-level indent/outdent.
 - **Full subtree-level child operations**: Extend the Partial Edit Pane's child add/delete/reorder/indent-outdent support beyond one level, toward operating on a whole child subtree at once.
