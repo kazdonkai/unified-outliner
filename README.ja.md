@@ -163,7 +163,7 @@ Apply は、ペインを開いた時点の元の対象範囲が変更されて�
 
 **List + Callout** と **List + Quote** は、Outline Tree の2つのグループ化規則です（設定 → 拡張ブロック を参照）。空行を挟まず1行で完結する list item の直後に callout または blockquote が続く場合、その2つを1つの折りたたみ可能な単位としてツリー上にまとめます。これらの規則は構造的なものであり、画像の埋め込み、OCRの内容、特定の callout type を必要としません。**Move extended block up/down**（コマンドパレットまたはツリーのコンテキストメニュー）はこのグループ全体を一緒に移動し、**Delete extended block** は単位としてまとめて削除します。拡張ブロック自身の行を Partial Edit Pane で開くと、ブロックの構造が分割可能な形である限り、list member とそれに続く callout/blockquote member をまとめて1回の Apply で編集できます（詳しくは後述の「リスト項目の構造化・マーカーフリー編集」を参照）。規則を無効にしても Markdown 本文は変更されません。対象の list item、callout、blockquote は、それぞれ通常の Outline Tree 表示規則に従って個別に表示されます。
 
-fenced code block（Mermaidを含む）と table は、内部的には安全な atomic 単位として認識されており、本文エディタ内でカーソルがその内部にある状態であれば、**Move block** を使ってブロック全体を移動することは引き続き可能です。設定で有効にすると（上記「設定」参照）、単体の fenced code block は Outline Tree 上に読み取り専用の行として表示され、そこからさらに専用の右クリックメニューで Move up/down・ブロック全体の削除・Partial Edit Pane での生Markdown編集にも対応します。table は同様に読み取り専用の行として表示できますが、move・削除・Partial Edit のサポートはまだありません（ロードマップを参照）。
+fenced code block（Mermaidを含む）と table は、内部的には安全な atomic 単位として認識されており、本文エディタ内でカーソルがその内部にある状態であれば、**Move block** を使ってブロック全体を移動することは引き続き可能です。設定で有効にすると（上記「設定」参照）、単体の fenced code block は Outline Tree 上に読み取り専用の行として表示され、そこからさらに専用の右クリックメニューで Move up/down・ブロック全体の削除・Partial Edit Pane での生Markdown編集にも対応します。table も同様に、専用の右クリックメニューから Partial Edit Pane での生Markdown編集に対応しました（Apply時に表として最小限に妥当な構造かどうかを検証し、崩れる編集は拒否してノートを変更しません）。move・削除のサポートはまだありません（ロードマップを参照）。
 
 例えば、次の Markdown:
 
@@ -247,7 +247,7 @@ callout member には、単体の callout と同じ **▣** prefix が付きま�
 - **本文段落も Outline Tree に表示する**: 本文の通常の段落を ¶ マーク付きのナビゲーションノードとして表示します。トップレベルおよびセクション直下の段落は、ツリーから編集・挿入・削除・移動も行えます（上記参照）。既定ではオフです。
 - **Show list items in Outline Tree View**: リスト項目をツリーに表示します。
 - **アウトラインツリーにコードブロックを表示**: 単体の fenced code block（Mermaid・Dataview・DataviewJS を含む）を、言語名と本文最初の行をラベルとした読み取り専用の行としてツリーに表示します。クリックすると開始フェンス行へ移動します。ツリーの汎用操作（ドラッグや汎用リネーム）の対象にはなりませんが、専用の右クリックメニューから Move up/down・削除・Partial Edit で開く、に対応します（上記「callout・blockquote・拡張ブロックを編集する」参照）。既定ではオフです。
-- **アウトラインツリーに表を表示**: 単体の Markdown 表を、ヘッダー列名をラベルとした読み取り専用の行としてツリーに表示します。クリックするとヘッダー行へ移動します。move・削除・Partial Edit のいずれにも対応しません。既定ではオフです。
+- **アウトラインツリーに表を表示**: 単体の Markdown 表を、ヘッダー列名をラベルとした読み取り専用の行としてツリーに表示します。クリックするとヘッダー行へ移動します。ツリーの汎用操作（ドラッグや汎用リネーム）の対象にはなりませんが、専用の右クリックメニューから Partial Edit で開く（表全体をヘッダー行〜最終データ行までの生Markdownとして編集、Apply時に構造検証あり）に対応します。move・削除にはまだ対応していません。既定ではオフです。
 - **Section background style in Outline Tree**: セクション行をリスト行と見分けやすくする表示（背景／左端ストライプ／オフ）を選びます。
 - **List row highlight style in Outline Tree**: ホバー時のみ（既定）、常時薄い背景、オフから選びます。
 - **Heading prefix in Outline Tree**: 既定はオフ。「H1」〜「H6」、またはATX記号そのもの（「#」〜「######」）を選べます。見た目のみの設定で、見出しテキスト自体は変更しません。
@@ -280,13 +280,13 @@ callout member には、単体の callout と同じ **▣** prefix が付きま�
 
 - Unified Outliner はアクティブなノート内だけで動作し、ノート間で内容を移動しません。
 - frontmatterはすべての構造操作の対象外です。
-- 単体の callout・blockquote、および拡張ブロック（**List + Callout**/**List + Quote**）は、Outline Tree View から直接move・Partial Edit Paneでの編集ができます（上記の視覚ガイドおよび「選択したブロックに焦点を当てて編集する」を参照）。拡張ブロックの2つのmemberは、その構造がきれいに分割できる限り、まとめて1回の Apply で編集・保存されます。単体の fenced code block（Mermaidを含む）は、設定で有効にすると Outline Tree 上に読み取り専用の行として表示され、そこから move（同一親内の前後兄弟との入れ替えのみ）・削除（ブロック全体を一括）・Partial Edit Pane での生Markdown編集ができます。table も同様に読み取り専用の行として表示できますが、move・削除・Partial Edit のサポートはありません。本文エディタ側でカーソルがその内部にある状態であれば、**Move block** はいずれの種別についても、Outline Tree の表示設定に関わらずブロック全体を移動できます。
+- 単体の callout・blockquote、および拡張ブロック（**List + Callout**/**List + Quote**）は、Outline Tree View から直接move・Partial Edit Paneでの編集ができます（上記の視覚ガイドおよび「選択したブロックに焦点を当てて編集する」を参照）。拡張ブロックの2つのmemberは、その構造がきれいに分割できる限り、まとめて1回の Apply で編集・保存されます。単体の fenced code block（Mermaidを含む）は、設定で有効にすると Outline Tree 上に読み取り専用の行として表示され、そこから move（同一親内の前後兄弟との入れ替えのみ）・削除（ブロック全体を一括）・Partial Edit Pane での生Markdown編集ができます。table も同様に読み取り専用の行として表示でき、そこから Partial Edit Pane での生Markdown編集ができます（Apply時に構造検証あり、崩れる編集は拒否されノートは変更されません）が、move・削除のサポートはまだありません。本文エディタ側でカーソルがその内部にある状態であれば、**Move block** はいずれの種別についても、Outline Tree の表示設定に関わらずブロック全体を移動できます。
 - Partial Edit Pane から親のリスト項目の直接の子を編集する操作（追加・削除・並べ替え・インライン編集・インデント/アウトデント）は、leaf の子――自身に孫を持つ子は、その子自身の対象として開く必要があります――に限られ、インデント/アウトデントは一度に1段階までです。1回の Apply でどこまで組み合わせられるかは、上記の「親項目とその直接の子を編集する」を参照してください。
 - 集中編集は、読み込み後に元の対象領域が変更されていない場合にだけ適用されます。ペインを未保存の変更なしに開いたまま他の場所でノートが変更された場合は、古い内容を表示し続けるのではなく、自動的に再同期します。
 
 ## ロードマップ
 
-構造的な move・レベル変更コマンド、Outline Tree でのナビゲーションと編集、リスト項目とその直接の子（追加・削除・並べ替え・インデント/アウトデント・インライン編集、一度に1段階まで）に対応した構造化・マーカーフリー編集を備えた Partial Edit Pane、そして単体の callout/blockquote と拡張ブロックの構造化編集は、いずれもすでに利用できます（上記参照）。単体の fenced code block は、設定で有効にすると Outline Tree に表示され、そこからmove・削除・Partial Edit Pane での生Markdown編集にも対応します。table も同様に Outline Tree に表示できますが、引き続き読み取り専用です。tableの編集対応（fenced code blockと同等のraw編集経路）が次の課題であり、任意の深さ・任意の親への自由な移動、1段階を超える部分木単位の完全な操作、Partial Edit Pane 内でのドラッグ＆ドロップ、より踏み込んだコードブロック編集（生フェンス間テキストに留まらないcell/本文単位の編集）は、いずれも今後の課題であり、着手していません。
+構造的な move・レベル変更コマンド、Outline Tree でのナビゲーションと編集、リスト項目とその直接の子（追加・削除・並べ替え・インデント/アウトデント・インライン編集、一度に1段階まで）に対応した構造化・マーカーフリー編集を備えた Partial Edit Pane、そして単体の callout/blockquote と拡張ブロックの構造化編集は、いずれもすでに利用できます（上記参照）。単体の fenced code block は、設定で有効にすると Outline Tree に表示され、そこからmove・削除・Partial Edit Pane での生Markdown編集にも対応します。table も同様に Outline Tree に表示でき、Partial Edit Pane での生Markdown編集（Apply時に構造検証あり）に対応しましたが、move・削除・セル単位の編集にはまだ対応していません。tableのmove・削除・軽量な Table Mode が次の課題であり、任意の深さ・任意の親への自由な移動、1段階を超える部分木単位の完全な操作、Partial Edit Pane 内でのドラッグ＆ドロップ、より踏み込んだコードブロック編集（生フェンス間テキストに留まらないcell/本文単位の編集）は、いずれも今後の課題であり、着手していません。
 
 後続の方向性と、意図的に対象外とする機能は、簡潔な[ロードマップ](ROADMAP.ja.md)を参照してください。
 
