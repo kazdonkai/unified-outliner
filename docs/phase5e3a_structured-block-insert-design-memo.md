@@ -74,7 +74,7 @@ cp main.js manifest.json styles.css ~/Obsidian/Method/.obsidian/plugins/unified-
 cp main.js manifest.json styles.css /Users/kazumikaizuka/Obsidian/ipad-test/.obsidian/plugins/unified-outliner/
 ```
 
-コピー後、Obsidian の Community plugins で Unified Outliner を off → on にして再読み込みする。検証ノートは `ipad-test/Test/phase5e3a-structured-block-insert-verification.md`。
+コピー後、Obsidian の Community plugins で Unified Outliner を off → on にして再読み込みする。検証ノートは `ipad-test/Test/Phase 5E-3a 検証：コードブロック・表の新規挿入.md`。
 
 ### 確認項目
 
