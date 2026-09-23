@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-09-23
+
+### Changed
+
+- Obsidian Community review warnings (reported against 0.7.3): removed all four `!important` declarations from `styles.css` — the hidden-row `display: none` rule already wins by specificity (class + attribute), and the rename-row overflow/flex overrides are now anchored on `.unified-outliner-outline-view .tree-item-self.unified-outliner-renaming-row` instead. Removed the three duplicated `background-color` declarations (solid-color fallbacks placed before `color-mix()` tints on the sync-status stale/unavailable rows and the parent-child-preview editing row); the `color-mix()` value is kept, matching the file's other `color-mix()`-only rules. The declarative settings API (`getSettingDefinitions()`, Obsidian 1.13.0+) is planned for 0.7.4 — see ROADMAP.
+
 ## [0.7.3] - 2026-09-23
 
 ### Added

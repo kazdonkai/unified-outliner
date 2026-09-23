@@ -12,6 +12,7 @@ Partial Edit Paneは、対象となるleafのリスト項目（unordered・task-
 
 ## 次の重点領域
 
+- **宣言的設定API への対応（0.7.4）**: Obsidian 1.13.0 以降の `PluginSettingTab.getSettingDefinitions()` を `src/settings.ts` に実装し、現行 `display()` の各項目を移植する。Obsidian 1.12.x 以前向けに `display()` は残す（0.7.3 に対する Obsidian Community 審査の Warning 対応）。
 - **tableのmove/削除と軽量Table Mode（Phase 5E-2B）**: fenced code blockで対応済みのMove/Delete相当の機能をMarkdown tableにも広げる（Partial Editと構造検証はPhase 5E-2Aで対応済み）。cell単位の構造化編集やTable Modeの本格実装は本ステップの対象外として別途検討する。
 - **任意の深さ・親への自由な移動**: 現在の1段階までのインデント/アウトデントを超えて、リスト項目や子を任意の祖先・任意の深さへ移動できるようにする方向性を検討する。
 - **部分木単位での子操作の完全対応**: Partial Edit Paneの子の追加・削除・並べ替え・インデント/アウトデント対応を1段階を超えて拡張し、子の部分木全体をまとめて操作できるようにする。

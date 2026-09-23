@@ -28,7 +28,7 @@ import path from "node:path";
  *    padding, and gap share). A new rule forces any row Obsidian hid this
  *    way (matched via `[style*="visibility: hidden"]`, since CSS has no
  *    selector for "this element's own visibility is hidden") to
- *    `display: none !important`, actually collapsing its space.
+ *    `display: none` (via class+attribute specificity), actually collapsing its space.
  *
  * These are static checks only: they confirm the intended declarations
  * exist (and the ones that should be gone are gone) in styles.css and
@@ -116,7 +116,10 @@ describe("Partial Edit Pane header-to-textarea spacing (static source check)", (
     expect(block).toContain('.unified-outliner-partial-edit-sibling-nav[style*="visibility: hidden"]');
     expect(block).toContain('.unified-outliner-partial-edit-subtree-nav[style*="visibility: hidden"]');
     expect(block).toContain('.unified-outliner-partial-edit-quote-header[style*="visibility: hidden"]');
-    expect(block).toContain("display: none !important;");
+    expect(block).toContain("display: none;");
+    // 2026-09-23: the important flag was removed (Obsidian Community review
+    // warning); specificity (class + attribute) alone must carry the rule.
+    expect(block).not.toContain("!important");
   });
 
   it("hides the sibling-nav row when the loaded node has no sibling in either direction, not just when no node is loaded", () => {
