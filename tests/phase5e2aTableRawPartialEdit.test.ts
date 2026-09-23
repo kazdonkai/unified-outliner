@@ -317,19 +317,34 @@ describe("Phase 5E-2A category E: insertionFramework の table 実装", () => {
 });
 
 describe("Phase 5E-2A category F: 既存機能回帰", () => {
-  it("fenced-code の Partial Edit が Phase 5E-1 時点と同等に機能する", () => {
+  it("fenced-code の Partial Edit が Phase 5E-1 時点と同等に機能する（Phase 5E-3: body-only 契約に更新 — newText はフェンス行を含まない）", () => {
     const text = ["# H", "```js", "code", "```"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code")!;
     const original = extractSubtreeText(doc, info.id);
     expect(original.ok).toBe(true);
-    if (original.ok) expect(original.kind).toBe("fenced-code");
+    if (original.ok) {
+      expect(original.kind).toBe("fenced-code");
+      expect(original.text).toBe("code");
+    }
 
-    const outcome = applySubtreeEdit(doc, info.id, original.text, ["```js", "changed code", "```"].join("\n"));
+    const outcome = applySubtreeEdit(doc, info.id, original.text, "changed code");
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "```js", "changed code", "```"]);
+    // Phase 5E-3: fence+infoString reconstruction always inserts exactly
+    // one space (per the design memo §2 step 1), so the space-less
+    // original open line ("```js") normalizes to a spaced one
+    // ("``` js") — an intentional formatting normalization, not a
+    // fidelity bug (both are the same CommonMark info string "js"). See
+    // phase5e1FencedCodePartialEditMoveDelete.test.ts's own Mermaid test
+    // for the same normalization spelled out in more detail.
+    expect(outcome.lines).toEqual(["# H", "``` js", "changed code", "```"]);
 
-    const rejected = applySubtreeEdit(doc, info.id, original.text, ["not a fence", "```"].join("\n"));
+    // Phase 5E-3: newText itself can no longer carry an invalid fence line
+    // (it's body-only now) — the invalid-open trigger moves to the new
+    // fencedCodeInfoString argument instead (an embedded newline corrupts
+    // the synthesized opening line — see partialEdit.ts's own
+    // applySubtreeEdit doc comment).
+    const rejected = applySubtreeEdit(doc, info.id, original.text, "changed code", "js\nmalicious");
     expect(rejected.changed).toBe(false);
     expect(rejected.reason).toBe("fenced-code-invalid-open");
   });

@@ -146,7 +146,7 @@ import {
 } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
 import { parseDocument } from "../parser/parseDocument";
-import { applySubtreeEdit, extractSubtreeText, SubtreeKind } from "../edit/partialEdit";
+import { applySubtreeEdit, extractSubtreeText, FencedCodeBodyExtraction, SubtreeKind } from "../edit/partialEdit";
 import {
   nodeDisplayLabel,
   standaloneComplexBlockLabel,
@@ -609,6 +609,40 @@ export class PartialEditView extends ItemView {
    */
   private standaloneParentListItemProjection: ParentListItemProjection | null = null;
   /**
+   * Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): fence
+   * metadata captured when the loaded node is a STANDALONE fenced-code
+   * block — see edit/partialEdit.ts's own FencedCodeBodyExtraction doc
+   * comment for the field-by-field meaning. Set (never for any other
+   * kind) whenever `this.nodeKind === "fenced-code"`. Unlike every
+   * projection field above, `this.originalText` is ALREADY body-only for
+   * this kind (extractComplexBlockText's own updated contract — see
+   * partialEdit.ts), so currentDisplayText() needs NO new branch for it:
+   * its existing default fallback (show `originalText` verbatim) already
+   * shows the right thing. This field exists purely to drive the
+   * independent kind/info-string selector row (see
+   * renderFencedCodeLanguageRow) and to carry fenceChar/fenceLength/
+   * openLineIndent through to the Apply call. null means "not currently
+   * showing a fenced-code block" (every other kind, and a fresh empty
+   * pane) — reset alongside every projection field above in
+   * resetLoadedState/loadNodeInternal/loadParagraphInternal/
+   * loadCompositeInternal.
+   */
+  private fencedCodeMeta: FencedCodeBodyExtraction | null = null;
+  /**
+   * Phase 5E-3: the info-string CURRENTLY selected in the kind-selector
+   * row's dropdown/text-input — independent of `fencedCodeMeta.infoString`
+   * (the EXTRACTION-time value) so the pane can tell "unchanged" from
+   * "user picked something else", exactly like every sibling projection's
+   * own dirty-tracking field above. (Re)initialized to
+   * `fencedCodeMeta.infoString` whenever `fencedCodeMeta` itself is
+   * (re)populated (load, or the post-Apply rebuild in applyEdit); read
+   * back in applyEdit's own generic applySubtreeEdit call site as the new
+   * `fencedCodeInfoString` argument, and compared against
+   * `fencedCodeMeta.infoString` in isDirty(). null exactly when
+   * `fencedCodeMeta` is null.
+   */
+  private fencedCodeSelectedInfoString: string | null = null;
+  /**
    * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
    * Edit Pane"): non-null ONLY while `standaloneParentListItemProjection`
    * is ALSO non-null (a child can only ever be inline-edited from inside a
@@ -867,6 +901,50 @@ export class PartialEditView extends ItemView {
     "quote",
   ];
 
+  /**
+   * Phase 5E-3: the sentinel `fencedCodeLanguageSelectEl` value meaning
+   * "none of the options below — use fencedCodeLanguageCustomInputEl's
+   * own free-text value instead". Never itself a valid info-string value
+   * (see applyEdit's own read of fencedCodeSelectedInfoString, which is
+   * never set to this literal — only to "", a FENCED_CODE_LANGUAGE_OPTIONS
+   * canonical value, or the custom input's own text).
+   */
+  private static readonly FENCED_CODE_LANGUAGE_CUSTOM_VALUE = "__custom__";
+  /**
+   * Phase 5E-3 design memo §3: the dropdown's fixed value/label/alias
+   * table. `value` is what `fencedCodeLanguageSelectEl.value` is set to
+   * (and, on a real user selection, what `fencedCodeSelectedInfoString`
+   * becomes) — always the CANONICAL spelling. `aliases` is every info
+   * string this option should auto-match on LOAD (renderFencedCodeLanguageRow),
+   * so a block already using the alias spelling (e.g. "js") still shows
+   * its matching category selected and its text input hidden, WITHOUT
+   * silently rewriting the block's own info string to the canonical form
+   * — an alias match only changes what's DISPLAYED, never
+   * fencedCodeSelectedInfoString itself (that only changes on an actual
+   * user interaction — see the select/custom-input listeners in onOpen).
+   * `labelKey` is looked up fresh per render (never cached), same policy
+   * as every other i18n-driven label in this class.
+   */
+  private static readonly FENCED_CODE_LANGUAGE_OPTIONS: {
+    value: string;
+    aliases: string[];
+    labelKey: TranslationKey;
+  }[] = [
+    { value: "", aliases: [""], labelKey: "partialEdit.fencedCode.lang.plain" },
+    { value: "mermaid", aliases: ["mermaid"], labelKey: "partialEdit.fencedCode.lang.mermaid" },
+    { value: "dataview", aliases: ["dataview"], labelKey: "partialEdit.fencedCode.lang.dataview" },
+    { value: "dataviewjs", aliases: ["dataviewjs"], labelKey: "partialEdit.fencedCode.lang.dataviewjs" },
+    { value: "javascript", aliases: ["javascript", "js"], labelKey: "partialEdit.fencedCode.lang.javascript" },
+    { value: "typescript", aliases: ["typescript", "ts"], labelKey: "partialEdit.fencedCode.lang.typescript" },
+    { value: "python", aliases: ["python"], labelKey: "partialEdit.fencedCode.lang.python" },
+    { value: "bash", aliases: ["bash", "sh"], labelKey: "partialEdit.fencedCode.lang.bash" },
+    { value: "sql", aliases: ["sql"], labelKey: "partialEdit.fencedCode.lang.sql" },
+    { value: "json", aliases: ["json"], labelKey: "partialEdit.fencedCode.lang.json" },
+    { value: "yaml", aliases: ["yaml"], labelKey: "partialEdit.fencedCode.lang.yaml" },
+    { value: "css", aliases: ["css"], labelKey: "partialEdit.fencedCode.lang.css" },
+    { value: "html", aliases: ["html"], labelKey: "partialEdit.fencedCode.lang.html" },
+  ];
+
   private titleEl!: HTMLElement;
   /**
    * Phase 5A-1: the stale/unavailable indicator + Reload button row,
@@ -1031,6 +1109,28 @@ export class PartialEditView extends ItemView {
    */
   private orderedNumberRowEl!: HTMLElement;
   private orderedNumberInputEl!: HTMLInputElement;
+  /**
+   * Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): the
+   * standalone fenced-code block's own kind/info-string selector row —
+   * created once here (like every other row in this class), visibility/
+   * content toggled per-load by renderFencedCodeLanguageRow. Sits
+   * directly above the REUSED textareaEl (now body-only content for this
+   * same block — see edit/partialEdit.ts's own updated
+   * extractComplexBlockText doc comment) exactly like taskCheckboxRowEl/
+   * orderedNumberRowEl above sit above their own reused textareaEl.
+   * `fencedCodeLanguageSelectEl`'s own value is always one of
+   * FENCED_CODE_LANGUAGE_OPTIONS's canonical values or the
+   * FENCED_CODE_LANGUAGE_CUSTOM_VALUE sentinel — never a raw info string
+   * directly; `fencedCodeLanguageCustomInputEl` is the free-text entry
+   * shown only while the sentinel is selected, or while the loaded
+   * block's own info string doesn't match any known option — see
+   * renderFencedCodeLanguageRow's own doc comment for the exact
+   * match/toggle rules.
+   */
+  private fencedCodeLanguageRowEl!: HTMLElement;
+  private fencedCodeLanguageLabelEl!: HTMLElement;
+  private fencedCodeLanguageSelectEl!: HTMLSelectElement;
+  private fencedCodeLanguageCustomInputEl!: HTMLInputElement;
   private textareaEl!: HTMLTextAreaElement;
   /**
    * Phase 5L-6 ("Parent List Item Structured Partial Edit"): the READ-ONLY
@@ -1483,6 +1583,70 @@ export class PartialEditView extends ItemView {
     // orderedNumberDirty check).
     this.orderedNumberInputEl.addEventListener("input", () => this.updateDirtyState());
 
+    // Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): created
+    // once here (like every other row in this method), visibility/content
+    // toggled per-load by renderFencedCodeLanguageRow. Sits directly
+    // above the shared textareaEl below, which this same standalone
+    // fenced-code block's own fence-line-free BODY editor reuses
+    // unchanged (see edit/partialEdit.ts's own updated
+    // extractComplexBlockText doc comment for why textareaEl needs no
+    // code changes at all for this kind).
+    this.fencedCodeLanguageRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-fenced-code-language-row",
+    });
+    this.fencedCodeLanguageLabelEl = this.fencedCodeLanguageRowEl.createSpan({
+      cls: "unified-outliner-partial-edit-fenced-code-language-label",
+      text: this.plugin.t("partialEdit.fencedCode.languageLabel"),
+    });
+    this.fencedCodeLanguageSelectEl = this.fencedCodeLanguageRowEl.createEl("select", {
+      cls: "unified-outliner-partial-edit-fenced-code-language-select",
+    });
+    for (const option of PartialEditView.FENCED_CODE_LANGUAGE_OPTIONS) {
+      this.fencedCodeLanguageSelectEl.createEl("option", {
+        value: option.value,
+        text: this.plugin.t(option.labelKey),
+      });
+    }
+    this.fencedCodeLanguageSelectEl.createEl("option", {
+      value: PartialEditView.FENCED_CODE_LANGUAGE_CUSTOM_VALUE,
+      text: this.plugin.t("partialEdit.fencedCode.lang.custom"),
+    });
+    // Phase 5E-3 design memo §3: selecting ANY option here — including
+    // re-picking the same category the block already matched on load —
+    // is a real user interaction, so it always updates
+    // fencedCodeSelectedInfoString to the select's own canonical value
+    // (never silently reusing whatever alias spelling the block was
+    // loaded with — see FENCED_CODE_LANGUAGE_OPTIONS's own doc comment
+    // for why that's the deliberate, narrower scope of what an alias
+    // match affects). Picking the sentinel instead reveals the free-text
+    // input, reset to empty so the user types their own value from
+    // scratch rather than inheriting whatever was selected before.
+    this.fencedCodeLanguageSelectEl.addEventListener("change", () => {
+      const value = this.fencedCodeLanguageSelectEl.value;
+      if (value === PartialEditView.FENCED_CODE_LANGUAGE_CUSTOM_VALUE) {
+        this.fencedCodeLanguageCustomInputEl.toggleVisibility(true);
+        this.fencedCodeLanguageCustomInputEl.value = "";
+        this.fencedCodeLanguageCustomInputEl.focus();
+        this.fencedCodeSelectedInfoString = "";
+      } else {
+        this.fencedCodeLanguageCustomInputEl.toggleVisibility(false);
+        this.fencedCodeSelectedInfoString = value;
+      }
+      this.updateDirtyState();
+    });
+    this.fencedCodeLanguageCustomInputEl = this.fencedCodeLanguageRowEl.createEl("input", {
+      type: "text",
+      cls: "unified-outliner-partial-edit-fenced-code-language-custom-input",
+    });
+    // Same dirty-tracking policy as every other control in this row —
+    // every keystroke here must also re-check isDirty(), since isDirty()
+    // now considers this input too (see isDirty's own
+    // fencedCodeInfoStringDirty check).
+    this.fencedCodeLanguageCustomInputEl.addEventListener("input", () => {
+      this.fencedCodeSelectedInfoString = this.fencedCodeLanguageCustomInputEl.value;
+      this.updateDirtyState();
+    });
+
     this.textareaEl = this.contentEl.createEl("textarea", {
       cls: "unified-outliner-partial-edit-textarea",
     });
@@ -1804,6 +1968,10 @@ export class PartialEditView extends ItemView {
     // Phase 5L-6: reset alongside standaloneMultiLineListProjection above —
     // see this field's own doc comment.
     this.standaloneParentListItemProjection = null;
+    // Phase 5E-3: reset alongside every projection field above — see this
+    // field's own doc comment.
+    this.fencedCodeMeta = null;
+    this.fencedCodeSelectedInfoString = null;
     // Phase 5L-8: reset alongside standaloneParentListItemProjection above
     // — see this field's own doc comment (a child inline session can only
     // ever exist alongside a live parent projection).
@@ -2068,6 +2236,12 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = null;
     this.originalText = extracted.text;
     this.quoteProjection = quoteProjection;
+    // Phase 5E-3: populate the fence metadata field (and initialize the
+    // UI-selected info string from it) exactly when this load resolved to
+    // a fenced-code block — every other kind leaves both null, mirroring
+    // quoteProjection's own kind-gated population immediately above.
+    this.fencedCodeMeta = extracted.kind === "fenced-code" ? extracted.fencedCode ?? null : null;
+    this.fencedCodeSelectedInfoString = this.fencedCodeMeta ? this.fencedCodeMeta.infoString : null;
     // Phase 5L-12: the five-tier projection chain
     // (standaloneListMarkerProjection/standaloneTaskListProjection/
     // standaloneOrderedListProjection/standaloneMultiLineListProjection/
@@ -2154,6 +2328,11 @@ export class PartialEditView extends ItemView {
     // was just showing a projected quote body doesn't leave a stale
     // projection behind for currentDisplayText/isDirty to trip over.
     this.quoteProjection = null;
+    // Phase 5E-3: reset alongside quoteProjection above — see that
+    // field's own doc comment (a paragraph is never eligible for the
+    // fenced-code kind/info-string selector either).
+    this.fencedCodeMeta = null;
+    this.fencedCodeSelectedInfoString = null;
     // Phase 5L-1: reset alongside quoteProjection above — see this
     // field's own doc comment (a paragraph is never eligible for
     // marker-free list projection).
@@ -2282,6 +2461,12 @@ export class PartialEditView extends ItemView {
     // comment for why splitting is pure line-slicing over the snapshot's
     // already-resolved member ranges.
     this.quoteProjection = null;
+    // Phase 5E-3: reset alongside quoteProjection above — see that
+    // field's own doc comment (a CompositeBlock member is never eligible
+    // for the fenced-code kind/info-string selector either — fenced-code
+    // has no CompositeBlock-member concept at all).
+    this.fencedCodeMeta = null;
+    this.fencedCodeSelectedInfoString = null;
     // Phase 5L-1: reset alongside quoteProjection above — see this
     // field's own doc comment (a CompositeBlock session always uses the
     // separate `listMarkerProjection`/`compositeListOriginalText` fields
@@ -2401,6 +2586,7 @@ export class PartialEditView extends ItemView {
     this.renderCompositeListSlot();
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
+    this.renderFencedCodeLanguageRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
@@ -2450,6 +2636,7 @@ export class PartialEditView extends ItemView {
     this.renderCompositeListSlot();
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
+    this.renderFencedCodeLanguageRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
@@ -4113,6 +4300,53 @@ export class PartialEditView extends ItemView {
   }
 
   /**
+   * Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): mirrors
+   * renderTaskCheckboxRow/renderOrderedNumberRow's own "toggle
+   * visibility/populate from the loaded metadata, once per render"
+   * pattern, for the standalone fenced-code block's own kind/info-string
+   * selector row instead. Shown ONLY when a fenced-code block is
+   * currently loaded (`this.fencedCodeMeta !== null`) — every other kind
+   * hides this row entirely, mirroring taskCheckboxRowEl/
+   * orderedNumberRowEl's own hidden default.
+   *
+   * Selection rule (design memo §3): the CURRENT info string —
+   * `this.fencedCodeSelectedInfoString` when set, falling back to
+   * `fencedCodeMeta.infoString` (true only immediately after a fresh
+   * load, since loadNodeInternal always initializes the former from the
+   * latter) — is matched against FENCED_CODE_LANGUAGE_OPTIONS's own
+   * `aliases` lists. A match selects that option and hides the free-text
+   * input; no match selects the `__custom__` sentinel and shows the
+   * free-text input, pre-filled with the current info string verbatim
+   * (covers both "opened with a custom info string" and "user is
+   * actively typing a custom one").
+   */
+  private renderFencedCodeLanguageRow(): void {
+    const meta = this.fencedCodeMeta;
+    if (!meta) {
+      this.fencedCodeLanguageRowEl.toggleVisibility(false);
+      this.fencedCodeLanguageSelectEl.disabled = true;
+      this.fencedCodeLanguageCustomInputEl.disabled = true;
+      return;
+    }
+    this.fencedCodeLanguageRowEl.toggleVisibility(true);
+    this.fencedCodeLanguageSelectEl.disabled = false;
+    this.fencedCodeLanguageCustomInputEl.disabled = false;
+    const current = this.fencedCodeSelectedInfoString ?? meta.infoString;
+    const matched = PartialEditView.FENCED_CODE_LANGUAGE_OPTIONS.find((option) =>
+      option.aliases.includes(current)
+    );
+    if (matched) {
+      this.fencedCodeLanguageSelectEl.value = matched.value;
+      this.fencedCodeLanguageCustomInputEl.toggleVisibility(false);
+      this.fencedCodeLanguageCustomInputEl.value = "";
+    } else {
+      this.fencedCodeLanguageSelectEl.value = PartialEditView.FENCED_CODE_LANGUAGE_CUSTOM_VALUE;
+      this.fencedCodeLanguageCustomInputEl.toggleVisibility(true);
+      this.fencedCodeLanguageCustomInputEl.value = current;
+    }
+  }
+
+  /**
    * Phase 5B: draw the ancestor breadcrumb from `this.ancestors`, computed
    * once by loadNodeInternal at load time. Deliberately NOT recomputed on
    * every render or on a timer — the breadcrumb is a read-only aid derived
@@ -5256,6 +5490,13 @@ export class PartialEditView extends ItemView {
     // expose the same `{changed, lines, newStartLine, reason?}` fields the
     // shared tail below already only ever reads, so no further branching
     // is needed past this point.
+    // Phase 5E-3: thread the kind-selector row's currently-selected info
+    // string into applySubtreeEdit's own new optional 5th argument — only
+    // meaningful (and only ever non-undefined) when this.nodeKind is
+    // "fenced-code" (see that field's own doc comment); every other kind
+    // passes undefined, which applySubtreeEdit's own doc comment says
+    // falls back to "no change" and which it ignores outright for any
+    // kind but fenced-code anyway.
     const outcome = this.standaloneParentListItemProjection
       ? applyParentListItemOwnTextEdit(
           doc,
@@ -5263,7 +5504,13 @@ export class PartialEditView extends ItemView {
           this.standaloneParentListItemProjection.ownText.rawText,
           newRawText
         )
-      : applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText);
+      : applySubtreeEdit(
+          doc,
+          this.nodeId!,
+          this.originalText,
+          newRawText,
+          this.nodeKind === "fenced-code" ? (this.fencedCodeSelectedInfoString ?? undefined) : undefined
+        );
     const node = doc.nodes.get(this.nodeId!);
     const startLine = node ? node.range.startLine : 0;
 
@@ -5466,6 +5713,28 @@ export class PartialEditView extends ItemView {
         this.renderTaskCheckboxRow();
         this.renderOrderedNumberRow();
         this.renderParentChildPreview();
+      } else if (this.fencedCodeMeta) {
+        // Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): unlike
+        // every projection rebuild above, no re-parse is needed here —
+        // fenceChar/fenceLength/openLineIndent never change via this
+        // pane's own fenced-code editing surface (only the body content
+        // and the selected info string are ever editable — see
+        // fencedCodeMeta's own field doc comment), so the fresh metadata
+        // is simply the OLD metadata's fence shape plus the just-applied
+        // body text and info string.
+        // `this.fencedCodeSelectedInfoString` at this point already holds
+        // whatever was actually passed to applySubtreeEdit above (the
+        // argument computed a few lines up, before the Apply itself
+        // ran) — re-reading it here (rather than re-deriving anything)
+        // keeps this rebuild consistent even though nothing about it can
+        // actually fail the way a sibling projection rebuild sometimes
+        // can, so there is no "degrade to raw" case to handle here at
+        // all.
+        const appliedInfoString = this.fencedCodeSelectedInfoString ?? this.fencedCodeMeta.infoString;
+        this.fencedCodeMeta = { ...this.fencedCodeMeta, bodyText: newRawText, infoString: appliedInfoString };
+        this.fencedCodeSelectedInfoString = appliedInfoString;
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderFencedCodeLanguageRow();
       }
       // Phase 5A-1 hardening §1: see the paragraph branch's identical
       // comment above — explicitly synced right after this pane's own
@@ -6366,6 +6635,23 @@ export class PartialEditView extends ItemView {
     // standalone leaf with a pending draft — see pendingLeafFirstChild's
     // own doc comment.
     const leafFirstChildDirty = this.pendingLeafFirstChild !== null;
+    // Phase 5E-3: ALSO dirty when the kind-selector row's currently
+    // selected info string (dropdown OR custom text input — both funnel
+    // into fencedCodeSelectedInfoString, see onOpen's own listeners)
+    // differs from the loaded block's own extraction-time info string —
+    // fencedCodeMeta is null for every case except a currently-loaded
+    // fenced-code block, so this is a no-op addition for every other
+    // kind. The shared textarea's own body-dirtiness is ALREADY covered
+    // by this function's own top-level
+    // `this.textareaEl.value !== this.currentDisplayText()` check below
+    // (currentDisplayText's existing default fallback already shows
+    // fencedCodeMeta.bodyText-equivalent originalText verbatim for this
+    // kind — see that field's own doc comment for why no new branch was
+    // needed there), so this flag only ever needs to cover the SELECTOR
+    // row's own state, mirroring taskCheckedDirty/orderedNumberDirty's
+    // own "one flag per new control, body handled separately" pattern.
+    const fencedCodeInfoStringDirty =
+      this.fencedCodeMeta !== null && this.fencedCodeSelectedInfoString !== this.fencedCodeMeta.infoString;
     // Phase 5D-2A: ALSO counts a loaded CompositeBlock (compositeAnchor)
     // as "something is loaded" here — otherwise a composite-wide edit
     // would never register as dirty, silently defeating the unsaved-edit
@@ -6386,7 +6672,8 @@ export class PartialEditView extends ItemView {
         parentNumberDirty ||
         childInlineDirty ||
         addDeleteDirty ||
-        leafFirstChildDirty)
+        leafFirstChildDirty ||
+        fencedCodeInfoStringDirty)
     );
   }
 
@@ -6814,6 +7101,7 @@ export class PartialEditView extends ItemView {
     this.renderCompositeListSlot();
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
+    this.renderFencedCodeLanguageRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();

@@ -598,7 +598,13 @@ settings:
  * every row above (hidden whenever no child is currently selected for
  * inline editing), so it is added here too, up front, rather than
  * waiting for a fourth real-device report of the identical phantom-space
- * bug. */
+ * bug.
+ *
+ * Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"):
+ * fenced-code-language-row is toggleVisibility()'d exactly like every
+ * row above (hidden for every kind except a currently-loaded standalone
+ * fenced-code block), so it is added here too, up front, for the same
+ * reason as child-inline-editor immediately above. */
 .unified-outliner-partial-edit-sync-status[style*="visibility: hidden"],
 .unified-outliner-partial-edit-breadcrumb[style*="visibility: hidden"],
 .unified-outliner-partial-edit-sibling-nav[style*="visibility: hidden"],
@@ -609,7 +615,8 @@ settings:
 .unified-outliner-partial-edit-composite-list-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-task-checkbox-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-ordered-number-row[style*="visibility: hidden"],
-.unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"] {
+.unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"],
+.unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"] {
   display: none !important;
 }
 
@@ -1148,6 +1155,73 @@ settings:
 .unified-outliner-partial-edit-ordered-number-input:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): the standalone
+ * fenced-code block's own kind/info-string selector row — sits directly
+ * above the shared textarea below (see PartialEditView.ts's
+ * fencedCodeLanguageRowEl field doc comment for the exact condition that
+ * shows this row). Mirrors composite-list-row's own flex-row/monospace
+ * conventions (label + control(s) reading as one continuous editor
+ * chrome), but lighter-weight like task-checkbox-row/ordered-number-row —
+ * a label, a select, and a conditionally-shown text input, never a
+ * flex-filling body editor of its own (the body lives in the reused
+ * textarea below). */
+.unified-outliner-partial-edit-fenced-code-language-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.unified-outliner-partial-edit-fenced-code-language-label {
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  color: var(--uo-text-color);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-fenced-code-language-select {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: inherit;
+  font-family: inherit;
+  padding: 2px 6px;
+}
+
+.unified-outliner-partial-edit-fenced-code-language-select:disabled {
+  opacity: 0.6;
+}
+
+/* Phase 5E-3: the free-text input, shown only while the "Custom…"
+ * sentinel is selected (or the loaded block's own info string doesn't
+ * match any known dropdown option) — mirrors composite-list-input's own
+ * flex-filling/transparent styling so it reads as part of the same
+ * editor chrome rather than a visually separate widget. */
+.unified-outliner-partial-edit-fenced-code-language-custom-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: inherit;
+  font-family: var(--font-monospace, monospace);
+  padding: 2px 6px;
+}
+
+.unified-outliner-partial-edit-fenced-code-language-custom-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.unified-outliner-partial-edit-fenced-code-language-custom-input:disabled {
+  opacity: 0.6;
 }
 
 .unified-outliner-partial-edit-textarea {

@@ -326,7 +326,12 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     const body = bodyOf(viewTs, "private applyEdit(): boolean {", "applyEdit");
     expect(body).toContain("applyParagraphEdit(doc, this.paragraphAnchor, this.textareaEl.value)");
     expect(body).toContain("applyCompositeBlockEdit(");
-    expect(body).toContain("applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)");
+    // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
+    // conditional fencedCodeInfoString argument was added) — this still
+    // matches on the same four leading, unconditional arguments.
+    expect(body).toContain(
+      "applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
+    );
     // Neither the original Phase 5A-1 round nor this hardening round ever
     // GATES any of the three refusal branches above on syncState — the
     // UX-layer button-disable in updateDirtyState remains the only such

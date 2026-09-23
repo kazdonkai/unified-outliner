@@ -273,8 +273,13 @@ describe("view/PartialEditView.ts: Phase 5L-6 (Parent List Item Structured Parti
 
   it("the outcome computation branches to applyParentListItemOwnTextEdit for the parent kind — deliberately NOT the generic applySubtreeEdit every other kind uses, since applySubtreeEdit's own whole-subtree conflict check would spuriously refuse this Apply the moment the child subtree alone changes", () => {
     const region = standaloneApplyRegion();
+    // Phase 5E-3: the generic applySubtreeEdit branch reformatted to a
+    // multi-line call (a 5th, conditional fencedCodeInfoString argument
+    // was added) — the parent-kind ternary's own structure (still NOT
+    // using applySubtreeEdit for the parent branch) is otherwise
+    // unchanged.
     expect(region).toContain(
-      "const outcome = this.standaloneParentListItemProjection\n      ? applyParentListItemOwnTextEdit(\n          doc,\n          this.nodeId!,\n          this.standaloneParentListItemProjection.ownText.rawText,\n          newRawText\n        )\n      : applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText);"
+      "const outcome = this.standaloneParentListItemProjection\n      ? applyParentListItemOwnTextEdit(\n          doc,\n          this.nodeId!,\n          this.standaloneParentListItemProjection.ownText.rawText,\n          newRawText\n        )\n      : applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
     );
   });
 

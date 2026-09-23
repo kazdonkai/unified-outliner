@@ -272,9 +272,13 @@ describe("view/PartialEditView.ts: Phase 5L-8 (Child Item Inline Structured Edit
     // Phase 5L-9b, 2026-09-18: leafFirstChildDirty now follows
     // addDeleteDirty as the chain's own new final term — see that
     // field's own doc comment.
+    // Phase 5E-3: fencedCodeInfoStringDirty now follows leafFirstChildDirty
+    // as the chain's own new final term — leafFirstChildDirty is no
+    // longer literally the last term, so this checks it is folded in via
+    // OR instead.
     expect(body).toContain("childInlineDirty ||");
     expect(body).toContain("addDeleteDirty ||");
-    expect(body).toContain("leafFirstChildDirty)");
+    expect(body).toContain("leafFirstChildDirty ||");
   });
 
   it("cancelEdit reverts the child inline editor's own controls back to the session's loaded snapshot WITHOUT closing the session (childInlineSession is never nulled out here) — Cancel keeps editing the same child, just discards its unsaved edits", () => {

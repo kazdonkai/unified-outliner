@@ -1103,6 +1103,29 @@ const en = {
   "reason.table-column-mismatch":
     "Unified Outliner: every row must have the same number of columns.",
 
+  // ---- Fenced code language selector (Phase 5E-3,
+  // view/PartialEditView.ts). Label for the kind/info-string selector row
+  // shown above the (now fence-line-free) textarea when a fenced-code
+  // block is open, plus one display label per dropdown option — see this
+  // phase's design memo §3 for the full value -> label mapping. "custom"
+  // is the sentinel option ("__custom__") that reveals the free-text
+  // input; it is never itself an info-string value. ---
+  "partialEdit.fencedCode.languageLabel": "Language",
+  "partialEdit.fencedCode.lang.plain": "Plain text",
+  "partialEdit.fencedCode.lang.mermaid": "Mermaid",
+  "partialEdit.fencedCode.lang.dataview": "Dataview",
+  "partialEdit.fencedCode.lang.dataviewjs": "DataviewJS",
+  "partialEdit.fencedCode.lang.javascript": "JavaScript",
+  "partialEdit.fencedCode.lang.typescript": "TypeScript",
+  "partialEdit.fencedCode.lang.python": "Python",
+  "partialEdit.fencedCode.lang.bash": "Shell",
+  "partialEdit.fencedCode.lang.sql": "SQL",
+  "partialEdit.fencedCode.lang.json": "JSON",
+  "partialEdit.fencedCode.lang.yaml": "YAML",
+  "partialEdit.fencedCode.lang.css": "CSS",
+  "partialEdit.fencedCode.lang.html": "HTML",
+  "partialEdit.fencedCode.lang.custom": "Custom\u2026",
+
   // ---- Partial Edit Pane source-note safety valve (Phase 5C-4,
   // view/partialEditSourceNoteCheck.ts). An ADDITIONAL, path-based check —
   // never a replacement for edit/partialEdit.ts's own content-based
@@ -1957,6 +1980,28 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 2行目は有効な区切り行（各列がハイフン1文字以上、前後に任意のコロンを許可し、他に何もないこと）である必要がある。",
   "reason.table-column-mismatch":
     "Unified Outliner: すべての行の列数が一致している必要がある。",
+
+  // ---- fenced code の種別選択 UI（Phase 5E-3、view/PartialEditView.ts）。
+  // フェンス行を含まなくなったテキストエリアの上に表示する種別・info
+  // string 選択行のラベルと、ドロップダウンの各選択肢の表示ラベル —
+  // 値→ラベルの対応表はこのフェーズの設計メモ §3 を参照。"custom" は
+  // 自由入力欄を表示させるセンチネル値（"__custom__"）であり、info
+  // string の値そのものにはならない。 ---
+  "partialEdit.fencedCode.languageLabel": "言語",
+  "partialEdit.fencedCode.lang.plain": "プレーンテキスト",
+  "partialEdit.fencedCode.lang.mermaid": "Mermaid",
+  "partialEdit.fencedCode.lang.dataview": "Dataview",
+  "partialEdit.fencedCode.lang.dataviewjs": "DataviewJS",
+  "partialEdit.fencedCode.lang.javascript": "JavaScript",
+  "partialEdit.fencedCode.lang.typescript": "TypeScript",
+  "partialEdit.fencedCode.lang.python": "Python",
+  "partialEdit.fencedCode.lang.bash": "シェル",
+  "partialEdit.fencedCode.lang.sql": "SQL",
+  "partialEdit.fencedCode.lang.json": "JSON",
+  "partialEdit.fencedCode.lang.yaml": "YAML",
+  "partialEdit.fencedCode.lang.css": "CSS",
+  "partialEdit.fencedCode.lang.html": "HTML",
+  "partialEdit.fencedCode.lang.custom": "カスタム\u2026",
 
   // ---- 部分編集ペインの元ノート同一性チェック（Phase 5C-4、
   // view/partialEditSourceNoteCheck.ts）。追加の、パスに基づく安全弁 —

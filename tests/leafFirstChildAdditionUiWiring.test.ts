@@ -238,11 +238,11 @@ describe("view/PartialEditView.ts: Phase 5L-9b (First Direct Child Addition for 
   });
 
   describe("isDirty", () => {
-    it("treats a pending Mode B draft as an unconditional dirty contributor -- leafFirstChildDirty is simply `pendingLeafFirstChild !== null`, and is OR'd in as the final term alongside addDeleteDirty", () => {
+    it("treats a pending Mode B draft as an unconditional dirty contributor -- leafFirstChildDirty is simply `pendingLeafFirstChild !== null`, and is OR'd in alongside addDeleteDirty (Phase 5E-3: no longer the OR-chain's final term -- fencedCodeInfoStringDirty was appended after it, see that phase's own isDirty test coverage in partialEdit UI wiring)", () => {
       const body = isDirtyBody();
       expect(body).toContain("const leafFirstChildDirty = this.pendingLeafFirstChild !== null;");
       expect(body).toContain("addDeleteDirty ||");
-      expect(body).toContain("leafFirstChildDirty)");
+      expect(body).toContain("leafFirstChildDirty ||");
     });
   });
 

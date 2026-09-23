@@ -213,7 +213,12 @@ describe("PartialEditView.ts: selection follow wiring (Phase 5T-5A)", () => {
     // `this.textareaEl.value` directly — see
     // tests/quotePrefixPartialEditViewWiring.test.ts for the dedicated
     // wiring coverage of that change itself.
-    const subtreeIdx = partialEditTs.indexOf("applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)");
+    // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
+    // conditional fencedCodeInfoString argument was added) — this still
+    // matches on the same four leading, unconditional arguments.
+    const subtreeIdx = partialEditTs.indexOf(
+      "applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
+    );
     expect(subtreeIdx).toBeGreaterThan(-1);
     const followIdx = partialEditTs.indexOf(
       "this.plugin.queueOutlineTreeSelectionFollow(outcome.newStartLine);",

@@ -140,15 +140,50 @@ export type SubtreeKind = "section" | "list" | "callout" | "blockquote" | "fence
 
 export type NoExtractSubtreeReason = "resolve-failed" | "not-editable" | "unsafe-indent";
 
+/**
+ * Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): the fence
+ * metadata captured at extraction time for a "fenced-code" subtree, kept
+ * separately from `ExtractSubtreeOutcome.text` (which, for fenced-code
+ * only, is now BODY TEXT ONLY — see extractComplexBlockText's own updated
+ * doc comment below). This is what lets the Partial Edit Pane hide the
+ * fence lines from the editable textarea entirely and instead drive an
+ * independent kind/info-string selector UI, while applySubtreeEdit's own
+ * fenced-code branch still has everything it needs to reconstruct valid
+ * open/close fence lines on Apply (see that function's own doc comment).
+ */
+export interface FencedCodeBodyExtraction {
+  /** The opening line's info-string portion (e.g. "mermaid", "js", ""). */
+  infoString: string;
+  /** The block's content lines only (fence lines excluded), joined by "\n" — "" when the block has zero content lines. */
+  bodyText: string;
+  /** The fence character shared by the opening and closing lines: "`" or "~". */
+  fenceChar: string;
+  /** The opening fence's run length (>= 3) — the closing fence must reproduce at least this many. */
+  fenceLength: number;
+  /** The opening line's leading whitespace (tabs/spaces), reproduced verbatim on both the rebuilt open AND close lines. */
+  openLineIndent: string;
+}
+
 export interface ExtractSubtreeOutcome {
   ok: boolean;
   /** Which kind of node this resolved to; null only when resolve-failed. */
   kind: SubtreeKind | null;
-  /** The subtree's raw Markdown text. Empty when !ok. */
+  /**
+   * The subtree's raw Markdown text. Empty when !ok. Phase 5E-3: for kind
+   * "fenced-code" this is now BODY TEXT ONLY (the fence lines themselves
+   * are excluded — see `fencedCode` below and extractComplexBlockText's
+   * own doc comment). Unchanged for every other kind.
+   */
   text: string;
   startLine: number;
   endLine: number;
   reason?: NoExtractSubtreeReason;
+  /**
+   * Phase 5E-3: populated only when `kind === "fenced-code"` — the fence
+   * metadata `text` itself no longer carries. Always undefined for every
+   * other kind.
+   */
+  fencedCode?: FencedCodeBodyExtraction;
 }
 
 /**
@@ -262,6 +297,45 @@ function extractComplexBlockText(
   ) {
     return { ok: false, kind: null, text: "", startLine: -1, endLine: -1, reason: "resolve-failed" };
   }
+  // Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): fenced-code
+  // gets its own extraction branch here, ahead of the shared tail below
+  // (still used unchanged by callout/blockquote/table) — `text` becomes
+  // BODY TEXT ONLY (fence lines excluded) and `fencedCode` carries the
+  // fence metadata the Apply-time reconstruction in applySubtreeEdit below
+  // needs to rebuild valid open/close lines. See FencedCodeBodyExtraction's
+  // own doc comment for the field-by-field rationale.
+  if (complexBlock.kind === "fenced-code") {
+    const rawLines = doc.lines.slice(complexBlock.range.startLine, complexBlock.range.endLine + 1);
+    const openLine = rawLines[0] ?? "";
+    // scanComplexBlocks only ever produces a "fenced-code" ComplexBlockInfo
+    // for a range whose first line is already a genuine opening fence (its
+    // own FENCE_OPEN_RE is byte-identical in shape to this module's
+    // FENCE_OPEN_LINE_RE — see that constant's doc comment above), so this
+    // match is never null in practice; the fallback below only keeps this
+    // branch total under the type checker rather than asserting.
+    const openMatch = openLine.match(FENCE_OPEN_LINE_RE);
+    const openLineIndent = openMatch ? openMatch[1] : "";
+    const fenceChar = openMatch ? openMatch[2][0] : "`";
+    const fenceLength = openMatch ? openMatch[2].length : 3;
+    const infoString = openMatch ? openMatch[3] : "";
+    // rawLines always has at least 2 lines (a fenced block always has a
+    // distinct open and close line) — slice(1, length-1) is therefore the
+    // content lines only, and correctly yields [] (→ bodyText === "") for
+    // a block with zero content lines (open line immediately followed by
+    // close line).
+    const contentLines = rawLines.slice(1, rawLines.length - 1);
+    const bodyText = contentLines.join("\n");
+    const fencedCode: FencedCodeBodyExtraction = { infoString, bodyText, fenceChar, fenceLength, openLineIndent };
+    return {
+      ok: true,
+      kind: "fenced-code",
+      text: bodyText,
+      startLine: complexBlock.range.startLine,
+      endLine: complexBlock.range.endLine,
+      fencedCode,
+    };
+  }
+
   const text = doc.lines.slice(complexBlock.range.startLine, complexBlock.range.endLine + 1).join("\n");
   return {
     ok: true,
@@ -395,7 +469,7 @@ export interface ApplySubtreeEditOutcome {
  * kept byte-identical in shape so this Apply-time check never disagrees
  * with what the scanner itself would recognize as an opening fence.
  */
-const FENCE_OPEN_LINE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*(.*)$/;
+const FENCE_OPEN_LINE_RE = /^([ \t]*)(`{3,}|~{3,})[ \t]*(.*)$/;
 
 /**
  * True when `line` is a valid fenced-code OPENING line — 3+ of the same
@@ -403,11 +477,17 @@ const FENCE_OPEN_LINE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*(.*)$/;
  * with anything (an info string) after it. Mirrors
  * parser/complexBlocks.ts's own FENCE_OPEN_RE shape exactly (see
  * FENCE_OPEN_LINE_RE's own doc comment above).
+ *
+ * Phase 5E-3 widened FENCE_OPEN_LINE_RE with a new leading capture group
+ * for the indent (group 1); the fence-run group shifted from 1 to 2
+ * accordingly (group 3 — the rest-of-line/info-string portion — is read
+ * directly by extractComplexBlockText's own fenced-code branch below, not
+ * through this function).
  */
 function isValidFencedCodeOpenLine(line: string): { valid: boolean; fenceChar: string; fenceLength: number } {
   const m = line.match(FENCE_OPEN_LINE_RE);
   if (!m) return { valid: false, fenceChar: "", fenceLength: 0 };
-  return { valid: true, fenceChar: m[1][0], fenceLength: m[1].length };
+  return { valid: true, fenceChar: m[2][0], fenceLength: m[2].length };
 }
 
 /**
@@ -478,7 +558,18 @@ export function applySubtreeEdit(
   doc: ParsedDocument,
   nodeId: string,
   originalText: string,
-  newText: string
+  newText: string,
+  /**
+   * Phase 5E-3: the info-string CURRENTLY selected in the Partial Edit
+   * Pane's kind-selector UI at the moment Apply was clicked — always used
+   * over the extraction-time value when this kind is "fenced-code", so a
+   * user's in-UI kind change is honored even though `newText` itself is
+   * now body-only and carries no fence/info-string information at all.
+   * Omitted (or undefined) falls back to the extraction-time infoString
+   * (`current.fencedCode.infoString`) — i.e. "no change". Ignored
+   * entirely for every kind other than "fenced-code".
+   */
+  fencedCodeInfoString?: string
 ): ApplySubtreeEditOutcome {
   const current = extractSubtreeText(doc, nodeId);
   if (!current.ok) {
@@ -502,15 +593,67 @@ export function applySubtreeEdit(
   // conflict is always reported before a shape problem — matching this
   // codebase's "the first failing condition, in a fixed order" convention
   // seen throughout move/delete's own rejection-reason functions).
+  // Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): fenced-code's
+  // Apply branch no longer validates the CALLER's own newLines[0]/last
+  // line — `newText` is now body-only (see extractComplexBlockText's own
+  // updated doc comment), so this branch instead RECONSTRUCTS both fence
+  // lines itself from `current.fencedCode`'s metadata plus
+  // `fencedCodeInfoString` (falling back to the extraction-time info
+  // string when omitted), then validates the two SYNTHESIZED lines with
+  // the exact same isValidFencedCodeOpenLine/isValidFencedCodeCloseLine
+  // checks as before — same validation target semantics, just now
+  // checking reconstructed rather than user-typed lines. Because this
+  // branch assembles and returns its own spliced `lines` array, it
+  // returns directly here rather than falling through to this function's
+  // shared tail below (which still handles every other kind unchanged).
+  //
+  // Note: with the closing line always synthesized as
+  // `openLineIndent + fenceChar.repeat(fenceLength)` — pure fence
+  // characters and leading whitespace, nothing else — it always matches
+  // FENCE_CLOSE_ONLY_LINE_RE, making "fenced-code-invalid-close"
+  // structurally unreachable through this path. The check is kept
+  // unconditionally anyway, as defense-in-depth against any future change
+  // to how the close line gets built, rather than deleted as dead code —
+  // see this ticket's design memo §2 for the explicit call-out of this
+  // design decision, and tests/phase5e1FencedCodePartialEditMoveDelete
+  // .test.ts's own repurposed regression test for what's now DELIBERATELY
+  // accepted instead (a body line that merely looks like a fence).
   if (current.kind === "fenced-code") {
-    const open = isValidFencedCodeOpenLine(newLines[0] ?? "");
+    const meta = current.fencedCode;
+    // current.fencedCode is always populated when current.kind ===
+    // "fenced-code" (see extractComplexBlockText's own fenced-code branch
+    // above) — the fallbacks below only keep this branch total under the
+    // type checker rather than asserting.
+    const openLineIndent = meta?.openLineIndent ?? "";
+    const fenceChar = meta?.fenceChar ?? "`";
+    const fenceLength = meta?.fenceLength ?? 3;
+    const infoString = fencedCodeInfoString !== undefined ? fencedCodeInfoString : (meta?.infoString ?? "");
+
+    const openLine = openLineIndent + fenceChar.repeat(fenceLength) + (infoString !== "" ? " " + infoString : "");
+    const closeLine = openLineIndent + fenceChar.repeat(fenceLength);
+    // A fully-cleared textarea (newText === "") must become ZERO content
+    // lines, not a single empty line — mirrors extractComplexBlockText's
+    // own "zero content lines" case exactly (rawLines.slice(1, len-1)
+    // there vs. this explicit special case here, since "".split("\n")
+    // would otherwise yield [""], one phantom blank line).
+    const contentLines = newText === "" ? [] : newLines;
+    const reconstructed = [openLine, ...contentLines, closeLine];
+
+    const open = isValidFencedCodeOpenLine(reconstructed[0]);
     if (!open.valid) {
       return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-open" };
     }
-    const lastLine = newLines.length > 1 ? newLines[newLines.length - 1] : "";
-    if (newLines.length < 2 || !isValidFencedCodeCloseLine(lastLine, open.fenceChar, open.fenceLength)) {
+    const lastLine = reconstructed[reconstructed.length - 1];
+    if (!isValidFencedCodeCloseLine(lastLine, open.fenceChar, open.fenceLength)) {
       return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-close" };
     }
+
+    const lines = [
+      ...doc.lines.slice(0, current.startLine),
+      ...reconstructed,
+      ...doc.lines.slice(current.endLine + 1),
+    ];
+    return { changed: true, lines, newStartLine: current.startLine };
   }
 
   // Phase 5E-2A: table-only Apply-time structural validation — see this

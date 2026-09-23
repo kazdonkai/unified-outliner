@@ -66,8 +66,12 @@ describe("view/PartialEditView.ts: the standalone callout/blockquote invert and 
     expect(branchStart).toBeGreaterThan(-1);
     expect(branchEnd).toBeGreaterThan(branchStart);
     const standaloneRegion = full.slice(branchEnd);
+    // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
+    // conditional fencedCodeInfoString argument was added) — this still
+    // matches on the same four leading, unconditional arguments (doc,
+    // nodeId, originalText, newRawText), just spread across lines now.
     expect(standaloneRegion).toContain(
-      "applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)"
+      "applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
     );
     // "this.listMarkerProjection" (the exact CompositeBlock field
     // reference, dot-qualified) never appears here — deliberately NOT a
@@ -183,7 +187,13 @@ describe("view/PartialEditView.ts: Phase 5L-1 (Standalone Single-Line Unordered 
     expect(region).toContain('this.plugin.t("partialEdit.listBodyNewlineUnsupported")');
     expect(region).toContain("newRawText = invertedList.rawLine;");
     const invertIdx = region.indexOf("invertListMarkerProjection(");
-    const applyIdx = region.indexOf("applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)");
+    // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
+    // conditional fencedCodeInfoString argument was added) — this still
+    // matches on the same four leading, unconditional arguments (doc,
+    // nodeId, originalText, newRawText), just spread across lines now.
+    const applyIdx = region.indexOf(
+      "applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
+    );
     expect(invertIdx).toBeGreaterThan(-1);
     expect(applyIdx).toBeGreaterThan(invertIdx);
   });

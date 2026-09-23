@@ -449,7 +449,7 @@ describe("extractSubtreeText (Phase 5C-2: standalone callout/blockquote resoluti
     }
   });
 
-  it("Phase 5E-1: resolves a standalone fenced-code block's own range as raw text, fence lines included", () => {
+  it("Phase 5E-3: resolves a standalone fenced-code block's own range as BODY-ONLY raw text, fence lines excluded (Phase 5E-1's own \"fence lines included\" contract is superseded here — see partialEdit.ts's own ExtractSubtreeOutcome/FencedCodeBodyExtraction doc comments)", () => {
     const text = ["# H", "```js", "code", "```"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code");
@@ -459,7 +459,14 @@ describe("extractSubtreeText (Phase 5C-2: standalone callout/blockquote resoluti
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
       expect(outcome.kind).toBe("fenced-code");
-      expect(outcome.text).toBe(["```js", "code", "```"].join("\n"));
+      expect(outcome.text).toBe("code");
+      expect(outcome.fencedCode).toEqual({
+        infoString: "js",
+        bodyText: "code",
+        fenceChar: "`",
+        fenceLength: 3,
+        openLineIndent: "",
+      });
     }
   });
 });

@@ -350,11 +350,11 @@ describe("view/PartialEditView.ts: Phase 5L-9 (Direct Child Add/Delete in Parent
     expect(body).toContain("this.updateDirtyState();");
   });
 
-  it("isDirty() folds hasAddDeleteActivity() into its own combined OR-chain (as addDeleteDirty), so a pending new-child draft and/or a pending deletion alone is enough to make the whole pane dirty. Phase 5L-9b: leafFirstChildDirty is ALSO folded in, right after it", () => {
+  it("isDirty() folds hasAddDeleteActivity() into its own combined OR-chain (as addDeleteDirty), so a pending new-child draft and/or a pending deletion alone is enough to make the whole pane dirty. Phase 5L-9b: leafFirstChildDirty is ALSO folded in, right after it (Phase 5E-3: fencedCodeInfoStringDirty now follows leafFirstChildDirty as the chain's own new final term, so this checks the fixed three-in-a-row ordering via OR rather than asserting leafFirstChildDirty is literally the chain's own final term)", () => {
     const body = isDirtyBody();
     expect(body).toContain("const addDeleteDirty = this.hasAddDeleteActivity();");
     expect(body).toContain("const leafFirstChildDirty = this.pendingLeafFirstChild !== null;");
-    expect(body).toContain("childInlineDirty ||\n        addDeleteDirty ||\n        leafFirstChildDirty)");
+    expect(body).toContain("childInlineDirty ||\n        addDeleteDirty ||\n        leafFirstChildDirty ||");
   });
 
   it("cancelEdit discards BOTH a pending new-child draft AND a pending deletion mark outright (never just reverting a value), and (Phase 5L-10) resets a pending reorder plan back to identity order too — re-rendering the preview only when at least one of the three was actually present/dirty", () => {

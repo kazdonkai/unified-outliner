@@ -202,7 +202,7 @@ describe("Phase 5E-1 category B: delete (ブロック全体の一括削除)", ()
 });
 
 describe("Phase 5E-1 category C: raw Partial Edit", () => {
-  it("extractComplexBlockText/extractSubtreeText resolves a standalone fenced-code block as ok:true, raw text including fence lines", () => {
+  it("Phase 5E-3: extractComplexBlockText/extractSubtreeText resolves a standalone fenced-code block as ok:true, BODY-ONLY raw text (fence lines excluded — supersedes Phase 5E-1's own \"fence lines included\" contract, see partialEdit.ts's own ExtractSubtreeOutcome/FencedCodeBodyExtraction doc comments)", () => {
     const text = ["# H", "```js", "code", "```"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code")!;
@@ -210,43 +210,51 @@ describe("Phase 5E-1 category C: raw Partial Edit", () => {
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
       expect(outcome.kind).toBe("fenced-code");
-      expect(outcome.text).toBe(["```js", "code", "```"].join("\n"));
+      expect(outcome.text).toBe("code");
+      expect(outcome.fencedCode?.infoString).toBe("js");
     }
   });
 
-  it("Apply rejects (fenced-code-invalid-open) when the edited result's first line is not a valid opening fence", () => {
+  it("Phase 5E-3: Apply rejects (fenced-code-invalid-open) when the selected fencedCodeInfoString contains an embedded newline, corrupting the synthesized opening fence line (newText itself is body-only now — see this file's own \"UX 改善\" describe block below for how the info-string argument replaces the old \"first line of newText\" trigger)", () => {
     const text = ["# H", "```js", "code", "```"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code")!;
     const original = extractSubtreeText(doc, info.id);
     expect(original.ok).toBe(true);
 
-    const outcome = applySubtreeEdit(doc, info.id, original.text, ["not a fence at all", "code", "```"].join("\n"));
+    const outcome = applySubtreeEdit(doc, info.id, original.text, "code", "js\nmalicious");
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("fenced-code-invalid-open");
     expect(outcome.lines).toEqual(doc.lines);
   });
 
-  it("Apply rejects (fenced-code-invalid-close) when the edited result's last line is not a valid closing fence", () => {
+  it("Phase 5E-3: a body line that merely LOOKS like an invalid closing fence is now accepted as ordinary content — the exact same text Phase 5E-1 rejected via \"fenced-code-invalid-close\" is now valid, because newText is body-only and never contains a fence line at all (this makes that reason code structurally unreachable through normal reconstruction, since the close line is always synthesized purely from fence metadata — see applySubtreeEdit's own doc comment for why the check is nonetheless kept, as defense-in-depth)", () => {
     const text = ["# H", "```js", "code", "```"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code")!;
     const original = extractSubtreeText(doc, info.id);
     expect(original.ok).toBe(true);
 
-    const outcome = applySubtreeEdit(doc, info.id, original.text, ["```js", "code", "not a closing fence"].join("\n"));
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("fenced-code-invalid-close");
-    expect(outcome.lines).toEqual(doc.lines);
+    const outcome = applySubtreeEdit(doc, info.id, original.text, ["code", "not a closing fence"].join("\n"));
+    expect(outcome.changed).toBe(true);
+    // Phase 5E-3: reconstruction always inserts exactly one space between
+    // the fence and the info string (design memo §2 step 1), so
+    // "```js" normalizes to "``` js" on round-trip — the identical
+    // CommonMark info string "js" either way (see the Mermaid test above
+    // for the same normalization spelled out in full).
+    expect(outcome.lines).toEqual(["# H", "``` js", "code", "not a closing fence", "```"]);
   });
 
   it("conflict detection works equivalently to the existing callout/blockquote mechanism — refuses Apply when the note changed since the pane loaded it", () => {
-    const originalText = ["```js", "original code"].join("\n") + "\n```";
-    const laterText = ["# A", "```js", "changed by someone else"].join("\n") + "\n```";
+    // Phase 5E-3: originalText/newText are body-only now, matching what
+    // extractSubtreeText itself would return for each of these blocks —
+    // see this describe block's first test above.
+    const originalText = "original code";
+    const laterText = ["# A", "```js", "changed by someone else", "```"].join("\n");
     const doc = parseDocument(laterText);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "fenced-code")!;
 
-    const outcome = applySubtreeEdit(doc, info.id, originalText, "```js\nmy pane's edit\n```");
+    const outcome = applySubtreeEdit(doc, info.id, originalText, "my pane's edit");
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("conflict");
     expect(outcome.lines).toEqual(doc.lines);
@@ -259,12 +267,21 @@ describe("Phase 5E-1 category C: raw Partial Edit", () => {
     const original = extractSubtreeText(doc, info.id);
     expect(original.ok).toBe(true);
     if (original.ok) {
-      expect(original.text).toBe(["```mermaid", "graph TD", "A-->B", "```"].join("\n"));
+      // Phase 5E-3: body-only now — see this describe block's first test.
+      expect(original.text).toBe(["graph TD", "A-->B"].join("\n"));
+      expect(original.fencedCode?.infoString).toBe("mermaid");
     }
 
-    const outcome = applySubtreeEdit(doc, info.id, original.text, ["```mermaid", "graph TD", "A-->B-->C", "```"].join("\n"));
+    const outcome = applySubtreeEdit(doc, info.id, original.text, ["graph TD", "A-->B-->C"].join("\n"));
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "```mermaid", "graph TD", "A-->B-->C", "```"]);
+    // Phase 5E-3: applySubtreeEdit's fenced-code reconstruction always
+    // rebuilds the opening line as `fence + " " + infoString` (one space,
+    // unconditionally — per this ticket's design memo §2 step 1), so a
+    // space-less original open line ("```mermaid") normalizes to a
+    // spaced one ("``` mermaid") on round-trip. Both are the identical
+    // CommonMark info string "mermaid" either way — this is an
+    // intentional formatting normalization, not a fidelity bug.
+    expect(outcome.lines).toEqual(["# H", "``` mermaid", "graph TD", "A-->B-->C", "```"]);
   });
 });
 

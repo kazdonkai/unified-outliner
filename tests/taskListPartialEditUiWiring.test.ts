@@ -168,7 +168,13 @@ describe("view/PartialEditView.ts: Phase 5L-2 (Task List Marker-Free Partial Edi
     expect(region).toContain('this.plugin.t("partialEdit.taskBodyNewlineUnsupported")');
     expect(region).toContain("newRawText = invertedTask.rawLine;");
     const invertIdx = region.indexOf("invertTaskListProjection(");
-    const applyIdx = region.indexOf("applySubtreeEdit(doc, this.nodeId!, this.originalText, newRawText)");
+    // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
+    // conditional fencedCodeInfoString argument was added) — this still
+    // matches on the same four leading, unconditional arguments (doc,
+    // nodeId, originalText, newRawText), just spread across lines now.
+    const applyIdx = region.indexOf(
+      "applySubtreeEdit(\n          doc,\n          this.nodeId!,\n          this.originalText,\n          newRawText,"
+    );
     expect(invertIdx).toBeGreaterThan(-1);
     expect(applyIdx).toBeGreaterThan(invertIdx);
   });
