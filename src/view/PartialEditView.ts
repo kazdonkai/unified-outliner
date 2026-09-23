@@ -1942,7 +1942,31 @@ export class PartialEditView extends ItemView {
    * alone and hand-duplicating a second, easy-to-drift-out-of-sync copy
    * for onClose.
    */
+  /**
+   * Phase 5E-3a fix ("挿入→Apply 後の本文 Undo 1 回で挿入前に戻る"): set by
+   * main.ts#activatePartialEditView right after the Outline Tree inserted a
+   * new fenced-code/table template and asked this pane to open it. The
+   * FIRST successful Apply on that same node folds the template insert and
+   * the Apply into ONE editor change (undo the insert, then write the
+   * final block against the pre-insert text in a single replaceRange), so
+   * a single body-side Undo returns to the state before anything was
+   * inserted. Only taken when the note is still byte-identical to the
+   * post-insert text and the undo lands exactly on the pre-insert text;
+   * otherwise (or after any other load) the normal Apply path runs.
+   * Cleared by resetLoadedState and after its first use.
+   */
+  private pendingStructuredInsert: {
+    nodeId: string;
+    preInsertText: string;
+    postInsertText: string;
+  } | null = null;
+
+  setPendingStructuredInsert(info: { nodeId: string; preInsertText: string; postInsertText: string }): void {
+    this.pendingStructuredInsert = this.nodeId === info.nodeId ? { ...info } : null;
+  }
+
   private resetLoadedState(): void {
+    this.pendingStructuredInsert = null;
     this.nodeId = null;
     this.nodeKind = null;
     this.paragraphAnchor = null;
@@ -2610,12 +2634,23 @@ export class PartialEditView extends ItemView {
           return this.plugin.t("partialEdit.kindParagraph");
         case "composite":
           return this.plugin.t("partialEdit.kindComposite");
+        // Phase 5E-3a fix: fenced-code/table previously fell through to
+        // "Section" in the title.
+        case "fenced-code":
+          return this.plugin.t("partialEdit.kindFencedCode");
+        case "table":
+          return this.plugin.t("partialEdit.kindTable");
         case "section":
         default:
           return this.plugin.t("partialEdit.kindSection");
       }
     })();
     this.titleEl.setText(this.plugin.t("partialEdit.editingTitle", { kind: kindLabel, label: this.label }));
+    // Phase 5E-3a fix: the "nothing loaded" guidance placeholder (set by
+    // the empty state) must not show inside a LOADED node whose text
+    // happens to be empty (e.g. a freshly inserted, empty fenced code
+    // block) — a loaded node's empty textarea stays blank.
+    this.textareaEl.setAttribute("placeholder", "");
     this.textareaEl.disabled = false;
     this.applyButtonEl.disabled = false;
     this.cancelButtonEl.disabled = false;
@@ -5523,14 +5558,45 @@ export class PartialEditView extends ItemView {
     // callback is unreachable, but required by its signature.
     this.isApplyingOwnEdit = true;
     try {
-      applyLineEditOutcome(
-        editor,
-        { line: startLine, ch: 0 },
-        startLine,
-        doc.lines,
-        outcome,
-        () => {}
-      );
+      // Phase 5E-3a fix: first Apply right after a Tree insert — fold the
+      // insert and this Apply into one Undo step (see
+      // pendingStructuredInsert's own doc comment).
+      const pending = this.pendingStructuredInsert;
+      this.pendingStructuredInsert = null;
+      let merged = false;
+      if (
+        pending &&
+        pending.nodeId === this.nodeId &&
+        (this.nodeKind === "fenced-code" || this.nodeKind === "table") &&
+        doc.lines.join("\n") === pending.postInsertText
+      ) {
+        editor.undo();
+        if (editor.getValue() === pending.preInsertText) {
+          applyLineEditOutcome(
+            editor,
+            { line: startLine, ch: 0 },
+            startLine,
+            pending.preInsertText.split("\n"),
+            { changed: true, lines: outcome.lines, newStartLine: outcome.newStartLine },
+            () => {}
+          );
+          merged = true;
+        } else {
+          // The undo did not land on the pre-insert text (something else
+          // was on top of the history) — put it back and fall through.
+          editor.redo();
+        }
+      }
+      if (!merged) {
+        applyLineEditOutcome(
+          editor,
+          { line: startLine, ch: 0 },
+          startLine,
+          doc.lines,
+          outcome,
+          () => {}
+        );
+      }
 
       // Phase 5D-0.5: originalText re-anchors to the RECONSTRUCTED raw text
       // (never the textarea's own, possibly prefix-stripped, value) — for

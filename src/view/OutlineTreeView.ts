@@ -4950,6 +4950,7 @@ export class OutlineTreeView extends ItemView {
     const insertWith = (blockLines: string[]) => {
       const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
       let outcome: StructuredInsertOutcome | null = null;
+      const preInsertText = this.activeMarkdownView.get()?.editor.getValue() ?? null;
       const changed = this.dispatchAndApply(
         nodeId,
         (doc) => {
@@ -4962,12 +4963,16 @@ export class OutlineTreeView extends ItemView {
       if (!changed || !applied?.insertedRange) return;
       const view = this.activeMarkdownView.get();
       if (!view) return;
-      const newId = findInsertedStructuredBlockId(view.editor.getValue(), kind, applied.insertedRange);
+      const postInsertText = view.editor.getValue();
+      const newId = findInsertedStructuredBlockId(postInsertText, kind, applied.insertedRange);
       if (!newId) {
         this.notify(this.reasonText("structured-insert-not-recognized"));
         return;
       }
-      void this.plugin.activatePartialEditView(newId);
+      void this.plugin.activatePartialEditView(
+        newId,
+        preInsertText !== null ? { pendingStructuredInsert: { preInsertText, postInsertText } } : undefined
+      );
     };
 
     if (kind === "fenced-code") {

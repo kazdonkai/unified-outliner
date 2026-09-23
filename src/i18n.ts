@@ -372,6 +372,8 @@ const en = {
   "partialEdit.editingTitle": "Editing ({kind}): {label}",
   "partialEdit.kindList": "List",
   "partialEdit.kindSection": "Section",
+  "partialEdit.kindFencedCode": "Code block",
+  "partialEdit.kindTable": "Table",
   "partialEdit.kindCallout": "Callout",
   "partialEdit.kindBlockquote": "Quote",
   // Phase 5P-2: the pane title's {kind} label for a paragraph loaded via
@@ -1565,6 +1567,8 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.editingTitle": "編集中（{kind}）: {label}",
   "partialEdit.kindList": "リスト",
   "partialEdit.kindSection": "セクション",
+  "partialEdit.kindFencedCode": "コードブロック",
+  "partialEdit.kindTable": "表",
   "partialEdit.kindCallout": "コールアウト",
   "partialEdit.kindBlockquote": "引用",
   "partialEdit.kindParagraph": "段落",

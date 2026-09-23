@@ -107,7 +107,27 @@ describe("source wiring", () => {
     const body = tree.slice(start, end);
     expect(body).toContain("this.dispatchAndApply(");
     expect(body).not.toMatch(/replaceRange|vault\.(modify|process)|setValue\(/);
-    expect(body).toContain("activatePartialEditView(newId)");
+    expect(body).toMatch(/activatePartialEditView\(\s*newId/);
+  });
+
+  it("fix: the Tree hands pre/post insert text to the pane so the first Apply folds into the insert's Undo step", () => {
+    expect(tree).toContain("pendingStructuredInsert: { preInsertText, postInsertText }");
+    const main = readFileSync(join(__dirname, "../src/main.ts"), "utf8");
+    expect(main).toContain("leaf.view.setPendingStructuredInsert({ nodeId, ...options.pendingStructuredInsert })");
+    const start = pane.indexOf("const pending = this.pendingStructuredInsert;");
+    expect(start).toBeGreaterThan(0);
+    const block = pane.slice(start, start + 2000);
+    // Only when the note is still exactly the post-insert text, and only if the undo lands on the pre-insert text.
+    expect(block).toContain('doc.lines.join("\\n") === pending.postInsertText');
+    expect(block.indexOf("editor.undo()")).toBeLessThan(block.indexOf("editor.getValue() === pending.preInsertText"));
+    expect(block).toContain("editor.redo()");
+    expect(pane).toContain("this.pendingStructuredInsert = null;\n    this.nodeId = null;");
+  });
+
+  it("fix: a loaded node never shows the empty-state guidance placeholder, and fenced/table get their own title kind", () => {
+    expect(pane).toContain('this.textareaEl.setAttribute("placeholder", "");');
+    expect(pane).toContain('return this.plugin.t("partialEdit.kindFencedCode");');
+    expect(pane).toContain('return this.plugin.t("partialEdit.kindTable");');
   });
 
   it("Partial Edit's language selector is derived from the CodeBlockPreset registry", () => {
