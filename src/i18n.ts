@@ -1316,6 +1316,29 @@ const en = {
   // after this leaf successfully gained its first direct child and was
   // reloaded as a real parent item.
   "partialEdit.leafFirstChildAdded": "Unified Outliner: added a first child item to this list item.",
+
+  // ---- Phase 5E-3c ("軽量 Table Mode", view/PartialEditView.ts): the
+  // Raw/Table tab row shown above the shared textarea when a table block
+  // is open, plus the Table tab's own cell/row/column grid controls. The
+  // parse-failure reason text is deliberately English-only per the
+  // ticket's own explicit allowance ("理由表示は英語でよい"), still
+  // routed through `t()` with `{reason}` interpolation like every other
+  // dynamic string in this dictionary. ----
+  "partialEdit.tableMode.rawTab": "Raw",
+  "partialEdit.tableMode.tableTab": "Table",
+  "partialEdit.tableMode.parseFailure": "Table Mode unavailable: {reason}",
+  "partialEdit.tableMode.addRow": "Add row",
+  "partialEdit.tableMode.deleteRow": "Delete row",
+  "partialEdit.tableMode.moveRowUp": "Move row up",
+  "partialEdit.tableMode.moveRowDown": "Move row down",
+  "partialEdit.tableMode.addColumn": "Add column",
+  "partialEdit.tableMode.deleteColumn": "Delete column",
+  "partialEdit.tableMode.alignLeft": "Left",
+  "partialEdit.tableMode.alignCenter": "Center",
+  "partialEdit.tableMode.alignRight": "Right",
+  "partialEdit.tableMode.alignNone": "None",
+  "partialEdit.tableMode.lastRowUndeletable": "Unified Outliner: can't delete the last remaining row.",
+  "partialEdit.tableMode.lastColumnUndeletable": "Unified Outliner: can't delete the last remaining column.",
 } as const;
 
 export type TranslationKey = keyof typeof en;
@@ -2146,6 +2169,25 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.leafFirstChildAddFailed":
     "Unified Outliner: 最初の子項目を追加できなかった——この項目が変更された可能性がある。",
   "partialEdit.leafFirstChildAdded": "Unified Outliner: この項目に最初の子項目を追加した。",
+
+  // ---- Phase 5E-3c（「軽量 Table Mode」）: Raw/Table タブ行とセル・行・
+  // 列グリッドのコントロール。parseFailure の理由テキスト自体は仕様どお
+  // り英語のまま（reason コードも英語の識別子のため）。----
+  "partialEdit.tableMode.rawTab": "Raw",
+  "partialEdit.tableMode.tableTab": "Table",
+  "partialEdit.tableMode.parseFailure": "Table Mode unavailable: {reason}",
+  "partialEdit.tableMode.addRow": "行を追加",
+  "partialEdit.tableMode.deleteRow": "行を削除",
+  "partialEdit.tableMode.moveRowUp": "行を上に移動",
+  "partialEdit.tableMode.moveRowDown": "行を下に移動",
+  "partialEdit.tableMode.addColumn": "列を追加",
+  "partialEdit.tableMode.deleteColumn": "列を削除",
+  "partialEdit.tableMode.alignLeft": "左揃え",
+  "partialEdit.tableMode.alignCenter": "中央揃え",
+  "partialEdit.tableMode.alignRight": "右揃え",
+  "partialEdit.tableMode.alignNone": "揃えなし",
+  "partialEdit.tableMode.lastRowUndeletable": "Unified Outliner: 最後の1行は削除できない。",
+  "partialEdit.tableMode.lastColumnUndeletable": "Unified Outliner: 最後の1列は削除できない。",
 };
 
 const DICTIONARIES: Record<SupportedLocale, Record<TranslationKey, string>> = {

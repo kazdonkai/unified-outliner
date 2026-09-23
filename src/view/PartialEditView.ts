@@ -290,6 +290,30 @@ import {
 } from "../edit/parentChildInlineEditSession";
 import { compositeBlockDisplayLabel, getCompositeBlockRuleById } from "../model/compositeBlock";
 import { getEnabledCompositeBlockRules } from "../settingsDefaults";
+// Phase 5E-3c ("軽量 Table Mode"): the pure Markdown table parser/
+// serializer foundation (Phase 5E-3b, unmodified) and the pure Table Mode
+// cell/row/column operations built on top of it (this phase) — see both
+// modules' own top doc comments. Table Mode never adds a new write path:
+// Apply still goes through applySubtreeEdit below exactly like the Raw
+// tab always has, only fed a serializeMarkdownTable-produced string
+// instead of the textarea's own value when the Table tab is active.
+import {
+  EditableMarkdownTable,
+  MarkdownTableParseFailureReason,
+  TableColumnAlignment,
+  parseMarkdownTable,
+  serializeMarkdownTable,
+} from "../edit/editableMarkdownTable";
+import {
+  addColumn,
+  addRow,
+  deleteColumn,
+  deleteRow,
+  moveRow,
+  setColumnAlignment,
+  setDataCellText,
+  setHeaderCellText,
+} from "../edit/tableModeOperations";
 
 export const PARTIAL_EDIT_VIEW_TYPE = "unified-outliner-partial-edit";
 
@@ -643,6 +667,41 @@ export class PartialEditView extends ItemView {
    * `fencedCodeMeta` is null.
    */
   private fencedCodeSelectedInfoString: string | null = null;
+  /**
+   * Phase 5E-3c ("軽量 Table Mode"): the CURRENT, in-session structured
+   * table model for a standalone table block — non-null exactly when
+   * `this.nodeKind === "table"` AND `this.originalText` last parsed
+   * successfully (parseMarkdownTable) — never a save format, purely this
+   * Partial Edit session's own working copy (see EditableMarkdownTable's
+   * own doc comment). Populated on load and re-derived every time the
+   * user switches FROM the Raw tab TO the Table tab (re-parsing the
+   * textarea's CURRENT value, so a raw edit made while on the Raw tab is
+   * never silently discarded — ticket §2 「Raw タブとの同期」); every
+   * cell/row/column operation below replaces this field wholesale with
+   * the pure operation's own returned table (see edit/
+   * tableModeOperations.ts), never mutates it in place. Reset to null
+   * alongside fencedCodeMeta at every load site for every other kind.
+   */
+  private tableModeTable: EditableMarkdownTable | null = null;
+  /**
+   * Phase 5E-3c: which of the two tabs (ticket §1 「Raw タブと Table
+   * タブ」) is currently shown for a loaded table block — meaningless
+   * (and left at its default "raw") for every other kind, since only a
+   * table block ever shows the tab row at all (see renderTableModeRow).
+   * Always "raw" immediately after a fresh load — the ticket's own
+   * default landing tab — and flips only via the tab-click handlers
+   * (onOpen), never automatically.
+   */
+  private tableModeActiveTab: "raw" | "table" = "raw";
+  /**
+   * Phase 5E-3c: the reason the LAST parseMarkdownTable attempt on this
+   * table block failed (ticket §1 「parse に失敗した場合...理由コードと
+   * ともに一行で表示すること」) — null whenever the most recent parse
+   * attempt (load, or a Raw->Table switch) succeeded, or this isn't a
+   * table block at all. Drives both the Table tab's disabled state and
+   * the one-line reason text shown next to it (renderTableModeRow).
+   */
+  private tableModeParseFailureReason: MarkdownTableParseFailureReason | null = null;
   /**
    * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
    * Edit Pane"): non-null ONLY while `standaloneParentListItemProjection`
@@ -1127,6 +1186,19 @@ export class PartialEditView extends ItemView {
   private fencedCodeLanguageLabelEl!: HTMLElement;
   private fencedCodeLanguageSelectEl!: HTMLSelectElement;
   private fencedCodeLanguageCustomInputEl!: HTMLInputElement;
+  /**
+   * Phase 5E-3c ("軽量 Table Mode"): the Raw/Table tab row + its own
+   * one-line parse-failure reason, and the Table tab's own cell/row/
+   * column grid — see tableModeTable's own field doc comment and
+   * renderTableModeRow/renderTableModeGrid for how these are toggled and
+   * populated. tableModeGridEl is rebuilt (empty()+redraw) on every
+   * structural change, never left to accumulate stale children.
+   */
+  private tableModeTabRowEl!: HTMLElement;
+  private tableModeRawTabButtonEl!: HTMLButtonElement;
+  private tableModeTableTabButtonEl!: HTMLButtonElement;
+  private tableModeParseFailureEl!: HTMLElement;
+  private tableModeGridEl!: HTMLElement;
   private textareaEl!: HTMLTextAreaElement;
   /**
    * Phase 5L-6 ("Parent List Item Structured Partial Edit"): the READ-ONLY
@@ -1643,6 +1715,52 @@ export class PartialEditView extends ItemView {
       this.updateDirtyState();
     });
 
+    // Phase 5E-3c ("軽量 Table Mode"): the Raw/Table tab row — created
+    // once here (like every other row in this method), visibility/state
+    // toggled per-load by renderTableModeRow. Sits directly above the
+    // shared textareaEl below (created immediately after this block),
+    // which the Raw tab reuses completely unchanged for a table block —
+    // see class doc comment / ticket §1. The Table tab's own grid lives
+    // in the separate tableModeGridEl created further below.
+    this.tableModeTabRowEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-table-mode-tab-row",
+    });
+    this.tableModeRawTabButtonEl = this.tableModeTabRowEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-table-mode-tab",
+      text: this.plugin.t("partialEdit.tableMode.rawTab"),
+      attr: { type: "button" },
+    });
+    this.tableModeRawTabButtonEl.addEventListener("click", () => this.handleTableModeSwitchToRawTab());
+    this.tableModeTableTabButtonEl = this.tableModeTabRowEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-table-mode-tab",
+      text: this.plugin.t("partialEdit.tableMode.tableTab"),
+      attr: { type: "button" },
+    });
+    this.tableModeTableTabButtonEl.addEventListener("click", () => this.handleTableModeSwitchToTableTab());
+    // Phase 5E-3c: the one-line parse-failure reason (ticket §1 「無効化
+    // の理由を reason コードとともに一行で表示すること」) — English text
+    // per the ticket's own explicit allowance, but still routed through
+    // `t()` like every other user-facing string in this pane (see
+    // tableModeParseFailureReasonText's own doc comment).
+    this.tableModeParseFailureEl = this.tableModeTabRowEl.createSpan({
+      cls: "unified-outliner-partial-edit-table-mode-parse-failure",
+    });
+    this.tableModeTabRowEl.toggleVisibility(false);
+
+    // Phase 5E-3c: the Table tab's own cell/row/column grid — a SEPARATE
+    // element from textareaEl (never reused/overlaid), toggled
+    // mutually-exclusively with it by renderTableModeRow depending on
+    // `this.tableModeActiveTab`. Rebuilt (empty() + redraw, like
+    // renderBreadcrumb) on every structural change (row/column add/
+    // delete/move, alignment change, and every load/tab-switch) — see
+    // renderTableModeGrid's own doc comment. Cell TEXT edits themselves
+    // do NOT trigger a full rebuild (would steal focus mid-keystroke);
+    // they only replace `this.tableModeTable` and call updateDirtyState.
+    this.tableModeGridEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-table-mode-grid",
+    });
+    this.tableModeGridEl.toggleVisibility(false);
+
     this.textareaEl = this.contentEl.createEl("textarea", {
       cls: "unified-outliner-partial-edit-textarea",
     });
@@ -2043,6 +2161,12 @@ export class PartialEditView extends ItemView {
     // field's own doc comment.
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
+    // fields' own doc comments (Table Mode is exclusively a "table" kind
+    // concept, same "no-op addition for every other kind" pattern).
+    this.tableModeTable = null;
+    this.tableModeActiveTab = "raw";
+    this.tableModeParseFailureReason = null;
     // Phase 5L-8: reset alongside standaloneParentListItemProjection above
     // — see this field's own doc comment (a child inline session can only
     // ever exist alongside a live parent projection).
@@ -2325,6 +2449,22 @@ export class PartialEditView extends ItemView {
     // quoteProjection's own kind-gated population immediately above.
     this.fencedCodeMeta = extracted.kind === "fenced-code" ? extracted.fencedCode ?? null : null;
     this.fencedCodeSelectedInfoString = this.fencedCodeMeta ? this.fencedCodeMeta.infoString : null;
+    // Phase 5E-3c: populate the Table Mode model exactly when this load
+    // resolved to a table block — every other kind leaves all three
+    // fields at their reset defaults, mirroring fencedCodeMeta's own
+    // kind-gated population immediately above. A fresh load always lands
+    // on the Raw tab (ticket §2's own default) regardless of whether the
+    // parse itself succeeds — the Table tab (renderTableModeRow) is
+    // simply disabled when it doesn't.
+    this.tableModeActiveTab = "raw";
+    if (extracted.kind === "table") {
+      const parsed = parseMarkdownTable(extracted.text);
+      this.tableModeTable = parsed.ok ? parsed.table : null;
+      this.tableModeParseFailureReason = parsed.ok ? null : parsed.reason;
+    } else {
+      this.tableModeTable = null;
+      this.tableModeParseFailureReason = null;
+    }
     // Phase 5L-12: the five-tier projection chain
     // (standaloneListMarkerProjection/standaloneTaskListProjection/
     // standaloneOrderedListProjection/standaloneMultiLineListProjection/
@@ -2416,6 +2556,12 @@ export class PartialEditView extends ItemView {
     // fenced-code kind/info-string selector either).
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
+    // fields' own doc comments (a paragraph is never eligible for Table
+    // Mode either).
+    this.tableModeTable = null;
+    this.tableModeActiveTab = "raw";
+    this.tableModeParseFailureReason = null;
     // Phase 5L-1: reset alongside quoteProjection above — see this
     // field's own doc comment (a paragraph is never eligible for
     // marker-free list projection).
@@ -2550,6 +2696,13 @@ export class PartialEditView extends ItemView {
     // has no CompositeBlock-member concept at all).
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
+    // fields' own doc comments (fenced-code has no CompositeBlock-member
+    // concept, and neither does a table — Table Mode is never eligible
+    // for a CompositeBlock member either).
+    this.tableModeTable = null;
+    this.tableModeActiveTab = "raw";
+    this.tableModeParseFailureReason = null;
     // Phase 5L-1: reset alongside quoteProjection above — see this
     // field's own doc comment (a CompositeBlock session always uses the
     // separate `listMarkerProjection`/`compositeListOriginalText` fields
@@ -2670,6 +2823,7 @@ export class PartialEditView extends ItemView {
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
     this.renderFencedCodeLanguageRow();
+    this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
@@ -2731,6 +2885,7 @@ export class PartialEditView extends ItemView {
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
     this.renderFencedCodeLanguageRow();
+    this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
@@ -4441,6 +4596,308 @@ export class PartialEditView extends ItemView {
   }
 
   /**
+   * Phase 5E-3c ("軽量 Table Mode"): maps a parse failure reason
+   * (MarkdownTableParseFailureReason) to a one-line English display
+   * string, WITH the reason code itself (ticket §1 「無効化の理由を
+   * reason コードとともに一行で表示すること」) — English is fine per the
+   * ticket's own explicit allowance, so this is a small free function
+   * rather than an i18n key per reason; the reason CODE itself (already
+   * an English identifier) is what actually varies, so a single template
+   * key plus interpolation covers every case identically.
+   */
+  private tableModeParseFailureReasonText(reason: MarkdownTableParseFailureReason): string {
+    return this.plugin.t("partialEdit.tableMode.parseFailure", { reason });
+  }
+
+  /**
+   * Phase 5E-3c: mirrors renderFencedCodeLanguageRow's own "toggle
+   * visibility/populate from loaded state, once per render" pattern for
+   * the Table Mode tab row + grid instead. The tab row (and its Raw/Table
+   * buttons) is shown ONLY for `this.nodeKind === "table"` — every other
+   * kind (including fenced-code, ticket §1's own explicit non-goal) hides
+   * it entirely, exactly like fencedCodeLanguageRowEl's own hidden
+   * default for every kind but fenced-code.
+   *
+   * The Table tab button is `disabled` whenever `tableModeTable` is null
+   * (the last parse attempt failed, or nothing is loaded) — ticket §1
+   * 「parse に失敗した場合...Table タブを無効化し、Raw タブのみを有効に
+   * する」 — with `tableModeParseFailureReason`'s own one-line text shown
+   * next to it exactly then. `textareaEl`/`tableModeGridEl` are toggled
+   * mutually exclusively by `tableModeActiveTab`, and the Table tab is
+   * force-selected back to "raw" if a load/parse failure leaves it
+   * pointed at an unavailable tab (defensive — the tab-switch handlers
+   * below never let this happen through normal use, but a load can
+   * always leave `tableModeActiveTab` pointing at a table that no longer
+   * parses).
+   */
+  private renderTableModeRow(): void {
+    const isTable = this.nodeKind === "table";
+    this.tableModeTabRowEl.toggleVisibility(isTable);
+    if (!isTable) {
+      this.textareaEl.toggleVisibility(true);
+      this.tableModeGridEl.toggleVisibility(false);
+      return;
+    }
+    if (this.tableModeTable === null && this.tableModeActiveTab === "table") {
+      this.tableModeActiveTab = "raw";
+    }
+    this.tableModeTableTabButtonEl.disabled = this.tableModeTable === null;
+    this.tableModeRawTabButtonEl.toggleClass(
+      "unified-outliner-partial-edit-table-mode-tab-active",
+      this.tableModeActiveTab === "raw"
+    );
+    this.tableModeTableTabButtonEl.toggleClass(
+      "unified-outliner-partial-edit-table-mode-tab-active",
+      this.tableModeActiveTab === "table"
+    );
+    if (this.tableModeParseFailureReason) {
+      this.tableModeParseFailureEl.setText(this.tableModeParseFailureReasonText(this.tableModeParseFailureReason));
+      this.tableModeParseFailureEl.toggleVisibility(true);
+    } else {
+      this.tableModeParseFailureEl.setText("");
+      this.tableModeParseFailureEl.toggleVisibility(false);
+    }
+    const showTable = this.tableModeActiveTab === "table" && this.tableModeTable !== null;
+    this.textareaEl.toggleVisibility(!showTable);
+    this.tableModeGridEl.toggleVisibility(showTable);
+    if (showTable) this.renderTableModeGrid();
+  }
+
+  /**
+   * Phase 5E-3c: (re)draws the Table tab's own cell/row/column grid from
+   * `this.tableModeTable` — empty() + full rebuild, mirroring
+   * renderBreadcrumb's own "read-only structural snapshot, rebuild on
+   * every call" convention, since a table's own shape (row/column count)
+   * changes far more often here than a breadcrumb's ever does. Called
+   * from renderTableModeRow whenever the Table tab is the active,
+   * available tab, and again after every structural operation
+   * (add/delete/move row, add/delete column, alignment change) — see each
+   * handler below.
+   *
+   * Deliberately NOT called after a plain cell-text edit (the header/data
+   * cell `input` listeners below only update `this.tableModeTable` and
+   * call `updateDirtyState()`) — rebuilding the DOM on every keystroke
+   * would steal focus out from under the user mid-edit.
+   */
+  private renderTableModeGrid(): void {
+    this.tableModeGridEl.empty();
+    const table = this.tableModeTable;
+    if (!table) return;
+
+    const headerRowEl = this.tableModeGridEl.createDiv({
+      cls: "unified-outliner-partial-edit-table-mode-row unified-outliner-partial-edit-table-mode-header-row",
+    });
+    table.headers.forEach((headerText, columnIndex) => {
+      const cellEl = headerRowEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-cell" });
+      const deleteColButtonEl = cellEl.createEl("button", {
+        cls: "unified-outliner-partial-edit-table-mode-delete-column",
+        attr: { type: "button" },
+      });
+      setIcon(deleteColButtonEl, "x");
+      setTooltip(deleteColButtonEl, this.plugin.t("partialEdit.tableMode.deleteColumn"));
+      deleteColButtonEl.addEventListener("click", () => this.handleTableModeDeleteColumn(columnIndex));
+      const inputEl = cellEl.createEl("input", {
+        type: "text",
+        cls: "unified-outliner-partial-edit-table-mode-cell-input",
+        value: headerText,
+      });
+      inputEl.addEventListener("input", () => {
+        const result = setHeaderCellText(this.tableModeTable!, columnIndex, inputEl.value);
+        if (result.ok) this.tableModeTable = result.table;
+        this.updateDirtyState();
+      });
+      const alignRowEl = cellEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-align-row" });
+      (["left", "center", "right", "none"] as TableColumnAlignment[]).forEach((alignment) => {
+        const alignButtonEl = alignRowEl.createEl("button", {
+          cls: "unified-outliner-partial-edit-table-mode-align-button",
+          text: this.plugin.t(
+            alignment === "left"
+              ? "partialEdit.tableMode.alignLeft"
+              : alignment === "center"
+                ? "partialEdit.tableMode.alignCenter"
+                : alignment === "right"
+                  ? "partialEdit.tableMode.alignRight"
+                  : "partialEdit.tableMode.alignNone"
+          ),
+          attr: { type: "button" },
+        });
+        alignButtonEl.toggleClass(
+          "unified-outliner-partial-edit-table-mode-align-button-active",
+          table.alignments[columnIndex] === alignment
+        );
+        alignButtonEl.addEventListener("click", () => this.handleTableModeSetAlignment(columnIndex, alignment));
+      });
+    });
+    const addColumnButtonEl = headerRowEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-table-mode-add-column",
+      attr: { type: "button" },
+    });
+    setIcon(addColumnButtonEl, "plus");
+    setTooltip(addColumnButtonEl, this.plugin.t("partialEdit.tableMode.addColumn"));
+    addColumnButtonEl.addEventListener("click", () => this.handleTableModeAddColumn());
+
+    table.rows.forEach((row, rowIndex) => {
+      const rowEl = this.tableModeGridEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-row" });
+      const handleEl = rowEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-row-handle" });
+      const upButtonEl = handleEl.createEl("button", {
+        cls: "unified-outliner-partial-edit-table-mode-row-move",
+        attr: { type: "button" },
+      });
+      setIcon(upButtonEl, "chevron-up");
+      setTooltip(upButtonEl, this.plugin.t("partialEdit.tableMode.moveRowUp"));
+      upButtonEl.disabled = rowIndex === 0;
+      upButtonEl.addEventListener("click", () => this.handleTableModeMoveRow(rowIndex, "up"));
+      const downButtonEl = handleEl.createEl("button", {
+        cls: "unified-outliner-partial-edit-table-mode-row-move",
+        attr: { type: "button" },
+      });
+      setIcon(downButtonEl, "chevron-down");
+      setTooltip(downButtonEl, this.plugin.t("partialEdit.tableMode.moveRowDown"));
+      downButtonEl.disabled = rowIndex === table.rows.length - 1;
+      downButtonEl.addEventListener("click", () => this.handleTableModeMoveRow(rowIndex, "down"));
+      row.forEach((cellText, columnIndex) => {
+        const cellEl = rowEl.createDiv({ cls: "unified-outliner-partial-edit-table-mode-cell" });
+        const inputEl = cellEl.createEl("input", {
+          type: "text",
+          cls: "unified-outliner-partial-edit-table-mode-cell-input",
+          value: cellText,
+        });
+        inputEl.addEventListener("input", () => {
+          const result = setDataCellText(this.tableModeTable!, rowIndex, columnIndex, inputEl.value);
+          if (result.ok) this.tableModeTable = result.table;
+          this.updateDirtyState();
+        });
+      });
+      const deleteRowButtonEl = rowEl.createEl("button", {
+        cls: "unified-outliner-partial-edit-table-mode-delete-row",
+        attr: { type: "button" },
+      });
+      setIcon(deleteRowButtonEl, "trash-2");
+      setTooltip(deleteRowButtonEl, this.plugin.t("partialEdit.tableMode.deleteRow"));
+      deleteRowButtonEl.addEventListener("click", () => this.handleTableModeDeleteRow(rowIndex));
+    });
+
+    const addRowButtonEl = this.tableModeGridEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-table-mode-add-row",
+      attr: { type: "button" },
+    });
+    setIcon(addRowButtonEl, "plus");
+    setTooltip(addRowButtonEl, this.plugin.t("partialEdit.tableMode.addRow"));
+    addRowButtonEl.addEventListener("click", () => this.handleTableModeAddRow());
+  }
+
+  /**
+   * Phase 5E-3c: Table -> Raw tab switch (ticket §2 「Table → Raw への
+   * 切り替え時は serializeMarkdownTable を実行して Raw テキストを更新す
+   * る」) — always succeeds (serializeMarkdownTable never rejects).
+   * A no-op (besides the tab flip itself) when already on the Raw tab or
+   * nothing is loaded as a table.
+   */
+  private handleTableModeSwitchToRawTab(): void {
+    if (this.nodeKind !== "table") return;
+    if (this.tableModeActiveTab === "table" && this.tableModeTable) {
+      this.textareaEl.value = serializeMarkdownTable(this.tableModeTable).join("\n");
+    }
+    this.tableModeActiveTab = "raw";
+    this.renderTableModeRow();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5E-3c: Raw -> Table tab switch (ticket §2 「Raw → Table への
+   * 切り替え時は parseMarkdownTable を実行し、失敗した場合はタブ切り替え
+   * を拒否してその場でエラー理由を表示する」) — re-parses the textarea's
+   * CURRENT value (never a stale `tableModeTable` from load time), so a
+   * raw edit made while on the Raw tab is always reflected. A failed
+   * parse refuses the switch (`tableModeActiveTab` stays "raw") and
+   * updates `tableModeParseFailureReason` so renderTableModeRow shows the
+   * one-line reason text next to the (now-disabled) Table tab.
+   */
+  private handleTableModeSwitchToTableTab(): void {
+    if (this.nodeKind !== "table") return;
+    const parsed = parseMarkdownTable(this.textareaEl.value);
+    if (!parsed.ok) {
+      this.tableModeTable = null;
+      this.tableModeParseFailureReason = parsed.reason;
+      this.tableModeActiveTab = "raw";
+      this.renderTableModeRow();
+      return;
+    }
+    this.tableModeTable = parsed.table;
+    this.tableModeParseFailureReason = null;
+    this.tableModeActiveTab = "table";
+    this.renderTableModeRow();
+    this.updateDirtyState();
+  }
+
+  private handleTableModeAddRow(): void {
+    if (!this.tableModeTable) return;
+    const result = addRow(this.tableModeTable);
+    if (result.ok) this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Ticket §拒否条件: 「行削除操作によって行数が0になる場合（最後の1行は
+   * 削除できない）」 — deleteRow itself already refuses this
+   * ("last-row"); shown here as a Notice, exactly like every other
+   * refused Apply/operation in this pane.
+   */
+  private handleTableModeDeleteRow(rowIndex: number): void {
+    if (!this.tableModeTable) return;
+    const result = deleteRow(this.tableModeTable, rowIndex);
+    if (!result.ok) {
+      new Notice(this.plugin.t("partialEdit.tableMode.lastRowUndeletable"));
+      return;
+    }
+    this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  private handleTableModeMoveRow(rowIndex: number, direction: "up" | "down"): void {
+    if (!this.tableModeTable) return;
+    const result = moveRow(this.tableModeTable, rowIndex, direction);
+    if (result.ok) this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  private handleTableModeAddColumn(): void {
+    if (!this.tableModeTable) return;
+    const result = addColumn(this.tableModeTable);
+    if (result.ok) this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  /**
+   * Ticket §拒否条件: 「削除操作によって列数が0になる場合（列削除を拒否
+   * する）」 — deleteColumn itself already refuses this ("last-column");
+   * shown here as a Notice, exactly like handleTableModeDeleteRow above.
+   */
+  private handleTableModeDeleteColumn(columnIndex: number): void {
+    if (!this.tableModeTable) return;
+    const result = deleteColumn(this.tableModeTable, columnIndex);
+    if (!result.ok) {
+      new Notice(this.plugin.t("partialEdit.tableMode.lastColumnUndeletable"));
+      return;
+    }
+    this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  private handleTableModeSetAlignment(columnIndex: number, alignment: TableColumnAlignment): void {
+    if (!this.tableModeTable) return;
+    const result = setColumnAlignment(this.tableModeTable, columnIndex, alignment);
+    if (result.ok) this.tableModeTable = result.table;
+    this.renderTableModeGrid();
+    this.updateDirtyState();
+  }
+
+  /**
    * Phase 5B: draw the ancestor breadcrumb from `this.ancestors`, computed
    * once by loadNodeInternal at load time. Deliberately NOT recomputed on
    * every render or on a timer — the breadcrumb is a read-only aid derived
@@ -5267,6 +5724,25 @@ export class PartialEditView extends ItemView {
     // the splice call below, and no partial/best-effort splice is
     // attempted.
     let newRawText = this.textareaEl.value;
+    // Phase 5E-3c ("軽量 Table Mode", ticket §3): when the Table tab is
+    // the currently active one for a loaded table block, Apply writes
+    // back serializeMarkdownTable's OWN output rather than the (possibly
+    // stale, since the Table tab hides textareaEl) raw textarea value —
+    // the ticket's own explicit requirement 「Table タブで Apply が押さ
+    // れた場合は serializeMarkdownTable を呼び出して Markdown 文字列を生
+    // 成し、既存の applySubtreeEdit 経路に渡す」. Deliberately placed
+    // BEFORE every other branch below (mirroring pendingLeafFirstChild's
+    // own "checked first" placement) since none of the projection
+    // branches below ever apply to a table block (quoteProjection/
+    // standalone*Projection are all null for nodeKind "table" — see
+    // loadNodeInternal) — this can only ever set the value every one of
+    // them would otherwise have left untouched. The Raw tab (or a table
+    // whose last parse failed) is completely unaffected: newRawText stays
+    // exactly `this.textareaEl.value`, ticket §3's own "Raw タブで Apply
+    // が押された場合は従来どおり Raw テキストをそのまま渡す".
+    if (this.nodeKind === "table" && this.tableModeActiveTab === "table" && this.tableModeTable) {
+      newRawText = serializeMarkdownTable(this.tableModeTable).join("\n");
+    }
     // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
     // Mode B"): a pending "promote this leaf to a parent" draft is
     // present — checked BEFORE every other branch in this whole
@@ -5866,6 +6342,30 @@ export class PartialEditView extends ItemView {
         this.fencedCodeSelectedInfoString = appliedInfoString;
         this.textareaEl.value = this.currentDisplayText();
         this.renderFencedCodeLanguageRow();
+      } else if (this.nodeKind === "table") {
+        // Phase 5E-3c: re-derive BOTH tabs fresh from the just-applied
+        // `newRawText` — `this.originalText` is reassigned to it a few
+        // lines above this whole if/else-if chain (see the shared tail
+        // right after), so currentDisplayText()'s own default fallback
+        // (originalText verbatim) already gives the Raw tab its correct
+        // post-Apply textarea value with no extra work here. This branch
+        // only needs to re-parse for the Table tab's own model — exactly
+        // mirroring loadNodeInternal's own kind-gated population, so a
+        // second Table Mode Apply within the same pane session starts
+        // from a fully current model, never a stale pre-Apply one. A
+        // parse failure here (the user's own Table Mode edit somehow
+        // produced un-reparseable Markdown — not expected, since every
+        // Table Mode operation above keeps serializeMarkdownTable's
+        // output valid by construction, but handled defensively anyway)
+        // degrades to Raw-tab-only, same "degrade to raw, never leave a
+        // stale structured model in place" contract as every sibling
+        // projection rebuild above.
+        const parsed = parseMarkdownTable(newRawText);
+        this.tableModeTable = parsed.ok ? parsed.table : null;
+        this.tableModeParseFailureReason = parsed.ok ? null : parsed.reason;
+        if (!parsed.ok) this.tableModeActiveTab = "raw";
+        this.textareaEl.value = this.currentDisplayText();
+        this.renderTableModeRow();
       }
       // Phase 5A-1 hardening §1: see the paragraph branch's identical
       // comment above — explicitly synced right after this pane's own
@@ -6783,6 +7283,23 @@ export class PartialEditView extends ItemView {
     // own "one flag per new control, body handled separately" pattern.
     const fencedCodeInfoStringDirty =
       this.fencedCodeMeta !== null && this.fencedCodeSelectedInfoString !== this.fencedCodeMeta.infoString;
+    // Phase 5E-3c ("軽量 Table Mode"): dirty whenever the Table tab is the
+    // active, available one AND its current model's own serialized form
+    // differs from `this.originalText` — this is the ONLY dirty check
+    // needed for Table Mode, since currentDisplayText()'s existing
+    // default fallback (originalText verbatim) is exactly what the Raw
+    // tab already compares `this.textareaEl.value` against above (the
+    // top-level `this.textareaEl.value !== this.currentDisplayText()`
+    // check) — no separate flag needed for that half, mirroring
+    // fencedCodeInfoStringDirty's own "only the SELECTOR row's own extra
+    // state needs a new flag" pattern. `tableModeTable` is null for every
+    // kind but a successfully-parsed table, so this is a no-op addition
+    // for every other kind.
+    const tableModeDirty =
+      this.nodeKind === "table" &&
+      this.tableModeActiveTab === "table" &&
+      this.tableModeTable !== null &&
+      serializeMarkdownTable(this.tableModeTable).join("\n") !== this.originalText;
     // Phase 5D-2A: ALSO counts a loaded CompositeBlock (compositeAnchor)
     // as "something is loaded" here — otherwise a composite-wide edit
     // would never register as dirty, silently defeating the unsaved-edit
@@ -6804,7 +7321,8 @@ export class PartialEditView extends ItemView {
         childInlineDirty ||
         addDeleteDirty ||
         leafFirstChildDirty ||
-        fencedCodeInfoStringDirty)
+        fencedCodeInfoStringDirty ||
+        tableModeDirty)
     );
   }
 
@@ -7246,6 +7764,7 @@ export class PartialEditView extends ItemView {
     this.renderTaskCheckboxRow();
     this.renderOrderedNumberRow();
     this.renderFencedCodeLanguageRow();
+    this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
