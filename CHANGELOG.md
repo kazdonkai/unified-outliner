@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-09-24
+
+### Added
+
+- Phase 5E-3b: a new pure, Obsidian-free Markdown table parser/serializer (`EditableMarkdownTable`, `parseMarkdownTable`, `serializeMarkdownTable` in `src/edit/editableMarkdownTable.ts`), converting a Markdown pipe-table's raw text to and from a structured `{headers, alignments, rows}` shape with guaranteed round-trip stability in both directions. The parser splits table rows character-by-character rather than a naive pipe split, so a backslash-escaped pipe (`\|`) and a pipe inside a matched-length inline-code span are correctly excluded from the column split; a nested or mismatched-length code span is explicitly out of scope and rejected rather than guessed at. This phase adds no UI and does not touch the Partial Edit save path, conflict detection, the Outline Tree projection, or the range parser — it exists purely as the foundation Phase 5E-3c's Table Mode will be built on. See `docs/phase5e3b_table-parser-serializer-design-memo.md` for the full design.
+
 ## [0.7.5] - 2026-09-23
 
 ### Added
