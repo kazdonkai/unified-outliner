@@ -728,7 +728,15 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    */
   async activatePartialEditView(
     nodeId: string,
-    options?: { openInNewWindow?: boolean }
+    options?: {
+      openInNewWindow?: boolean;
+      /**
+       * Phase 5E-3a fix: the Outline Tree just inserted this fenced-code/
+       * table block — lets the pane fold its first Apply and the insert
+       * into one Undo step (see PartialEditView#setPendingStructuredInsert).
+       */
+      pendingStructuredInsert?: { preInsertText: string; postInsertText: string };
+    }
   ): Promise<void> {
     const { workspace } = this.app;
 
@@ -821,6 +829,9 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       // breadcrumb segment clicks go through. See PartialEditView.ts's
       // requestLoadNode doc comment.
       leaf.view.requestLoadNode(nodeId);
+      if (options?.pendingStructuredInsert) {
+        leaf.view.setPendingStructuredInsert({ nodeId, ...options.pendingStructuredInsert });
+      }
     }
   }
 
