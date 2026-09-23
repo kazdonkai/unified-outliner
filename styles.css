@@ -555,10 +555,12 @@ settings:
  * Fix: force any of these five rows Obsidian marked hidden this way
  * (matched on its own inline `style` text, since CSS has no selector for
  * "this element's own visibility is hidden") out of layout entirely.
- * `!important` is defensive, not strictly required — `[style*="..."]`
- * already outranks this file's own plain-class `display: flex` on each
- * selector by specificity — but guarantees this always wins regardless of
- * any future rule ordering. Originally scoped to exactly the five rows
+ * No `important` flag (removed 2026-09-23 for the Obsidian Community review's
+ * "avoid important-flag" warning): `[style*="..."]` (class + attribute, 0,2,0)
+ * already outranks this file's own plain-class `display: flex` (0,1,0) on
+ * each selector by specificity, independent of rule ordering. Any future
+ * rule that sets `display` on one of these rows must stay at 0,1,0 (or be
+ * added here with a matching higher-specificity hidden variant). Originally scoped to exactly the five rows
  * this bug was measured on; header/textarea are never hidden this way
  * (out of scope), and the quote-header row's own INTERNAL child toggles
  * (quoteTypeInputEl/quoteMarkerSelectEl/quoteTitleInputEl/etc.) are a
@@ -617,7 +619,7 @@ settings:
 .unified-outliner-partial-edit-ordered-number-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"],
 .unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"] {
-  display: none !important;
+  display: none;
 }
 
 .unified-outliner-partial-edit-header {
@@ -681,13 +683,11 @@ settings:
 }
 
 .unified-outliner-partial-edit-sync-status-stale {
-  background-color: var(--text-warning);
   background-color: color-mix(in srgb, var(--text-warning) 16%, transparent);
   color: var(--text-warning);
 }
 
 .unified-outliner-partial-edit-sync-status-unavailable {
-  background-color: var(--text-error);
   background-color: color-mix(in srgb, var(--text-error) 16%, transparent);
   color: var(--text-error);
 }
@@ -1725,7 +1725,6 @@ settings:
  * editing," distinct from parent-child-preview-row-navigable's own
  * neutral hover state above. */
 .unified-outliner-partial-edit-parent-child-preview-row-editing {
-  background-color: var(--interactive-accent, #7c3aed);
   background-color: color-mix(in srgb, var(--interactive-accent, #7c3aed) 14%, transparent);
   border-radius: 2px;
 }
@@ -2250,8 +2249,12 @@ settings:
  * sized taller than the row's normal single-line height (via the inline
  * `height: <N>px` set in OutlineTreeView.ts as its wrapped text grows to
  * multiple lines) is actually visible instead of being clipped back down
- * to the row's normal height. `!important` is deliberate and narrowly
- * scoped: this class only ever exists on the one row currently being
+ * to the row's normal height. Specificity (no `important` flag, removed
+ * 2026-09-23 for the Obsidian Community review's warning) wins over the
+ * theme: every selector is anchored on this view's own contentEl class
+ * (.unified-outliner-outline-view) plus .tree-item-self, i.e. 0,3,0 /
+ * 0,4,0 — above Obsidian's and typical themes' own .tree-item-* rules.
+ * Still narrowly scoped: this class only ever exists on the one row currently being
  * renamed, and disappears the moment that rename ends (both commit and
  * cancel end in a renderTree() rebuild that discards this exact DOM node),
  * so it can never leak into overriding a theme's overflow styling
@@ -2273,14 +2276,14 @@ settings:
  * growing the item to consume all remaining free space in the row, which
  * is what the textarea's own `width: 100%` was already trying (and failing)
  * to achieve indirectly. */
-.unified-outliner-renaming-row,
-.unified-outliner-renaming-row .tree-item-inner {
-  overflow: visible !important;
-  text-overflow: clip !important;
+.unified-outliner-outline-view .tree-item-self.unified-outliner-renaming-row,
+.unified-outliner-outline-view .tree-item-self.unified-outliner-renaming-row .tree-item-inner {
+  overflow: visible;
+  text-overflow: clip;
 }
 
-.unified-outliner-renaming-row .tree-item-inner {
-  flex: 1 1 auto !important;
+.unified-outliner-outline-view .tree-item-self.unified-outliner-renaming-row .tree-item-inner {
+  flex: 1 1 auto;
 }
 
 /* 2026-08-11 ticket ("Move block の対象を最小安全ブロックへ" §5): section/list
