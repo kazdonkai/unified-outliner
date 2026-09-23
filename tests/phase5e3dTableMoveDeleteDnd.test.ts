@@ -455,13 +455,15 @@ describe("Phase 5E-3d category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     expect(readOnlyIds.has(tableRow!.id)).toBe(true);
   });
 
-  it("the Delete menu item's own kind gate now admits both 'fenced-code' and 'table' (showStandaloneComplexBlockMenu)", () => {
+  it("the Delete menu item's own kind gate now admits 'fenced-code', 'table', 'callout', and 'blockquote' (showStandaloneComplexBlockMenu) — follow-up ticket, 2026-09-24: callout/blockquote's own prior exclusion (pinned by this test until now) was found to be a gap during the user's own real-device acceptance testing, not a technical limitation, and was lifted; see tests/phase5e3dStandaloneCalloutBlockquoteDelete.test.ts for full delete-pipeline coverage of the newly-admitted kinds", () => {
     function wouldShowDeleteItem(kind: string): boolean {
-      return kind === "fenced-code" || kind === "table";
+      return (
+        kind === "fenced-code" || kind === "table" || kind === "callout" || kind === "blockquote"
+      );
     }
     expect(wouldShowDeleteItem("table")).toBe(true);
     expect(wouldShowDeleteItem("fenced-code")).toBe(true);
-    expect(wouldShowDeleteItem("callout")).toBe(false);
-    expect(wouldShowDeleteItem("blockquote")).toBe(false);
+    expect(wouldShowDeleteItem("callout")).toBe(true);
+    expect(wouldShowDeleteItem("blockquote")).toBe(true);
   });
 });

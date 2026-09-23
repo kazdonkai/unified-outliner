@@ -3513,6 +3513,14 @@ export class OutlineTreeView extends ItemView {
    * also admits `target.kind === "table"`. Both reuse the EXACT SAME code
    * paths fenced-code already exercises — no table-specific branch was
    * added anywhere in this method.
+   *
+   * 2026-09-24 追記（follow-up ticket, standalone callout/blockquote
+   * Delete）: the Delete item's own gate below now also admits
+   * `target.kind === "callout"` and `"blockquote"` — the one remaining
+   * gap in this method, since Move up/down (via
+   * `buildStandaloneComplexBlockSnapshot`) has admitted callout/
+   * blockquote since Phase 5C-3. See that gate's own updated comment,
+   * just above it in this method's body, for the full rationale.
    */
   private showStandaloneComplexBlockMenu(evt: MouseEvent, nodeId: string): void {
     const menu = new Menu();
@@ -3593,7 +3601,25 @@ export class OutlineTreeView extends ItemView {
       // gate), and defer all actual re-verification to
       // deleteStandaloneComplexBlock's own re-parse/re-scan/re-match job,
       // run only once "Delete" is confirmed in the modal.
-      if (target.kind === "fenced-code" || target.kind === "table") {
+      //
+      // 2026-09-24 追記（follow-up ticket, discovered during the user's
+      // own real-device acceptance testing of the
+      // phase5e3d-table-move-delete-dnd branch）: this gate now also
+      // admits "callout" and "blockquote" — Move up/down above was
+      // already unconditional on kind (via buildStandaloneComplexBlockSnapshot,
+      // which has covered callout/blockquote since Phase 5C-3), so this
+      // Delete item was the one remaining capability gap between a
+      // standalone callout/blockquote row and fenced-code/table. Reuses
+      // this exact same Delete item/modal/dispatch unchanged — see
+      // edit/deleteStandaloneComplexBlock.ts's and
+      // ConfirmFencedCodeDeleteModal's own dated addenda for why this
+      // widening required no new logic anywhere in the pipeline.
+      if (
+        target.kind === "fenced-code" ||
+        target.kind === "table" ||
+        target.kind === "callout" ||
+        target.kind === "blockquote"
+      ) {
         const deleteSnapshot = buildStandaloneComplexBlockDeleteSnapshot(target);
         if (deleteSnapshot) {
           const rowNode = this.nodeById.get(nodeId);

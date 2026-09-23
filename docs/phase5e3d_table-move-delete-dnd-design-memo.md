@@ -287,3 +287,79 @@ build）のみを実施した。実機確認はユーザー自身の責任で別
 （`phase5e3c-table-mode` ブランチ以前の各フェーズと同じワークフロー）。
 このブランチは `main` にマージされておらず、バージョン番号も変更してい
 ない。
+
+## 9. 追記（follow-up ticket "standalone callout/blockquote Delete"、2026-09-24、同一ブランチ）
+
+ユーザー自身が本ブランチ（`phase5e3d-table-move-delete-dnd`）を実機
+（iPad）で受け入れテストしている最中に、standalone な callout/
+blockquote 行のコンテキストメニューに Delete 項目が一切無いことに気づ
+き、報告された。§3.4/§7 で「callout/blockquote は引き続き対象外（本
+フェーズのスコープ外、変更なし）」としていたのはまさにこの状態であ
+り、ギャップかどうかの確認と、もしギャップなら実装することが依頼され
+た。
+
+**調査結果**: `edit/deleteStandaloneComplexBlock.ts` 自身の元々の doc
+コメントを読んだ限り、callout/blockquote が除外されていたのは技術的
+な制約ではなく、単に「そのフェーズ（Phase 5E-1）の brief に含まれてい
+なかった」という理由だった。実際、このモジュールの削除・再検証ロジッ
+ク自体（`snapshotMatches`、削除本体、`normalizeBlankRunAtBoundary`）
+は元から kind 非依存で、`ComplexBlockInfo.range` を不透明な行範囲とし
+て削除するだけであり、callout の fold marker や blockquote 自身のネス
+ト引用処理を一切再解釈しない。§3.2 で確認した
+`isStandaloneComplexBlockShapeEligible`（このモジュールが再利用する適
+格性ゲート）も、Move 機能で callout/blockquote を含めて既に汎用化済み
+であることを再確認した。つまり、これは真の技術的制約ではなく単なる
+「未依頼だっただけ」のギャップであり、本フェーズ・Phase 5E-1 と全く同
+じ確立されたパターン（既存の kind 許可集合を widen するだけ、新しい
+range/parser ロジックは書かない）で安全に実装できると判断した。
+
+**変更内容**（§3.4〜§3.6 と同じファイル群、いずれも allow-list の widen
+のみ）:
+
+- `src/edit/deleteStandaloneComplexBlock.ts`: `StandaloneComplexBlockDeleteKind`
+  を `"fenced-code" | "table"` から `"fenced-code" | "table" | "callout" | "blockquote"`
+  に widen。`buildStandaloneComplexBlockDeleteSnapshot`・
+  `findRangeInvalidReason` の kind ガードも同様に widen。`snapshotMatches`・
+  削除本体・空行正規化ロジックは無変更（元から kind 非依存のため）。
+- `src/view/OutlineTreeView.ts`: `showStandaloneComplexBlockMenu` 内の
+  Delete item ゲートを `target.kind === "fenced-code" || target.kind === "table"`
+  から `callout`/`blockquote` も含む形に widen。Move up/down は元々
+  callout/blockquote を含めて kind 非依存だったため、この Delete ゲー
+  トが本メソッド内で唯一残っていたギャップだった。
+- `src/view/ConfirmFencedCodeDeleteModal.ts`: `kind` パラメータ
+  （`StandaloneComplexBlockDeleteKind`）の分岐に `"callout"`/`"blockquote"`
+  を追加し、それぞれ専用の title key を選択するようにした。body/
+  undo-note は既に kind 非依存のため無変更。クラス名は変更していない
+  （§3.5 で table 追加時に既に確立された「動いているものを不要に改名
+  しない」という本ブランチの抑制的方針を踏襲）。
+- `src/i18n.ts`: 新規 i18n キー `modal.deleteCalloutTitle`/
+  `modal.deleteBlockquoteTitle`（EN/JA）を、既存の
+  `modal.deleteFencedCodeTitle`/`modal.deleteTableTitle` と全く同じ命
+  名規約・置き場所で追加した。JA の用語は
+  `tests/standaloneComplexBlockUiWiring.test.ts` が既に固定している
+  `partialEdit.kindCallout`（「コールアウト」）/
+  `partialEdit.kindBlockquote`（「引用」）の訳語に合わせた。
+
+**テスト**: `tests/phase5e3dTableMoveDeleteDnd.test.ts` の最終テスト
+（Delete ゲートが `callout`/`blockquote` を `false` と pin していた回
+帰ガード）を、新しい意図的な仕様（`true`）を確認するテストに反転し
+た。新規ファイル `tests/phase5e3dStandaloneCalloutBlockquoteDelete.test.ts`
+（11件）を追加し、
+`tests/phase5e1FencedCodePartialEditMoveDelete.test.ts`/
+`tests/phase5e3dTableMoveDeleteDnd.test.ts` の Delete カテゴリ構成を
+ほぼそのまま踏襲して、標準的な原子的削除・空行run正規化・
+boundary-changed 拒否・composite-member 拒否・not-supported（リスト
+継続下ネスト）拒否を callout/blockquote それぞれについて検証、加えて
+新規 i18n キーと Delete メニューゲートの UI 配線再現テストを追加し
+た。Move/Drag-and-Drop 側のテストは一切変更していない（本 follow-up
+は Delete のみのスコープであり、それらは元から callout/blockquote を
+サポート済みのため）。
+
+**自動検証**: `npx tsc --noEmit -skipLibCheck` エラーなし、
+`npx vitest run` 158ファイル / 3279件全通過（既存3268件 + 新規11件、
+既存テストの反転1件を含むが回帰なし）、`npm run lint` 0エラー（既存の
+`src/settings.ts` 警告3件のみ、本変更と無関係）、`npm run build` 成
+功。実機確認は本 follow-up でも一切行っていない。
+
+**非目標**: Move・Drag and Drop は元から callout/blockquote をサポー
+ト済みのため対象外。新しい range/parser ロジックは一切追加していない。

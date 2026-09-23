@@ -35,6 +35,14 @@
  * kind-neutral ("This will remove ... from the note." / "This can be
  * undone with Obsidian's own Undo.") and are reused unchanged for both
  * kinds.
+ *
+ * > **2026-09-24 追記（follow-up ticket, standalone callout/blockquote
+ * > Delete）**: `kind` now also admits "callout"/"blockquote" — this
+ * > class needed no structural change at all, only two more TITLE-key
+ * > branches (`modal.deleteCalloutTitle`/`modal.deleteBlockquoteTitle`),
+ * > reusing the same already-kind-neutral body/undo-note copy a fourth
+ * > time. See edit/deleteStandaloneComplexBlock.ts's own dated addendum
+ * > for why this widening is safe.
  */
 import { App, Modal } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
@@ -56,9 +64,15 @@ export class ConfirmFencedCodeDeleteModal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText(
-      this.plugin.t(this.kind === "table" ? "modal.deleteTableTitle" : "modal.deleteFencedCodeTitle")
-    );
+    const titleKey =
+      this.kind === "table"
+        ? "modal.deleteTableTitle"
+        : this.kind === "callout"
+          ? "modal.deleteCalloutTitle"
+          : this.kind === "blockquote"
+            ? "modal.deleteBlockquoteTitle"
+            : "modal.deleteFencedCodeTitle";
+    this.titleEl.setText(this.plugin.t(titleKey));
 
     // 1-based, human-facing line numbers — range.startLine/endLine
     // themselves are the existing 0-based ParsedDocument convention used
