@@ -786,16 +786,19 @@ export function describeCompositeBlockRejection(
 // taxonomy and why this is a separate type from CompositeBlockMovability.
 //
 // Approved scope (Phase 5C-3): adjacency candidates are limited to OTHER
-// standalone callout/blockquote blocks only ("A案") — never a list item,
-// section, composite, composite member, or any other ComplexBlockKind
-// (paragraph/fenced-code/table/thematic-break). This is intentionally
-// narrower than CompositeBlock move's own adjacency scan
-// (findAdjacentAnchorNode, above), which also recognizes plain list items
-// and other composites as valid partners — that breadth exists because a
-// composite's own anchor IS a ListBlockNode with real list-sibling
-// semantics; a standalone complex block has none of that, and Phase 5C-3's
-// own approval explicitly rejects widening the candidate set to list/
-// section/paragraph/fenced-code/table/Mermaid.
+// standalone complex blocks only ("A案") — never a list item, section,
+// composite, composite member, or any other ComplexBlockKind. Originally
+// callout/blockquote only; Phase 5E-1 widened the eligible kind set to
+// also include fenced-code, and Phase 5E-3d widened it again to also
+// include table (see isStandaloneComplexBlockShapeEligible's own updated
+// doc comment for the current full kind set). paragraph/thematic-break
+// remain out of scope. This is intentionally narrower than CompositeBlock
+// move's own adjacency scan (findAdjacentAnchorNode, above), which also
+// recognizes plain list items and other composites as valid partners —
+// that breadth exists because a composite's own anchor IS a ListBlockNode
+// with real list-sibling semantics; a standalone complex block has none of
+// that, and Phase 5C-3's own approval explicitly rejects widening the
+// candidate set to list/section/paragraph/Mermaid.
 
 /**
  * True when `info` qualifies as a move candidate ON ITS OWN — kind
@@ -829,9 +832,18 @@ export function isStandaloneComplexBlockShapeEligible(doc: ParsedDocument, info:
   // blockquote already was (see the "nested-in-list" check just below) —
   // deliberately NOT special-cased for fenced-code, per this ticket's own
   // "既存の callout/blockquote の操作経路を最大限再利用する" instruction.
-  // table is deliberately NOT added here — Phase 5E-1 leaves table
-  // read-only, unchanged from Phase 5E-0.
-  if (info.kind !== "callout" && info.kind !== "blockquote" && info.kind !== "fenced-code") return false;
+  // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this again to also
+  // accept "table" — table already has Tree projection and a working
+  // Partial Edit session (Phase 5E-2A/5E-2B); it is folded into this exact
+  // same gate rather than a parallel table-specific eligibility function,
+  // for the identical reason fenced-code was before it.
+  if (
+    info.kind !== "callout" &&
+    info.kind !== "blockquote" &&
+    info.kind !== "fenced-code" &&
+    info.kind !== "table"
+  )
+    return false;
   if (info.editability !== "supported") return false;
   if (info.parentId) {
     const owner = doc.nodes.get(info.parentId);
@@ -966,9 +978,15 @@ export function evaluateStandaloneComplexBlockMovability(
   allowComposedMember = false
 ): StandaloneComplexBlockMovability {
   // Phase 5E-1: widened alongside isStandaloneComplexBlockShapeEligible
-  // above to also accept "fenced-code" — see that function's own updated
-  // doc comment for the full rationale (table stays excluded/read-only).
-  if (target.kind !== "callout" && target.kind !== "blockquote" && target.kind !== "fenced-code") {
+  // above to also accept "fenced-code"; Phase 5E-3d widened again to also
+  // accept "table" — see that function's own updated doc comment for the
+  // full rationale.
+  if (
+    target.kind !== "callout" &&
+    target.kind !== "blockquote" &&
+    target.kind !== "fenced-code" &&
+    target.kind !== "table"
+  ) {
     return { eligible: false, reason: "not-supported" };
   }
   if (target.editability !== "supported") {

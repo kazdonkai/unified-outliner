@@ -1,7 +1,8 @@
 /**
  * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除"): confirmation
- * modal shown before deleting a standalone fenced-code block from the
- * Outline Tree. Deliberately mirrors view/ConfirmParagraphDeleteModal.ts
+ * modal shown before deleting a standalone fenced-code (or, as of Phase
+ * 5E-3d, table) block from the Outline Tree. Deliberately mirrors
+ * view/ConfirmParagraphDeleteModal.ts
  * byte-for-byte in structure (itself mirroring
  * view/ConfirmCompositeDeleteModal.ts) — same `resolved` flag, same
  * `onChoice` firing exactly once whether from an explicit button click
@@ -23,10 +24,22 @@
  * gives no documented guarantee about which element (if any) receives
  * initial keyboard focus, so Enter is intentionally left unbound to
  * "Delete".
+ *
+ * Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this modal to also
+ * cover a standalone table block, reusing this exact same class rather
+ * than a parallel modal — the constructor now takes a `kind` parameter
+ * ("fenced-code" | "table", the same StandaloneComplexBlockDeleteKind
+ * edit/deleteStandaloneComplexBlock.ts itself uses) that selects only the
+ * TITLE text (`modal.deleteFencedCodeTitle` vs the new
+ * `modal.deleteTableTitle`); the body and undo-note copy were already
+ * kind-neutral ("This will remove ... from the note." / "This can be
+ * undone with Obsidian's own Undo.") and are reused unchanged for both
+ * kinds.
  */
 import { App, Modal } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
 import { LineRange } from "../model/block";
+import { StandaloneComplexBlockDeleteKind } from "../edit/deleteStandaloneComplexBlock";
 
 export class ConfirmFencedCodeDeleteModal extends Modal {
   private resolved = false;
@@ -34,6 +47,7 @@ export class ConfirmFencedCodeDeleteModal extends Modal {
   constructor(
     app: App,
     private readonly plugin: UnifiedOutlinerPlugin,
+    private readonly kind: StandaloneComplexBlockDeleteKind,
     private readonly label: string,
     private readonly range: LineRange,
     private readonly onChoice: (confirmed: boolean) => void
@@ -42,7 +56,9 @@ export class ConfirmFencedCodeDeleteModal extends Modal {
   }
 
   onOpen(): void {
-    this.titleEl.setText(this.plugin.t("modal.deleteFencedCodeTitle"));
+    this.titleEl.setText(
+      this.plugin.t(this.kind === "table" ? "modal.deleteTableTitle" : "modal.deleteFencedCodeTitle")
+    );
 
     // 1-based, human-facing line numbers — range.startLine/endLine
     // themselves are the existing 0-based ParsedDocument convention used

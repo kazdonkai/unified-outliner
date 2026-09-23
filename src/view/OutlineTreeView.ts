@@ -2265,7 +2265,9 @@ export class OutlineTreeView extends ItemView {
     } else if (
       isComplexMember &&
       node.isStandalone &&
-      (node.complexKind === "callout" || node.complexKind === "blockquote") &&
+      (node.complexKind === "callout" ||
+        node.complexKind === "blockquote" ||
+        node.complexKind === "table") &&
       !Platform.isMobile
     ) {
       // Phase 5T-2 real-device-verification fix (found via the ticket's
@@ -2297,17 +2299,22 @@ export class OutlineTreeView extends ItemView {
       // set, before falling through to their original paragraph-only
       // logic (see either method's own updated doc comment).
       //
-      // fenced-code/table/thematic-break are deliberately excluded here:
-      // tree/buildOutlineTree.ts only ever computes `isStandalone: true`
-      // for kind "callout"/"blockquote" (see that module's own
-      // isStandaloneComplexBlock-equivalent check) — those other kinds
-      // are never projected as their own Tree row at all, so there is no
-      // row here to wire a listener onto for them. Paragraph D&D against
-      // a fenced-code/table/thematic-break target therefore stays out of
-      // reach via the Tree UI even after this fix — a known, pre-existing
-      // Tree-view-model constraint (not a 5T-2 regression), recorded as
-      // such in the 5T-2 completion report rather than silently
-      // "verified" against a row that cannot exist.
+      // fenced-code/thematic-break are deliberately excluded here.
+      // thematic-break is never projected as its own standalone Tree row
+      // at all (tree/buildOutlineTree.ts's own isStandaloneComplexBlock-
+      // equivalent check never admits it), so there is no row to wire a
+      // listener onto for it. fenced-code DOES get a standalone Tree row
+      // (Phase 5E-0 widened isStandaloneComplexBlockEligible to also admit
+      // it, and Phase 5E-1 gave it Move/Delete/Partial Edit) but was never
+      // given Drag and Drop by that phase — its own scope was explicitly
+      // Partial Edit/Move/Delete only (see
+      // edit/deleteStandaloneComplexBlock.ts's own top doc comment) — so
+      // this guard intentionally still excludes it here; widening
+      // fenced-code into D&D was not requested by any phase to date,
+      // including this one (Phase 5E-3d, table-only). Paragraph D&D
+      // against a fenced-code/thematic-break target therefore stays out
+      // of reach via the Tree UI, a known, pre-existing constraint (not a
+      // 5T-2 regression), recorded as such in the 5T-2 completion report.
       //
       // Phase 5D-3C ADDS `draggable`/`dragstart`/`dragend` here — a
       // standalone callout/blockquote row now ALSO becomes a valid D&D
@@ -2318,6 +2325,17 @@ export class OutlineTreeView extends ItemView {
       // unchanged, and handleDragEnd's endDrag() already clears
       // calloutDragSession unconditionally (see that method's own updated
       // doc comment), so no new dragend logic was needed either.
+      //
+      // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this guard's
+      // own kind check (above) to also admit "table" — table's standalone
+      // Tree row now becomes a valid D&D source/bridge-target exactly like
+      // callout/blockquote already were, reusing this exact same wiring
+      // (handleCalloutDragStart/handleParagraphDragOver/handleParagraphDrop)
+      // unchanged; only the guard's kind allow-list changed. Table is
+      // never a CompositeBlock member (no shipped CompositeBlockRule
+      // produces it as one), so the composite-member drag-wiring branch
+      // below (isComplexMember && !node.isStandalone) is intentionally
+      // left unwidened — table can never reach it.
       selfEl.setAttribute("draggable", "true");
       selfEl.addEventListener("dragstart", (evt) =>
         this.handleCalloutDragStart(evt, node, itemEl)
@@ -3414,21 +3432,25 @@ export class OutlineTreeView extends ItemView {
    * (`target.kind === "fenced-code"` only).
    *
    * Phase 5E-2A ("Markdown table の raw Partial Edit・Apply 検証・安全な書き
-   * 戻し") widens this menu's reach once more, to standalone table rows.
-   * "Open in Partial Edit" (+ new window) above needs NO code change to
+   * 戻し") widened this menu's reach once more, to standalone table rows.
+   * "Open in Partial Edit" (+ new window) above needed NO code change to
    * cover table — it was already kind-neutral, and
-   * edit/partialEdit.ts#extractComplexBlockText now resolves "table" the
-   * same way it resolves "fenced-code". Move up/down and Delete need NO
-   * change either, for the opposite reason: `buildStandaloneComplexBlockSnapshot`
-   * (edit/moveStandaloneComplexBlock.ts) still returns null for kind
-   * "table" (its own StandaloneComplexBlockMoveKind allow-list is
-   * unchanged), so the `if (snapshot)` block below never runs for a table
-   * target; and the Delete item's own `target.kind === "fenced-code"`
-   * gate below excludes "table" by construction. A table row's menu is
-   * therefore always exactly one item long in practice ("Open in Partial
-   * Edit" + "Open in new window"), with no move/delete capability — this
-   * falls out of the existing per-kind gates already in this method's
-   * body, not from any new table-specific branch.
+   * edit/partialEdit.ts#extractComplexBlockText resolves "table" the
+   * same way it resolves "fenced-code". At that time, Move up/down and
+   * Delete stayed unavailable for table (buildStandaloneComplexBlockSnapshot's
+   * own StandaloneComplexBlockMoveKind allow-list, and the Delete item's
+   * own kind gate, both still excluded it), so a table row's menu was
+   * exactly one item long in practice.
+   *
+   * Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this menu's reach
+   * a final time: `buildStandaloneComplexBlockSnapshot` now also accepts
+   * "table" (edit/moveStandaloneComplexBlock.ts's own
+   * StandaloneComplexBlockMoveKind widened), so the `if (snapshot)` block
+   * below now runs for a table target too, offering Move up/down exactly
+   * like fenced-code already had; and the Delete item's own gate below now
+   * also admits `target.kind === "table"`. Both reuse the EXACT SAME code
+   * paths fenced-code already exercises — no table-specific branch was
+   * added anywhere in this method.
    */
   private showStandaloneComplexBlockMenu(evt: MouseEvent, nodeId: string): void {
     const menu = new Menu();
@@ -3492,23 +3514,24 @@ export class OutlineTreeView extends ItemView {
         }
       }
 
-      // Phase 5E-1: a "Delete" item, fenced-code ONLY — deliberately not
-      // offered for callout/blockquote (no such capability was requested
-      // for those kinds this phase; see
+      // Phase 5E-1: a "Delete" item, originally fenced-code ONLY —
+      // deliberately not offered for callout/blockquote (no such
+      // capability was requested for those kinds; see
       // edit/deleteStandaloneComplexBlock.ts's own top doc comment for why
       // this is intentionally a NEW, narrowly kind-scoped module rather
       // than a widened reuse of anything callout/blockquote already has).
-      // Phase 5E-2A (table's Partial-Edit-only widening) leaves this exact
-      // `target.kind === "fenced-code"` check UNCHANGED — table was never
-      // asked to gain Delete, so it simply never reaches this block; no
-      // additional exclusion logic is needed here for that.
+      // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this gate to
+      // also admit "table" — reusing this exact same Delete item/modal/
+      // dispatch, unchanged, only passing target.kind through to the
+      // confirmation modal so its title reads correctly per kind (see
+      // ConfirmFencedCodeDeleteModal's own updated doc comment).
       // Mirrors showCompositeCommandMenu's own delete item exactly:
       // build the delete snapshot at menu-build time, gate on it being
       // buildable at all (mirrors that method's `deletability.deletable`
       // gate), and defer all actual re-verification to
       // deleteStandaloneComplexBlock's own re-parse/re-scan/re-match job,
       // run only once "Delete" is confirmed in the modal.
-      if (target.kind === "fenced-code") {
+      if (target.kind === "fenced-code" || target.kind === "table") {
         const deleteSnapshot = buildStandaloneComplexBlockDeleteSnapshot(target);
         if (deleteSnapshot) {
           const rowNode = this.nodeById.get(nodeId);
@@ -3522,6 +3545,7 @@ export class OutlineTreeView extends ItemView {
                 new ConfirmFencedCodeDeleteModal(
                   this.app,
                   this.plugin,
+                  deleteSnapshot.kind,
                   label,
                   deleteSnapshot.range,
                   (confirmed) => {

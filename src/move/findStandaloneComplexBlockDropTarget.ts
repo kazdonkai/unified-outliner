@@ -139,7 +139,21 @@ export function resolveStandaloneComplexBlockDropTarget(
   target: StandaloneComplexBlockDropTargetHint,
   zone: StandaloneComplexBlockDropZone
 ): StandaloneComplexBlockDropResolution {
-  if (source.kind !== "callout" && source.kind !== "blockquote") {
+  // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens the source kind
+  // gate to also accept "table" — table already has Tree projection
+  // (isStandalone: true rows) and Move/Delete now reuse this same D&D
+  // pipeline's structural-eligibility posture; its ComplexBlockInfo.range
+  // is reused completely unchanged here. "fenced-code" is deliberately
+  // LEFT OUT: unlike Move/Delete, this D&D resolver never gained
+  // fenced-code support in Phase 5E-1 (that phase's own scope was Partial
+  // Edit/Move/Delete only, not Drag and Drop — see
+  // edit/deleteStandaloneComplexBlock.ts's own top doc comment), and
+  // widening it here was not requested by this ticket, so a fenced-code
+  // source stays "not-supported", unchanged (see
+  // tests/findStandaloneComplexBlockDropTarget.test.ts's own pre-existing
+  // "rejects (not-supported) when the source is not kind callout/
+  // blockquote" case, which this phase leaves passing as-is).
+  if (source.kind !== "callout" && source.kind !== "blockquote" && source.kind !== "table") {
     return { allowed: false, reason: "not-supported" };
   }
   if (source.editability !== "supported") {

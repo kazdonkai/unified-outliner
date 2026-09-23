@@ -35,8 +35,13 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, desktop-on
   }
 
   function standaloneBridgeBranch(): string {
+    // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this branch's own
+    // kind check to also admit "table" (reformatted across lines to fit),
+    // so the search string below now matches that widened, multi-line
+    // condition rather than the original single-line callout/blockquote-
+    // only one.
     const start = viewTs.indexOf(
-      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" || node.complexKind === \"blockquote\") &&\n      !Platform.isMobile"
+      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" ||\n        node.complexKind === \"blockquote\" ||\n        node.complexKind === \"table\") &&\n      !Platform.isMobile"
     );
     expect(start).toBeGreaterThan(-1);
     const end = viewTs.indexOf(

@@ -922,6 +922,11 @@ const en = {
   "modal.deleteFencedCodeBody": 'This will remove "{label}" (lines {startLine}–{endLine}) from the note.',
   "modal.deleteFencedCodeUndoNote": "This can be undone with Obsidian's own Undo.",
 
+  // ---- Table delete confirmation modal (ConfirmFencedCodeDeleteModal.ts,
+  // Phase 5E-3d) — reuses that same modal class's body/undo-note keys
+  // above (already kind-neutral); only the title gets its own key. -------
+  "modal.deleteTableTitle": "Unified Outliner: delete table",
+
   // ---- Shared button labels ------------------------------------------------
   "common.apply": "Apply",
   "common.discard": "Discard",
@@ -1870,6 +1875,11 @@ const ja: Record<TranslationKey, string> = {
   "modal.deleteFencedCodeTitle": "Unified Outliner: コードブロックを削除",
   "modal.deleteFencedCodeBody": "「{label}」（{startLine}〜{endLine}行目）をノートから削除する。",
   "modal.deleteFencedCodeUndoNote": "この操作はObsidian本体のUndoで元に戻せる。",
+
+  // ---- table 削除確認モーダル（ConfirmFencedCodeDeleteModal.ts、Phase 5E-3d）
+  // ---- 同じモーダルクラスの body/undo-note キー（上記、既に kind 非依存）を
+  // 再利用し、title のみ専用キーを持つ。 ------------------------------------
+  "modal.deleteTableTitle": "Unified Outliner: 表を削除",
 
   // ---- 共有ボタンラベル -----------------------------------------------------
   "common.apply": "適用",

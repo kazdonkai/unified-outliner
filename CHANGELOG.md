@@ -4,6 +4,10 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Added
+
+- Phase 5E-3d: a standalone Markdown table block in the Outline Tree now has Move (up/down, swapping with the adjacent standalone sibling in the same section), Delete (removed as one atomic unit, header row through the final data row, with the same 3+-blank-line-to-2 normalization fenced-code delete already had), and Drag and Drop — bringing it to parity with fenced-code's existing Move/Delete, plus adding D&D for table specifically. This reuses the exact same kind-gated pipelines callout/blockquote/fenced-code already share (`moveStandaloneComplexBlock`, `deleteStandaloneComplexBlock`, `resolveStandaloneComplexBlockDropTarget`, and the Outline Tree's own drag-wiring guard) — no new range-determination logic and no parallel move/delete/drag pipeline was written; every kind allow-list was simply widened to also admit `"table"`. Conflict detection and blank-line policy around a moved/deleted table fall out of that same reuse, with no table-specific exception added. A table nested inside a list item's continuation, or one whose structure can't be confidently parsed, is safely excluded and refused exactly like it already was for fenced-code. Note: fenced-code itself does not gain Drag and Drop by this change — it never had it (Phase 5E-1's own scope was Partial Edit/Move/Delete only), and this phase deliberately widens only table into the D&D pipeline rather than retroactively adding fenced-code too. See `docs/phase5e3d_table-move-delete-dnd-design-memo.md` for the full design; real-device verification has not yet happened and is the user's own responsibility.
+
 ## [0.7.7] - 2026-09-24
 
 ### Added
