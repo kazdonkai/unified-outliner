@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-09-23
+
+### Added
+
+- Phase 5E-2A table raw Partial Edit with structural validation: building on Phase 5E-0's read-only Outline Tree projection and Phase 5E-1's fenced-code raw Partial Edit pattern, a standalone Markdown table can now be opened in the Partial Edit Pane as one raw-Markdown editable unit (the entire table, header row through the final data row). Apply validates the edited text is minimally valid table structure — at least 3 lines (header, delimiter, one or more data rows), every line containing at least one `|`, the delimiter row's cells all matching `:?-+:?`, and every row having the same column count (leading/trailing pipes normalized before comparing) — rejecting Apply and leaving the note unchanged on the first failed check, and reuses the existing conflict-detection mechanism unchanged. Table move, delete, new-block-insertion UI, cell-level editing, and a full Table Mode remain out of scope, tracked for Phase 5E-2B onward; `collectReadOnlyOutlineNodeIds` is intentionally left unchanged, so table's complex-member nodes stay in the generic read-only set exactly as before, gaining only this one Partial Edit capability via the same dedicated context menu callout/blockquote/fenced-code already use. The `resolveInsertion` stub (`src/tree/insertionFramework.ts`) now also has a real implementation for `"table"` (both before/after positions); `"heading"`/`"list-item"` remain unimplemented stubs. See `docs/phase5e2a_table-raw-partial-edit-design-memo.md` for the full design.
+
 ## [0.7.1] - 2026-09-23
 
 ### Added
