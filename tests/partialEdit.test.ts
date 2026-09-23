@@ -414,20 +414,39 @@ describe("extractSubtreeText (Phase 5C-2: standalone callout/blockquote resoluti
     expect(outcome.reason).toBe("resolve-failed");
   });
 
-  it("still resolves a table complex-block id as resolve-failed (table stays read-only)", () => {
+  it("still resolves a paragraph complex-block id as resolve-failed (paragraph remains out of scope)", () => {
     // Phase 5E-1 widened extractSubtreeText/extractComplexBlockText to
-    // also accept kind "fenced-code" (see the new "resolves a standalone
-    // fenced-code block" test just below) — this out-of-scope case is
-    // re-pointed at "table", which remains genuinely unsupported (see
-    // docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3).
+    // also accept kind "fenced-code"; this out-of-scope case was
+    // re-pointed at "table" at the time (which was genuinely unsupported
+    // then). Phase 5E-2A widens extractSubtreeText/extractComplexBlockText
+    // to also accept kind "table" (see the new "resolves a standalone
+    // table block" test just below), so this out-of-scope case is
+    // re-pointed once more, at "paragraph" — which remains genuinely
+    // unsupported (see docs/phase5e2a_table-raw-partial-edit-design-memo.md
+    // §1; paragraph/thematic-break are still the only two ComplexBlockKind
+    // values extractComplexBlockText does not accept).
+    const text = ["# H", "a plain paragraph"].join("\n");
+    const doc = parseDocument(text);
+    const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "paragraph");
+    expect(info).toBeDefined();
+
+    const outcome = extractSubtreeText(doc, info!.id);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.reason).toBe("resolve-failed");
+  });
+
+  it("Phase 5E-2A: resolves a standalone table block's own range as raw text, header/delimiter/data rows included", () => {
     const text = ["| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "table");
     expect(info).toBeDefined();
 
     const outcome = extractSubtreeText(doc, info!.id);
-    expect(outcome.ok).toBe(false);
-    expect(outcome.reason).toBe("resolve-failed");
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.kind).toBe("table");
+      expect(outcome.text).toBe(text);
+    }
   });
 
   it("Phase 5E-1: resolves a standalone fenced-code block's own range as raw text, fence lines included", () => {

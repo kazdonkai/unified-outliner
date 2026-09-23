@@ -1834,11 +1834,14 @@ export class OutlineTreeView extends ItemView {
     } else if (
       isComplexMember &&
       node.isStandalone &&
-      (node.complexKind === "callout" || node.complexKind === "blockquote" || node.complexKind === "fenced-code")
+      (node.complexKind === "callout" ||
+        node.complexKind === "blockquote" ||
+        node.complexKind === "fenced-code" ||
+        node.complexKind === "table")
     ) {
       // Phase 5C-2: a THIRD, separate menu path — for a STANDALONE
-      // callout/blockquote/fenced-code row only (node.isStandalone ===
-      // true). A
+      // callout/blockquote/fenced-code/table row only (node.isStandalone
+      // === true).
       //
       // Phase 5E-0 ADDED the explicit complexKind guard above (originally
       // callout/blockquote only): once isStandaloneComplexBlockEligible
@@ -1846,39 +1849,59 @@ export class OutlineTreeView extends ItemView {
       // isStandalone: true rows for kind "fenced-code"/"table", this
       // branch would otherwise ALSO match those rows and unconditionally
       // call showStandaloneComplexBlockMenu — which itself unconditionally
-      // offers "Open in Partial Edit"/"Open in new window" (its Move
-      // items are already separately guarded by
-      // buildStandaloneComplexBlockSnapshot returning null for any
-      // unsupported kind). Phase 5E-1 WIDENS the guard again to also admit
-      // "fenced-code" — table alone now remains excluded and therefore
-      // read-only, per this phase's own brief ("table のみを読み取り専用として
-      // 残す"). This mirrors the pre-existing composite-member branch
-      // immediately below, which intentionally still excludes fenced-code
-      // (fenced-code can never be a composite member — see that branch's
-      // own doc comment — so it is left unchanged). With this guard in
-      // place, a standalone table row still falls through every remaining
-      // branch (not composite-member shaped, not a paragraph) and gets NO
-      // context menu at all — the correct, read-only-by-construction
-      // outcome for table. This is layer ONE of this ticket's required
-      // two-layer defense; layer TWO is edit/partialEdit.ts's own
-      // extractComplexBlockText, which independently rejects any
-      // unsupported kind even if this UI guard were somehow bypassed.
-      // composite-member complex-member row (isStandalone === false) still
-      // gets NO context menu at all, exactly as before this ticket — this
-      // branch is only ever reached for the new row kind. Deliberately
+      // offers "Open in Partial Edit"/"Open in new window". Phase 5E-1
+      // widened the guard to also admit "fenced-code". Phase 5E-2A widens
+      // it once more to admit "table" — every complexKind
+      // isStandaloneComplexBlockEligible can produce for a standalone row
+      // is now admitted here, so this guard's kind list and that
+      // function's own kind list are, as of this phase, exactly the same
+      // set (kept as an explicit allow-list here regardless, rather than
+      // "anything complex-member and standalone", for the same defense-
+      // in-depth reason the rest of this file re-verifies rather than
+      // trusting an upstream classification).
+      //
+      // Per-kind capability matrix inside showStandaloneComplexBlockMenu
+      // itself (see that method's own doc comment/body for exactly how
+      // each is enforced):
+      //   - callout / blockquote: Open in Partial Edit (+ new window),
+      //     Move up/down when eligible. No Delete (never implemented for
+      //     these two kinds).
+      //   - fenced-code (Phase 5E-1): Open in Partial Edit (+ new
+      //     window), Move up/down when eligible, Delete.
+      //   - table (Phase 5E-2A): Open in Partial Edit (+ new window)
+      //     ONLY — no Move (edit/moveStandaloneComplexBlock.ts's own
+      //     StandaloneComplexBlockMoveKind allow-list, and
+      //     parser/compositeBlocks.ts's evaluateStandaloneComplexBlockMovability,
+      //     both still exclude "table" — UNCHANGED by this phase) and no
+      //     Delete (showStandaloneComplexBlockMenu's Delete item is still
+      //     gated `target.kind === "fenced-code"` exactly — UNCHANGED by
+      //     this phase). Table's raw-Markdown Apply-time structural
+      //     validation lives in edit/partialEdit.ts's own applySubtreeEdit
+      //     table branch, not here.
+      //
+      // With every complex-member kind now admitted above, this branch's
+      // only remaining gate against showing a menu for something that
+      // should stay silent is isComplexMember && node.isStandalone itself
+      // — a composite-member row (isStandalone === false) still falls to
+      // the next branch below, and a plain paragraph/section/list row
+      // never reaches this branch at all (already handled earlier in this
+      // if/else chain). This is layer ONE of the required two-layer
+      // defense for whatever a given kind is NOT allowed to do; layer TWO
+      // is each capability's own independent module-level re-check
+      // (edit/partialEdit.ts's extractComplexBlockText for Partial Edit,
+      // edit/moveStandaloneComplexBlock.ts for Move, the Delete item's own
+      // kind gate for Delete) — never this UI guard alone. Deliberately
       // NOT gated by `!readOnly` either, same reasoning as the composite
       // branch above (complex-member rows are always in readOnlyNodeIds —
-      // Phase 5E-1 deliberately does NOT alter
+      // neither Phase 5E-1 nor Phase 5E-2A alters
       // tree/buildOutlineTree.ts#collectReadOnlyOutlineNodeIds's kind-
-      // inclusion logic; see this ticket's own design memo §3 for why:
-      // excluding fenced-code from that set would silently also grant it
-      // several unrelated GENERIC Tree capabilities — a drag handle,
-      // generic double-click rename, and fully generic arbitrary-target
-      // drag-and-drop — none of which this phase asked for, and the last
-      // of which directly contradicts this phase's own explicit
-      // same-parent-adjacent-only move constraint. Fenced-code instead
-      // reaches full Move/Delete/Partial-Edit capability the exact same
-      // way callout/blockquote always have: via this dedicated,
+      // inclusion logic; see this ticket's own design memo §3, and Phase
+      // 5E-1's design memo §3 before it, for why: excluding a kind from
+      // that set would silently also grant it several unrelated GENERIC
+      // Tree capabilities — a drag handle, generic double-click rename,
+      // and fully generic arbitrary-target drag-and-drop — none of which
+      // either phase asked for. Every kind admitted here instead reaches
+      // whatever capability it DOES have via this dedicated,
       // `!readOnly`-independent menu branch, never via exclusion from the
       // read-only set). Unlike showCompositeCommandMenu, this menu is
       // never empty and never re-checks eligibility at menu-build time —
@@ -3368,6 +3391,29 @@ export class OutlineTreeView extends ItemView {
    * so it is always shown whenever this menu is reached at all — the same
    * "never suppress the whole menu" asymmetry with showCompositeCommandMenu
    * this class doc comment above already establishes for this method.
+   *
+   * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") widened
+   * this menu's reach to standalone fenced-code rows too (via renderNode's
+   * own widened complexKind guard — see that branch's doc comment) and
+   * added the kind-gated "Delete" item at the bottom of this method's body
+   * (`target.kind === "fenced-code"` only).
+   *
+   * Phase 5E-2A ("Markdown table の raw Partial Edit・Apply 検証・安全な書き
+   * 戻し") widens this menu's reach once more, to standalone table rows.
+   * "Open in Partial Edit" (+ new window) above needs NO code change to
+   * cover table — it was already kind-neutral, and
+   * edit/partialEdit.ts#extractComplexBlockText now resolves "table" the
+   * same way it resolves "fenced-code". Move up/down and Delete need NO
+   * change either, for the opposite reason: `buildStandaloneComplexBlockSnapshot`
+   * (edit/moveStandaloneComplexBlock.ts) still returns null for kind
+   * "table" (its own StandaloneComplexBlockMoveKind allow-list is
+   * unchanged), so the `if (snapshot)` block below never runs for a table
+   * target; and the Delete item's own `target.kind === "fenced-code"`
+   * gate below excludes "table" by construction. A table row's menu is
+   * therefore always exactly one item long in practice ("Open in Partial
+   * Edit" + "Open in new window"), with no move/delete capability — this
+   * falls out of the existing per-kind gates already in this method's
+   * body, not from any new table-specific branch.
    */
   private showStandaloneComplexBlockMenu(evt: MouseEvent, nodeId: string): void {
     const menu = new Menu();
@@ -3437,6 +3483,10 @@ export class OutlineTreeView extends ItemView {
       // edit/deleteStandaloneComplexBlock.ts's own top doc comment for why
       // this is intentionally a NEW, narrowly kind-scoped module rather
       // than a widened reuse of anything callout/blockquote already has).
+      // Phase 5E-2A (table's Partial-Edit-only widening) leaves this exact
+      // `target.kind === "fenced-code"` check UNCHANGED — table was never
+      // asked to gain Delete, so it simply never reaches this block; no
+      // additional exclusion logic is needed here for that.
       // Mirrors showCompositeCommandMenu's own delete item exactly:
       // build the delete snapshot at menu-build time, gate on it being
       // buildable at all (mirrors that method's `deletability.deletable`

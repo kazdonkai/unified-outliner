@@ -91,17 +91,18 @@ describe("Phase 5E-0.5 insertionFramework: category A (type definitions)", () =>
 
 describe("Phase 5E-0.5 insertionFramework: category B (resolveInsertion stub behavior)", () => {
   it("is callable with the documented (request, documentText, outlineTree) signature", () => {
-    // Phase 5E-1 update: kind "table" is used here (rather than
+    // Phase 5E-1 update: kind "table" was used here (rather than
     // "fenced-code", this test's original Phase 5E-0.5 choice) because
-    // "fenced-code" is no longer a bare throwing stub as of Phase 5E-1
-    // (see tests/phase5e1FencedCodePartialEditMoveDelete.test.ts's own
-    // category E for its real, non-throwing behavior) — "table" remains
-    // an unimplemented stub this phase, so it still exercises the same
+    // "fenced-code" was no longer a bare throwing stub as of Phase 5E-1.
+    // Phase 5E-2A update: "table" is ALSO no longer a bare throwing stub
+    // (see tests/phase5e2aTableRawPartialEdit.test.ts's own category E for
+    // its real, non-throwing behavior) — "heading" is used here instead,
+    // since it remains an unimplemented stub, still exercising the same
     // "signature is callable, unknown outlineTree accepted" concern this
     // test originally existed for.
     const request: InsertionRequest = {
       targetNodeId: "complex-1",
-      kind: "table",
+      kind: "heading",
       position: "after",
     };
     // `outlineTree` is intentionally `unknown` in this phase (see the
@@ -110,14 +111,18 @@ describe("Phase 5E-0.5 insertionFramework: category B (resolveInsertion stub beh
     expect(() => resolveInsertion(request, "# H\n", undefined)).toThrow();
   });
 
-  it("throws for every STILL-STUB InsertableBlockKind/InsertionPosition combination (table/heading/list-item have no special-cased success path)", () => {
+  it("throws for every STILL-STUB InsertableBlockKind/InsertionPosition combination (heading/list-item have no special-cased success path)", () => {
     // Phase 5E-1 update: narrowed from all 5 InsertableBlockKind values to
-    // just the 3 that remain unimplemented stubs — "fenced-code"/
-    // "fenced-code-mermaid" now have a real implementation (see the next
-    // test) and are covered in depth by
+    // just the 3 that remained unimplemented stubs — "fenced-code"/
+    // "fenced-code-mermaid" gained a real implementation (see the "does
+    // NOT throw" test below) and are covered in depth by
     // tests/phase5e1FencedCodePartialEditMoveDelete.test.ts's own
     // category E instead.
-    const kinds: InsertableBlockKind[] = ["table", "heading", "list-item"];
+    // Phase 5E-2A update: narrowed once more, to the 2 that remain
+    // unimplemented stubs — "table" also gained a real implementation
+    // (see the "does NOT throw" test below, and
+    // tests/phase5e2aTableRawPartialEdit.test.ts's own category E).
+    const kinds: InsertableBlockKind[] = ["heading", "list-item"];
     const positions: InsertionPosition[] = ["before", "after"];
     for (const kind of kinds) {
       for (const position of positions) {
@@ -127,8 +132,8 @@ describe("Phase 5E-0.5 insertionFramework: category B (resolveInsertion stub beh
     }
   });
 
-  it("does NOT throw for fenced-code/fenced-code-mermaid (Phase 5E-1 implemented these) — returns a structured InsertionResult instead", () => {
-    const kinds: InsertableBlockKind[] = ["fenced-code", "fenced-code-mermaid"];
+  it("does NOT throw for fenced-code/fenced-code-mermaid/table (Phase 5E-1/5E-2A implemented these) — returns a structured InsertionResult instead", () => {
+    const kinds: InsertableBlockKind[] = ["fenced-code", "fenced-code-mermaid", "table"];
     const positions: InsertionPosition[] = ["before", "after"];
     for (const kind of kinds) {
       for (const position of positions) {
@@ -144,8 +149,11 @@ describe("Phase 5E-0.5 insertionFramework: category B (resolveInsertion stub beh
   });
 
   it("throw message references the Phase 5E-0.5 stub status and the design memo, not a generic error", () => {
-    const request: InsertionRequest = { targetNodeId: "complex-1", kind: "table", position: "before" };
-    expect(() => resolveInsertion(request, "| a |\n|---|\n| 1 |\n", undefined)).toThrow(
+    // Phase 5E-2A: "table" is no longer a stub (see the "does NOT throw"
+    // test above), so this test now uses "heading" — still unimplemented
+    // — to exercise the throw message itself.
+    const request: InsertionRequest = { targetNodeId: "complex-1", kind: "heading", position: "before" };
+    expect(() => resolveInsertion(request, "# H\n", undefined)).toThrow(
       /not implemented yet \(Phase 5E-0\.5 stub\)/
     );
   });

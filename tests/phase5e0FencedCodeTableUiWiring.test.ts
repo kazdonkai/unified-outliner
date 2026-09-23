@@ -21,15 +21,25 @@
  *
  * Phase 5E-1 UPDATE: view/OutlineTreeView.ts's renderNode
  * context-menu-attachment guard was widened again by that ticket to also
- * admit `node.complexKind === "fenced-code"` — table alone remains
- * excluded (and therefore read-only) now. wouldAttachStandaloneMenu below
- * and every test in the first describe block are updated to match that
- * new, current condition; the "layer TWO" describe block below is split
- * so its fenced-code assertions now expect success (Move/Partial-Edit are
- * genuinely supported for fenced-code as of Phase 5E-1) while its table
- * assertions are unchanged (table remains unsupported/rejected). See
- * docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3
- * for the full, current read-only-scope rationale.
+ * admit `node.complexKind === "fenced-code"` — table alone remained
+ * excluded (and therefore read-only) at that point. wouldAttachStandaloneMenu
+ * below and every test in the first describe block were updated to match
+ * that condition; the "layer TWO" describe block below was split so its
+ * fenced-code assertions expected success (Move/Partial-Edit are genuinely
+ * supported for fenced-code as of Phase 5E-1) while its table assertions
+ * stayed unchanged (table still unsupported/rejected at that point).
+ *
+ * Phase 5E-2A UPDATE: the same guard was widened once more, to also admit
+ * `node.complexKind === "table"` — table now attaches this menu too (it
+ * gains Open in Partial Edit only, no Move/Delete — see
+ * tests/phase5e2aTableRawPartialEdit.test.ts's own category D for that
+ * distinction). wouldAttachStandaloneMenu below and this file's table
+ * assertions are updated once more to match. The one "layer TWO" table
+ * assertion in this file that is STILL true after Phase 5E-2A —
+ * buildStandaloneComplexBlockSnapshot (Move) returning null for table — is
+ * left as-is below; extractSubtreeText's own table assertion is updated
+ * (see docs/phase5e2a_table-raw-partial-edit-design-memo.md §3 for the
+ * full, current read-only-scope rationale).
  */
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "../src/parser/parseDocument";
@@ -45,17 +55,21 @@ import { extractSubtreeText } from "../src/edit/partialEdit";
 import { createTranslator } from "../src/i18n";
 
 /**
- * Reproduces renderNode's POST-Phase-5E-0 context-menu-attachment
- * condition for a standalone complex-member row:
+ * Reproduces renderNode's CURRENT (as of Phase 5E-2A) context-menu-
+ * attachment condition for a standalone complex-member row:
  * `isComplexMember && node.isStandalone && (node.complexKind === "callout"
- * || node.complexKind === "blockquote")`. Before this ticket the kind
- * check did not exist — see this file's own top doc comment.
+ * || "blockquote" || "fenced-code" || "table")`. Before Phase 5E-0 the
+ * kind check did not exist at all — see this file's own top doc comment
+ * for the full history of each widening.
  */
 function wouldAttachStandaloneMenu(node: ReturnType<typeof flattenOutlineTree>[number]): boolean {
   return (
     isOutlineComplexMemberNode(node) &&
     node.isStandalone &&
-    (node.complexKind === "callout" || node.complexKind === "blockquote" || node.complexKind === "fenced-code")
+    (node.complexKind === "callout" ||
+      node.complexKind === "blockquote" ||
+      node.complexKind === "fenced-code" ||
+      node.complexKind === "table")
   );
 }
 
@@ -73,7 +87,7 @@ function treeWithCodeTable(text: string) {
   return { doc, complexScan, tree };
 }
 
-describe("renderNode's standalone-menu attachment condition (Phase 5E-1: fenced-code included, table excluded)", () => {
+describe("renderNode's standalone-menu attachment condition (as of Phase 5E-2A: callout/blockquote/fenced-code/table all included)", () => {
   it("Phase 5E-1: a standalone fenced-code row DOES satisfy the (post-5E-1) attachment condition — context menu shown", () => {
     const { tree } = treeWithCodeTable(["# H", "```ts", "code", "```"].join("\n"));
     const flat = flattenOutlineTree(tree);
@@ -83,13 +97,13 @@ describe("renderNode's standalone-menu attachment condition (Phase 5E-1: fenced-
     expect(wouldAttachStandaloneMenu(codeRow!)).toBe(true);
   });
 
-  it("a standalone table row does NOT satisfy the attachment condition — no context menu (unchanged by Phase 5E-1)", () => {
+  it("Phase 5E-2A: a standalone table row DOES satisfy the (post-5E-2A) attachment condition — context menu shown (Open in Partial Edit only; see tests/phase5e2aTableRawPartialEdit.test.ts's category D)", () => {
     const { tree } = treeWithCodeTable(["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n"));
     const flat = flattenOutlineTree(tree);
     const tableRow = flat.find((n) => isOutlineComplexMemberNode(n) && n.complexKind === "table");
     expect(tableRow).toBeDefined();
     expect(isOutlineComplexMemberNode(tableRow!) && tableRow!.isStandalone).toBe(true);
-    expect(wouldAttachStandaloneMenu(tableRow!)).toBe(false);
+    expect(wouldAttachStandaloneMenu(tableRow!)).toBe(true);
   });
 
   it("regression: a standalone callout/blockquote row still satisfies the attachment condition, byte-identical to before this ticket", () => {
@@ -116,12 +130,25 @@ describe("Phase 5E-0 read-only defense, layer TWO: handler/dispatch-level reject
     expect(buildStandaloneComplexBlockSnapshot(codeInfo)).not.toBeNull();
   });
 
-  it("extractSubtreeText (Partial Edit) still rejects a table nodeId with reason 'resolve-failed' — layer TWO of this ticket's required two-layer defense, unchanged for table by Phase 5E-1", () => {
+  it("Phase 5E-2A: extractSubtreeText (Partial Edit) now resolves a table nodeId successfully — raw Partial Edit is genuinely enabled for table too", () => {
+    // Phase 5E-0/5E-1: this test used to assert extractSubtreeText
+    // rejected table with "resolve-failed" — layer TWO of this file's own
+    // two-layer read-only defense. Phase 5E-2A intentionally widens
+    // extractSubtreeText/extractComplexBlockText (edit/partialEdit.ts) to
+    // also accept kind "table" for Partial Edit, exactly like Phase 5E-1
+    // already did for "fenced-code" (see the fenced-code test right below
+    // this one). Table's continued lack of Move/Delete is NOT enforced by
+    // this function any more — it is enforced entirely by
+    // buildStandaloneComplexBlockSnapshot still returning null for kind
+    // "table" (see the test above this describe block's fenced-code
+    // counterpart) and by showStandaloneComplexBlockMenu's own
+    // `target.kind === "fenced-code"` Delete gate (view/OutlineTreeView.ts)
+    // — see docs/phase5e2a_table-raw-partial-edit-design-memo.md §3.
     const doc2 = parseDocument(["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n"));
     const tableInfo = scanComplexBlocks(doc2).blocks.find((b) => b.kind === "table")!;
     const tableOutcome = extractSubtreeText(doc2, tableInfo.id);
-    expect(tableOutcome.ok).toBe(false);
-    if (!tableOutcome.ok) expect(tableOutcome.reason).toBe("resolve-failed");
+    expect(tableOutcome.ok).toBe(true);
+    if (tableOutcome.ok) expect(tableOutcome.kind).toBe("table");
   });
 
   it("Phase 5E-1: extractSubtreeText (Partial Edit) now resolves a fenced-code nodeId successfully — raw Partial Edit is genuinely enabled", () => {

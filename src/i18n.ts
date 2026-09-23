@@ -1092,6 +1092,17 @@ const en = {
   "reason.fenced-code-invalid-close":
     "Unified Outliner: the last line must be a valid closing code fence (same fence character, at least as many marks, and nothing else on the line).",
 
+  // ---- Markdown table raw Partial Edit Apply validation (Phase 5E-2A,
+  // partialEdit.ts). Same key convention as the fenced-code block above. ---
+  "reason.table-too-few-lines":
+    "Unified Outliner: a table needs at least 3 lines — a header row, a delimiter row, and one data row.",
+  "reason.table-missing-pipe":
+    "Unified Outliner: every line of a table must contain at least one \"|\" character.",
+  "reason.table-invalid-delimiter":
+    "Unified Outliner: the second line must be a valid delimiter row (each column made of one or more hyphens, with optional leading/trailing colons, and nothing else).",
+  "reason.table-column-mismatch":
+    "Unified Outliner: every row must have the same number of columns.",
+
   // ---- Partial Edit Pane source-note safety valve (Phase 5C-4,
   // view/partialEditSourceNoteCheck.ts). An ADDITIONAL, path-based check —
   // never a replacement for edit/partialEdit.ts's own content-based
@@ -1935,6 +1946,17 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 先頭行は有効な開始フェンス（バッククォートまたはチルダ3つ以上）である必要がある。",
   "reason.fenced-code-invalid-close":
     "Unified Outliner: 末尾行は有効な終了フェンス（開始と同じフェンス文字・同数以上・他に何もない行）である必要がある。",
+
+  // ---- Markdown table の raw Partial Edit Apply 検証（Phase 5E-2A、
+  // partialEdit.ts）。上記 fenced code block と同じキー命名規則に従う。 ---
+  "reason.table-too-few-lines":
+    "Unified Outliner: table にはヘッダー行・区切り行・データ行の最低3行が必要である。",
+  "reason.table-missing-pipe":
+    "Unified Outliner: table の全行に少なくとも1つの「|」文字が含まれている必要がある。",
+  "reason.table-invalid-delimiter":
+    "Unified Outliner: 2行目は有効な区切り行（各列がハイフン1文字以上、前後に任意のコロンを許可し、他に何もないこと）である必要がある。",
+  "reason.table-column-mismatch":
+    "Unified Outliner: すべての行の列数が一致している必要がある。",
 
   // ---- 部分編集ペインの元ノート同一性チェック（Phase 5C-4、
   // view/partialEditSourceNoteCheck.ts）。追加の、パスに基づく安全弁 —

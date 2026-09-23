@@ -25,9 +25,11 @@
  * ComplexBlockInfo, never inserted into ParsedDocument.nodes) is now ALSO
  * resolvable here — see extractSubtreeText's own doc comment for the exact
  * fresh-scanComplexBlocks fallback and its `editability === "supported"`
- * gate. fenced-code/table/paragraph/thematic-break ComplexBlockInfo ids
- * are deliberately NOT resolvable (out of scope for this ticket) and still
- * resolve to "resolve-failed", unchanged from before.
+ * gate. Phase 5E-1 (2026-09-22) added fenced-code to this same resolvable
+ * set; Phase 5E-2A (2026-09-23) added table. paragraph/thematic-break
+ * ComplexBlockInfo ids remain deliberately NOT resolvable (out of scope
+ * for either ticket) and still resolve to "resolve-failed", unchanged
+ * from before.
  *
 
  * Phase 4C (list subtrees): extractSubtreeText/applySubtreeEdit below are
@@ -118,14 +120,23 @@ export function extractSectionText(
   return { ok: false, text: "", startLine: -1, endLine: -1, reason: "not-a-heading" };
 }
 
-// Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") adds
+// Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") added
 // "fenced-code" — a standalone fenced code block (including Mermaid,
 // Dataview, DataviewJS, or any other info string, since Phase 5C never
-// makes Mermaid a distinct ComplexBlockKind) is now resolvable and
-// editable here, raw, exactly like callout/blockquote. "table" remains
-// deliberately NOT added — table stays read-only, unchanged from Phase
-// 5E-0 (see extractComplexBlockText's own updated doc comment below).
-export type SubtreeKind = "section" | "list" | "callout" | "blockquote" | "fenced-code";
+// makes Mermaid a distinct ComplexBlockKind) is resolvable and editable
+// here, raw, exactly like callout/blockquote.
+//
+// Phase 5E-2A ("Markdown table の raw Partial Edit・Apply 検証・安全な書き
+// 戻し") adds "table" the same way — resolvable and editable here, raw,
+// via the same extractComplexBlockText path (see that function's own
+// updated doc comment below). Unlike fenced-code, a table has no Move/
+// Delete capability (see view/OutlineTreeView.ts's showStandaloneComplexBlockMenu
+// and this ticket's design memo §3) — only Open in Partial Edit. Apply-time
+// validation for table is table-shaped structural validation (row count,
+// pipe presence, delimiter-row format, column-count consistency — see
+// applySubtreeEdit's own table branch below), not a fence-integrity check
+// like fenced-code's.
+export type SubtreeKind = "section" | "list" | "callout" | "blockquote" | "fenced-code" | "table";
 
 export type NoExtractSubtreeReason = "resolve-failed" | "not-editable" | "unsafe-indent";
 
@@ -228,17 +239,25 @@ function extractComplexBlockText(
   doc: ParsedDocument,
   complexBlock: ComplexBlockInfo | undefined
 ): ExtractSubtreeOutcome {
-  // Phase 5E-1: widened to also accept kind "fenced-code" — see
-  // SubtreeKind's own updated doc comment above. "table" is deliberately
-  // NOT added here (stays read-only, unchanged from Phase 5E-0) — this is
-  // the SECOND, independent defense layer for that read-only status (the
-  // first is view/OutlineTreeView.ts's own context-menu kind guard), per
-  // this whole codebase's established two-layer read-only convention.
+  // Phase 5E-1 widened this to also accept kind "fenced-code". Phase
+  // 5E-2A widens it again to also accept kind "table" — see SubtreeKind's
+  // own updated doc comment above. This remains the SECOND, independent
+  // defense layer for whichever kinds are NOT listed here (currently
+  // none — every ComplexBlockKind produced by scanComplexBlocks for a
+  // standalone row is now editable via this path); the first layer is
+  // view/OutlineTreeView.ts's own context-menu kind guard, per this whole
+  // codebase's established two-layer read-only convention. Table's
+  // continued lack of Move/Delete is enforced entirely by those two
+  // OTHER modules (edit/moveStandaloneComplexBlock.ts's own kind
+  // allow-list, and showStandaloneComplexBlockMenu's `target.kind ===
+  // "fenced-code"` Delete gate) — this function only ever decides
+  // "resolvable for Partial Edit at all", never move/delete eligibility.
   if (
     !complexBlock ||
     (complexBlock.kind !== "callout" &&
       complexBlock.kind !== "blockquote" &&
-      complexBlock.kind !== "fenced-code") ||
+      complexBlock.kind !== "fenced-code" &&
+      complexBlock.kind !== "table") ||
     complexBlock.editability !== "supported"
   ) {
     return { ok: false, kind: null, text: "", startLine: -1, endLine: -1, reason: "resolve-failed" };
@@ -313,15 +332,41 @@ export function applySectionEdit(
  * Phase 5E-1 adds "fenced-code-invalid-open"/"fenced-code-invalid-close":
  * Apply-time shape validation specific to kind "fenced-code" (see
  * isValidFencedCodeOpenLine/isValidFencedCodeCloseLine and their call site
- * inside applySubtreeEdit below). Never reachable for section/list/
- * callout/blockquote — those kinds have no equivalent "must start/end
- * with this exact syntax" constraint for this pane to enforce.
+ * inside applySubtreeEdit below).
+ *
+ * Phase 5E-2A adds four more, specific to kind "table" (see
+ * isValidTableDelimiterRow/splitPipeRowForValidation and their call site
+ * inside applySubtreeEdit below, checked in this fixed order — the first
+ * failing check wins, matching this module's existing fenced-code
+ * ordering convention and this whole codebase's "first failing condition"
+ * rejection-reason pattern):
+ *   - "table-too-few-lines": fewer than 3 lines (a table needs at least a
+ *     header row, a delimiter row, and one data row).
+ *   - "table-missing-pipe": some line contains no `|` character at all.
+ *   - "table-invalid-delimiter": the second line (the delimiter row) does
+ *     not consist entirely of cells matching `/^:?-+:?$/` once split and
+ *     trimmed — the same shape parser/complexBlocks.ts's own
+ *     DELIMITER_CELL_RE requires (re-implemented locally here, not
+ *     imported, since that constant is module-private — same convention
+ *     as this module's own FENCE_OPEN_LINE_RE/FENCE_CLOSE_ONLY_LINE_RE).
+ *   - "table-column-mismatch": not every line splits into the same number
+ *     of cells (leading/trailing `|` normalized away before counting,
+ *     exactly like parser/complexBlocks.ts's own splitTableRow already
+ *     does, so `| a | b |` and `a | b` count as the same 2 columns).
+ *
+ * None of these six reasons is ever reachable for section/list/
+ * callout/blockquote — those kinds have no equivalent "must match this
+ * exact syntax" constraint for this pane to enforce.
  */
 export type NoApplySubtreeEditReason =
   | NoExtractSubtreeReason
   | "conflict"
   | "fenced-code-invalid-open"
-  | "fenced-code-invalid-close";
+  | "fenced-code-invalid-close"
+  | "table-too-few-lines"
+  | "table-missing-pipe"
+  | "table-invalid-delimiter"
+  | "table-column-mismatch";
 
 export interface ApplySubtreeEditOutcome {
   changed: boolean;
@@ -389,6 +434,46 @@ function isValidFencedCodeCloseLine(line: string, fenceChar: string, minLength: 
   return m[1].length >= minLength;
 }
 
+/**
+ * Phase 5E-2A: splits a pipe-table row into trimmed cells, normalizing
+ * away an optional leading/trailing `|` before splitting — deliberately
+ * kept byte-identical in behavior to parser/complexBlocks.ts's own
+ * module-private `splitTableRow` (not imported; same "duplicated, not
+ * imported" convention as this module's own FENCE_OPEN_LINE_RE — see that
+ * constant's doc comment above), so this Apply-time check never disagrees
+ * with how the scanner itself would split the same line. `| a | b |` and
+ * `a | b` both split to `["a", "b"]`.
+ */
+function splitPipeRowForValidation(line: string): string[] {
+  let body = line.trim();
+  if (body.startsWith("|")) body = body.slice(1);
+  if (body.endsWith("|")) body = body.slice(0, -1);
+  return body.split("|").map((c) => c.trim());
+}
+
+/**
+ * Phase 5E-2A: the same delimiter-cell shape parser/complexBlocks.ts's own
+ * DELIMITER_CELL_RE recognizes (`^:?-+:?$` — one or more hyphens, with an
+ * optional leading and/or trailing colon for GFM column-alignment syntax,
+ * and nothing else) — deliberately NOT imported (module-private to
+ * complexBlocks.ts), but kept byte-identical in shape, same reasoning as
+ * splitPipeRowForValidation above.
+ */
+const TABLE_DELIMITER_CELL_RE = /^:?-+:?$/;
+
+/**
+ * True when `line`, once split into cells via splitPipeRowForValidation,
+ * consists entirely of valid delimiter cells (and has at least one cell —
+ * an all-blank line splits to a single empty-string cell, which fails
+ * TABLE_DELIMITER_CELL_RE, so this is never vacuously true for a blank
+ * line).
+ */
+function isValidTableDelimiterRow(line: string): boolean {
+  const cells = splitPipeRowForValidation(line);
+  if (cells.length === 0) return false;
+  return cells.every((cell) => TABLE_DELIMITER_CELL_RE.test(cell));
+}
+
 export function applySubtreeEdit(
   doc: ParsedDocument,
   nodeId: string,
@@ -425,6 +510,32 @@ export function applySubtreeEdit(
     const lastLine = newLines.length > 1 ? newLines[newLines.length - 1] : "";
     if (newLines.length < 2 || !isValidFencedCodeCloseLine(lastLine, open.fenceChar, open.fenceLength)) {
       return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-close" };
+    }
+  }
+
+  // Phase 5E-2A: table-only Apply-time structural validation — see this
+  // module's own NoApplySubtreeEditReason/splitPipeRowForValidation/
+  // isValidTableDelimiterRow doc comments above. Never runs for any other
+  // SubtreeKind. Checked AFTER the conflict check (same fixed-order
+  // convention as the fenced-code branch immediately above), and each of
+  // the four checks below runs in the same order the design memo's §2
+  // lists them, the first failing one winning — an empty Apply (newText
+  // === "") falls straight through to "table-too-few-lines" via
+  // newLines.length === 1, with no separate empty-string special case
+  // needed.
+  if (current.kind === "table") {
+    if (newLines.length < 3) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "table-too-few-lines" };
+    }
+    if (!newLines.every((line) => line.includes("|"))) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "table-missing-pipe" };
+    }
+    if (!isValidTableDelimiterRow(newLines[1])) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "table-invalid-delimiter" };
+    }
+    const columnCounts = newLines.map((line) => splitPipeRowForValidation(line).length);
+    if (columnCounts.some((count) => count !== columnCounts[0])) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "table-column-mismatch" };
     }
   }
 

@@ -40,13 +40,20 @@
  * `resolveInsertion` below is no longer a bare throwing stub for every
  * kind — it now has a real implementation for "fenced-code"/
  * "fenced-code-mermaid" (both `position` values), per the design memo's
- * §1/§3 rules. "table"/"heading"/"list-item" remain unimplemented and
- * still throw, unchanged from the Phase 5E-0.5 stub — this module still
- * has NO UI wiring of its own (no context menu/command palette entry
- * point exists yet; see view/OutlineTreeView.ts for where a future ticket
- * would add one) and still performs no Vault write or Editor update — see
- * this file's own InsertionResult doc comment for why that split of
- * responsibility is deliberate.
+ * §1/§3 rules.
+ *
+ * Phase 5E-2A ("Markdown table の raw Partial Edit・Apply 検証・安全な書き
+ * 戻し") update: `resolveInsertion` now also implements "table" (both
+ * `position` values), reusing the exact same target-resolution/
+ * indentation/boundary-padding logic — only the raw content lines differ
+ * per kind (see resolveInsertion's own rawContentLines branch). "heading"/
+ * "list-item" remain unimplemented and still throw, unchanged from the
+ * Phase 5E-0.5 stub. This module still has NO UI wiring of its own (no
+ * context menu/command palette entry point exists yet; see
+ * view/OutlineTreeView.ts for where a future ticket would add one) and
+ * still performs no Vault write or Editor update — see this file's own
+ * InsertionResult doc comment for why that split of responsibility is
+ * deliberate.
  */
 import { isListNode } from "../model/block";
 import { parseDocument, isBlankLine, leadingWhitespace, TAB_WIDTH } from "../parser/parseDocument";
@@ -142,12 +149,13 @@ function buildColumnPrefix(referenceLine: string, targetColumns: number): string
 }
 
 /**
- * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除"): resolves
- * an InsertionRequest against a document's CURRENT text — implemented ONLY
- * for `kind` "fenced-code"/"fenced-code-mermaid", both `position` values.
- * Every other kind ("table"/"heading"/"list-item") still throws exactly
- * like the Phase 5E-0.5 stub did — see this file's own top doc comment and
- * the design memo's §2 for why those three remain deferred.
+ * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") first
+ * implemented this for `kind` "fenced-code"/"fenced-code-mermaid", both
+ * `position` values. Phase 5E-2A ("Markdown table の raw Partial Edit・
+ * Apply 検証・安全な書き戻し") adds `kind` "table" the same way. Every other
+ * kind ("heading"/"list-item") still throws exactly like the Phase 5E-0.5
+ * stub did — see this file's own top doc comment and the design memo's §2
+ * for why those two remain deferred.
  *
  * `outlineTree` is intentionally UNUSED for this implementation: every
  * fact this resolver needs (the target's own range/parentId/editability,
@@ -198,7 +206,11 @@ export function resolveInsertion(
 ): InsertionResult {
   void outlineTree;
 
-  if (request.kind !== "fenced-code" && request.kind !== "fenced-code-mermaid") {
+  if (
+    request.kind !== "fenced-code" &&
+    request.kind !== "fenced-code-mermaid" &&
+    request.kind !== "table"
+  ) {
     throw new Error(
       `resolveInsertion for kind "${request.kind}" is not implemented yet (Phase 5E-0.5 stub) — see docs/phase5e0_5_insert-framework-design-memo.md`
     );
@@ -228,13 +240,24 @@ export function resolveInsertion(
   }
   const prefix = contentColumn > 0 ? buildColumnPrefix(referenceLine, contentColumn) : "";
 
-  const infoString = request.kind === "fenced-code-mermaid" ? "mermaid" : "";
-  const openLine = `${prefix}\`\`\`${infoString}`;
-  const closeLine = `${prefix}\`\`\``;
+  // Phase 5E-2A: the raw, unindented content lines for the new block —
+  // branches only on `request.kind` (never on anything document-specific);
+  // the indentation prefix and the boundary blank-line padding below are
+  // both fully generic over however many content lines this produces (2
+  // for a fenced code block, 3 for a table), so neither needed to change
+  // when table was added. Table's default content is the design memo §2
+  // minimum ("ヘッダー1行＋区切り1行＋データ1行"): a single-column table with a
+  // placeholder header cell, a valid delimiter row, and one empty data
+  // row — already shaped to pass edit/partialEdit.ts#applySubtreeEdit's
+  // own table validation unchanged, should the user Open in Partial Edit
+  // immediately after inserting it.
+  const rawContentLines: string[] =
+    request.kind === "table"
+      ? ["| Header |", "| --- |", "|  |"]
+      : [`\`\`\`${request.kind === "fenced-code-mermaid" ? "mermaid" : ""}`, "```"];
+  const blockLines = rawContentLines.map((line) => `${prefix}${line}`);
 
   const insertAtLine = request.position === "before" ? target.range.startLine : target.range.endLine + 1;
-
-  const blockLines = [openLine, closeLine];
   if (request.position === "before") {
     // Near boundary: the target's own first line always immediately
     // follows the insert (no gap by construction) — always separate.

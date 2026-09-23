@@ -301,15 +301,28 @@ describe("Phase 5E-1 category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     expect(readOnlyIds.has(tableRow!.id)).toBe(true);
   });
 
-  it("a standalone fenced-code row satisfies renderNode's (post-5E-1) context-menu attachment condition — \"Open in Partial Edit\"/Move/Delete are shown; a table row does not", () => {
-    // Reproduces view/OutlineTreeView.ts's renderNode condition verbatim,
-    // post-Phase-5E-1: `isComplexMember && node.isStandalone &&
-    // (complexKind === "callout" || "blockquote" || "fenced-code")`.
+  it("a standalone fenced-code row satisfies renderNode's (as of Phase 5E-2A) context-menu attachment condition — \"Open in Partial Edit\"/Move/Delete are shown; a table row also attaches the menu, but only gets Open in Partial Edit (see tests/phase5e2aTableRawPartialEdit.test.ts's own category D for that distinction)", () => {
+    // Reproduces view/OutlineTreeView.ts's renderNode condition verbatim.
+    // As of Phase 5E-1 this was `isComplexMember && node.isStandalone &&
+    // (complexKind === "callout" || "blockquote" || "fenced-code")`, and
+    // this test originally asserted a table row did NOT attach the menu
+    // at all. Phase 5E-2A widens the REAL guard to also admit "table" (see
+    // view/OutlineTreeView.ts's renderNode) — table now attaches this
+    // same menu too, so this local reproduction is updated to match,
+    // rather than silently drifting from the real condition while still
+    // "passing" against its own stale copy. The menu still shows table
+    // only "Open in Partial Edit" (no Move/Delete) — that distinction is
+    // enforced inside showStandaloneComplexBlockMenu itself, not by this
+    // attachment guard, and is covered by
+    // tests/phase5e2aTableRawPartialEdit.test.ts's own category D.
     function wouldAttachStandaloneMenu(node: ReturnType<typeof flattenOutlineTree>[number]): boolean {
       return (
         isOutlineComplexMemberNode(node) &&
         node.isStandalone &&
-        (node.complexKind === "callout" || node.complexKind === "blockquote" || node.complexKind === "fenced-code")
+        (node.complexKind === "callout" ||
+          node.complexKind === "blockquote" ||
+          node.complexKind === "fenced-code" ||
+          node.complexKind === "table")
       );
     }
     const { tree } = treeWithFencedCode(
@@ -319,7 +332,7 @@ describe("Phase 5E-1 category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     const codeRow = flat.find((n) => isOutlineComplexMemberNode(n) && n.complexKind === "fenced-code")!;
     const tableRow = flat.find((n) => isOutlineComplexMemberNode(n) && n.complexKind === "table")!;
     expect(wouldAttachStandaloneMenu(codeRow)).toBe(true);
-    expect(wouldAttachStandaloneMenu(tableRow)).toBe(false);
+    expect(wouldAttachStandaloneMenu(tableRow)).toBe(true);
   });
 });
 
@@ -410,12 +423,22 @@ describe("Phase 5E-1 category F: 既存機能回帰", () => {
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   });
 
-  it("extractComplexBlockText/extractSubtreeText still returns ok:false for a table node, unchanged by Phase 5E-1", () => {
+  it("extractComplexBlockText/extractSubtreeText returned ok:false for a table node as of Phase 5E-1 — Phase 5E-2A intentionally changes this (see tests/phase5e2aTableRawPartialEdit.test.ts)", () => {
+    // This test originally pinned "table stays ok:false, unchanged by
+    // Phase 5E-1" as a Phase 5E-1-era regression guard. Phase 5E-2A
+    // ("Markdown table の raw Partial Edit・Apply 検証・安全な書き戻し")
+    // deliberately widens extractComplexBlockText/extractSubtreeText to
+    // also accept kind "table" (its own explicit brief) — so that premise
+    // is no longer true, and this test is updated to confirm the new,
+    // intentional behavior instead of continuing to pin the old one.
+    // tests/phase5e2aTableRawPartialEdit.test.ts's own category A has the
+    // deeper coverage for this; this test remains here only as this
+    // phase's own historical regression marker, now pointing the other way.
     const text = ["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
     const doc = parseDocument(text);
     const info = scanComplexBlocks(doc).blocks.find((b) => b.kind === "table")!;
     const outcome = extractSubtreeText(doc, info.id);
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.reason).toBe("resolve-failed");
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.kind).toBe("table");
   });
 });
