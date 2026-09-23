@@ -137,6 +137,29 @@ composite-member 側の drag-wiring guard（`!node.isStandalone` 分岐）
 `resolveInsertion`/挿入枠組み(insertionFramework)には触れていない
 （本フェーズのスコープ外）。
 
+> **2026-09-24 追記（モバイル follow-up fix）**: 上記の
+> `&& !Platform.isMobile` 除外は、実機（iPad）検証で「モバイルでは
+> D&D ができない。6点マークが必要ではないか？」と報告され、除外され
+> ていた。原因は二重で、(1) `dragHandleEl`（6点グリップハンドル）の
+> 生成条件 `if (!readOnly || isComposite)` が standalone
+> callout/blockquote/table row（常に `readOnly` かつ `isComposite`
+> ではない）を一切満たさずハンドル自体が存在しなかったこと、(2) この
+> セクションで説明した standalone-bridge guard 自身の
+> `&& !Platform.isMobile` がモバイルでの配線そのものを丸ごと除外して
+> いたこと。両方を修正: `dragHandleEl` の生成条件に
+> `isEligibleStandaloneComplexMember`（callout/blockquote/table のみ、
+> fenced-code は対象外のまま）を追加してハンドルを生成し、この
+> standalone-bridge guard から `&& !Platform.isMobile` を除去した上
+> で、`draggable` 属性の設定を section/list の既存 UXP-01 パターン
+> （モバイルでは `dragHandleEl`、デスクトップでは `selfEl` に付与）
+> と同じ形に揃えた。dragover/drop/dragend の各リスナー自体は元々
+> platform 非依存だったため変更不要。fenced-code は本フィックスでも
+> 引き続き対象外（ハンドルも D&D も付与しない）。詳細は
+> `src/view/OutlineTreeView.ts` の `dragHandleEl` 生成条件と
+> standalone-bridge drag-wiring branch 自身の更新済みドキュメント
+> コメント、および `tests/standaloneComplexBlockDropUiWiring.test.ts`
+> を参照。
+
 
 ## 4. テスト
 

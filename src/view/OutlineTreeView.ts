@@ -1525,9 +1525,10 @@ export class OutlineTreeView extends ItemView {
     // on the row BODY (long-press -> context menu, tier 2 below) and a
     // touch on the HANDLE (drag, further below) are never the same gesture
     // recognizer target. null for a readOnly row that is NOT a CompositeBlock
-    // parent row (complex-member/paragraph member rows — never a drag
-    // source, Phase 5D-0.3 approval §1), matching the existing `if
-    // (!readOnly)` gate around the drag listeners further down.
+    // parent row and NOT an eligible standalone complex-member row (see
+    // below) — a plain paragraph/composite-member row stays a non-source,
+    // matching the existing `if (!readOnly)` gate around the drag
+    // listeners further down.
     //
     // Phase 5D-4D (docs/phase5d4d_mobile_composite_block_drag_handle_design.md):
     // a CompositeBlock PARENT row (isComposite) is always `readOnly` (Phase
@@ -1539,8 +1540,32 @@ export class OutlineTreeView extends ItemView {
     // how the composite drag-wiring branch below is its own `else if`
     // rather than a relaxation of `!readOnly`. member/complex-member rows
     // remain excluded: `isComposite` is only ever true for the parent row.
+    //
+    // Mobile follow-up fix (2026-09-24, "モバイルではD&Dができない。6点マー
+    // クが必要ではないか？" — real-device report that D&D silently did not
+    // work at all on mobile for a standalone callout/blockquote/table row):
+    // such a row is always `readOnly` (Phase 5D-0.3 approval §1) and never
+    // `isComposite` (that flag is exclusive to a CompositeBlock PARENT
+    // row), so it never matched this condition and got NO handle — yet the
+    // D&D wiring branch below (`isComplexMember && node.isStandalone &&
+    // complexKind is callout/blockquote/table`) already treats such a row
+    // as a valid drag source/target on desktop. Without a handle, mobile
+    // had no way to lift it (see that branch's own updated doc comment for
+    // why `!Platform.isMobile` is removed there too). `isEligibleStandalone
+    // ComplexMember` below is the exact same three-kind allow-list as that
+    // branch's own guard — fenced-code is deliberately NOT included: it
+    // still gets no handle and no D&D (Phase 5E-1/5E-3d's own explicit
+    // scope decision, unchanged by this fix — see that branch's doc
+    // comment for the full rationale). A handle with no drag capability
+    // behind it would be a dead, confusing UI element.
+    const isEligibleStandaloneComplexMember =
+      isComplexMember &&
+      node.isStandalone &&
+      (node.complexKind === "callout" ||
+        node.complexKind === "blockquote" ||
+        node.complexKind === "table");
     let dragHandleEl: HTMLElement | null = null;
-    if (!readOnly || isComposite) {
+    if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
       setIcon(dragHandleEl, "grip-vertical");
       dragHandleEl.setAttribute("aria-hidden", "true");
@@ -2201,10 +2226,15 @@ export class OutlineTreeView extends ItemView {
     // handle.
     // Phase 5D-0.3 approval §1: composite/complex-member rows, and any list
     // row currently inside a composite, are neither a drag SOURCE nor a
-    // drop TARGET — skipping every listener here (not just `draggable`)
-    // means dragover/drop simply never fire on this row at all, which is
-    // what actually makes it inert as a drop target too. (dragHandleEl is
-    // already null for these rows — see its own creation above.)
+    // drop TARGET via THIS branch — skipping every listener here (not just
+    // `draggable`) means dragover/drop simply never fire on this row via
+    // this wiring, which is what actually makes it inert as a drop target
+    // here. (dragHandleEl is null for most of these rows — see its own
+    // creation above — EXCEPT for a standalone callout/blockquote/table
+    // row, which now gets a non-null handle too; that row's D&D wiring is
+    // entirely separate, in its own `else if` branch further below, not
+    // this one — the handle existing here does not make this `!readOnly`
+    // branch match it.)
     if (!readOnly) {
       if (Platform.isMobile) {
         dragHandleEl?.setAttribute("draggable", "true");
@@ -2267,8 +2297,7 @@ export class OutlineTreeView extends ItemView {
       node.isStandalone &&
       (node.complexKind === "callout" ||
         node.complexKind === "blockquote" ||
-        node.complexKind === "table") &&
-      !Platform.isMobile
+        node.complexKind === "table")
     ) {
       // Phase 5T-2 real-device-verification fix (found via the ticket's
       // own mandated 実機検証 pass, before this row's own D&D was ever
@@ -2336,7 +2365,25 @@ export class OutlineTreeView extends ItemView {
       // produces it as one), so the composite-member drag-wiring branch
       // below (isComplexMember && !node.isStandalone) is intentionally
       // left unwidened — table can never reach it.
-      selfEl.setAttribute("draggable", "true");
+      //
+      // Mobile follow-up fix (2026-09-24): this branch used to exclude
+      // Platform.isMobile entirely (a negated Platform.isMobile check was
+      // ANDed into the guard above), so a standalone callout/blockquote/
+      // table row had NO drag wiring at all on mobile — confirmed by
+      // real-device testing ("モバイルではD&Dができない"). That exclusion
+      // is removed here; `draggable` now follows the exact same platform
+      // split section/list's own UXP-01 wiring (and the composite-parent branch
+      // below) already use — the handle (created above,
+      // `isEligibleStandaloneComplexMember`) is the sole drag origin on
+      // mobile, `selfEl` stays the drag origin on desktop, unchanged. The
+      // dragover/drop/dragend listeners below were already
+      // platform-agnostic (they never referenced Platform.isMobile), so
+      // they needed no change to start working on mobile too.
+      if (Platform.isMobile) {
+        dragHandleEl?.setAttribute("draggable", "true");
+      } else {
+        selfEl.setAttribute("draggable", "true");
+      }
       selfEl.addEventListener("dragstart", (evt) =>
         this.handleCalloutDragStart(evt, node, itemEl)
       );
