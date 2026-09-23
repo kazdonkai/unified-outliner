@@ -120,6 +120,24 @@ source kind ガードは widen 前は `"callout" | "blockquote"` のみで、
 fenced-code 自身への D&D 追加は本フェーズのスコープ外の別課題として
 扱う。
 
+> **2026-09-24 追記（follow-up ticket "fenced-code D&D parity"）**:
+> ユーザーから明示的に fenced-code への D&D 追加を依頼され、上記で
+> 「本フェーズのスコープ外の別課題」としていたものに、本フェーズと同じ
+> ブランチ（`phase5e3d-table-move-delete-dnd`）上の3コミット目として
+> 着手した。当時 table のみに限定した判断そのものは（コードベースの
+> 実態と ticket の前提が食い違っていたための保守的選択として）引き続
+> き正しかったが、それを受けてこの別課題を実施する判断が今回下された
+> — 上記の説明は当時の判断根拠の記録としてそのまま残す。
+>
+> 変更内容: `resolveStandaloneComplexBlockDropTarget` の source kind
+> ガードに `source.kind !== "fenced-code"` を追加し、callout/
+> blockquote/table と同列に fenced-code を受理するようにした。
+> `dropStandaloneComplexBlock.ts` は元々 kind 非依存のままなので無変
+> 更。`view/OutlineTreeView.ts` 側の変更は §3.8 の追記を参照。
+> `tests/findStandaloneComplexBlockDropTarget.test.ts` の「fenced-code
+> は not-supported で拒否される」という既存テストは「fenced-code は
+> 受理される」に反転した。
+
 ### 3.8 Drag and Drop の DOM 配線: `src/view/OutlineTreeView.ts`
 
 `renderNode` 内の standalone-bridge drag-wiring guard（
@@ -159,6 +177,20 @@ composite-member 側の drag-wiring guard（`!node.isStandalone` 分岐）
 > standalone-bridge drag-wiring branch 自身の更新済みドキュメント
 > コメント、および `tests/standaloneComplexBlockDropUiWiring.test.ts`
 > を参照。
+>
+> **2026-09-24 再追記（follow-up ticket "fenced-code D&D parity"）**:
+> 上記で「fenced-code は本フィックスでも引き続き対象外」としていた
+> 除外は、同じ 2026-09-24 のうちに行われたこの follow-up ticket で
+> 解除された。`isEligibleStandaloneComplexMember` と、それとは独立
+> した standalone-bridge drag-wiring guard(このセクション冒頭で説明
+> した `else if` 条件)の両方の kind 許可集合に `"fenced-code"` を
+> 追加し、callout/blockquote/table と同じ経路(`dragHandleEl` の生成、
+> `handleCalloutDragStart`/`handleParagraphDragOver`/
+> `handleParagraphDrop` への配線、デスクトップ/モバイルの
+> handle-vs-row split)にそのまま乗せた。新しいハンドラ・新しい
+> resolver は一切書いていない。詳細は §3.7 末尾の追記、および
+> `src/view/OutlineTreeView.ts` の両ガード自身の更新済みドキュメント
+> コメントを参照。
 
 
 ## 4. テスト

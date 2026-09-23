@@ -44,8 +44,12 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     // valid D&D source/target on mobile too, via the handle created for it
     // — see the dragHandleEl generation condition's own updated doc
     // comment), so the search string below no longer includes it either.
+    // The follow-up ticket "fenced-code D&D parity" (2026-09-24, same day,
+    // same branch) then widened this branch's kind check once more to
+    // also admit "fenced-code" — the search string below now matches that
+    // further-widened condition.
     const start = viewTs.indexOf(
-      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" ||\n        node.complexKind === \"blockquote\" ||\n        node.complexKind === \"table\")\n    ) {"
+      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" ||\n        node.complexKind === \"blockquote\" ||\n        node.complexKind === \"table\" ||\n        node.complexKind === \"fenced-code\")\n    ) {"
     );
     expect(start).toBeGreaterThan(-1);
     const end = viewTs.indexOf(
@@ -244,24 +248,28 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     expect(constBody).toContain('node.complexKind === "callout"');
     expect(constBody).toContain('node.complexKind === "blockquote"');
     expect(constBody).toContain('node.complexKind === "table"');
-    // fenced-code is deliberately NOT part of this allow-list — a
-    // fenced-code standalone row must still get NO handle (see the next
-    // test) and NO D&D, per Phase 5E-1/5E-3d's own explicit scope
-    // decision, unchanged by this fix.
-    expect(constBody).not.toContain('"fenced-code"');
+    // fenced-code was deliberately NOT part of this allow-list at the
+    // time of this mobile follow-up fix, per Phase 5E-1/5E-3d's own
+    // explicit scope decision — that exclusion was itself lifted shortly
+    // after (same day, same branch) by the follow-up ticket "fenced-code
+    // D&D parity" (see the next test), so fenced-code now IS part of this
+    // allow-list.
+    expect(constBody).toContain('"fenced-code"');
   });
 
-  it("fenced-code correctly remains excluded from BOTH the drag handle and the D&D bridge branch — it is admitted into the standalone context-menu branch's own kind allow-list (Phase 5E-1) but nowhere near dragHandleEl's generation condition or the bridge branch's kind check", () => {
-    const start = viewTs.indexOf("let dragHandleEl: HTMLElement | null = null;");
-    const end = viewTs.indexOf("// Inline rename trigger", start);
-    const generationBody = viewTs.slice(start, end);
-    expect(generationBody).not.toContain("fenced-code");
+  it("fenced-code D&D parity follow-up: fenced-code is now admitted into BOTH isEligibleStandaloneComplexMember (which gates dragHandleEl creation) and the D&D bridge branch — on equal footing with callout/blockquote/table, lifting the exclusion the two tests above originally pinned", () => {
+    const constStart = viewTs.indexOf("const isEligibleStandaloneComplexMember =");
+    expect(constStart).toBeGreaterThan(-1);
+    const constEnd = viewTs.indexOf(";", constStart);
+    const constBody = viewTs.slice(constStart, constEnd);
+    expect(constBody).toContain('"fenced-code"');
 
     const branch = standaloneBridgeBranch();
-    expect(branch).not.toContain('"fenced-code"');
+    expect(branch).toContain('"fenced-code"');
     // The branch's own doc comment explicitly documents and re-affirms
-    // this exclusion in prose too.
-    expect(branch).toContain("fenced-code/thematic-break are deliberately excluded here");
+    // this inclusion in prose too, alongside a record of the earlier
+    // exclusion it lifted.
+    expect(branch).toContain("fenced-code D&D parity");
   });
 
   it("the NEW composite-member callout/blockquote branch is gated by !node.isStandalone && (callout|blockquote) && !Platform.isMobile, and checks this.calloutDragSession DIRECTLY for dragover/drop — it deliberately does NOT call handleParagraphDragOver/handleParagraphDrop, so a composite-member row never becomes a paragraph-drag drop target", () => {

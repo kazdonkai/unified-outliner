@@ -12,13 +12,22 @@
  * view/OutlineTreeView.ts's renderNode drag-wiring guard) was simply
  * widened to also accept "table". See
  * docs/phase5e3d_table-move-delete-dnd-design-memo.md for the full design,
- * including the one documented scope deviation: fenced-code itself was
- * NEVER given Drag and Drop by Phase 5E-1 (that phase's own brief was
- * Partial Edit/Move/Delete only) — this phase therefore widens table INTO
- * the existing D&D pipeline without ALSO retroactively widening
- * fenced-code into it (fenced-code stays "not-supported" as a D&D source,
- * unchanged — see tests/findStandaloneComplexBlockDropTarget.test.ts's own
- * pre-existing case for that, left passing as-is by this phase).
+ * including the one documented scope deviation THIS PHASE ITSELF ORIGINALLY
+ * MADE: fenced-code was NEVER given Drag and Drop by Phase 5E-1 (that
+ * phase's own brief was Partial Edit/Move/Delete only), so this phase
+ * originally widened table INTO the existing D&D pipeline without ALSO
+ * retroactively widening fenced-code into it (fenced-code stayed
+ * "not-supported" as a D&D source).
+ *
+ * UPDATE (follow-up ticket "fenced-code D&D parity", 2026-09-24, same
+ * branch): that exclusion has since been lifted — fenced-code now reaches
+ * full D&D parity with callout/blockquote/table, via the exact same
+ * resolveStandaloneComplexBlockDropTarget source-kind gate and
+ * view/OutlineTreeView.ts renderNode drag-wiring guard this phase itself
+ * widened for table, simply widened once more. The tests in this file
+ * that used to pin fenced-code's D&D exclusion have been updated
+ * accordingly (see category C and D below) rather than left describing
+ * now-stale behavior.
  *
  * Mirrors tests/phase5e1FencedCodePartialEditMoveDelete.test.ts's own
  * category A/B structure (Move / Delete) almost exactly, substituting
@@ -259,7 +268,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
     expect(resolution).toEqual({ allowed: false, reason: "nested-in-list" });
   });
 
-  it("resolveStandaloneComplexBlockDropTarget: fenced-code stays 'not-supported' as a D&D source, unchanged by this phase (deliberately NOT widened alongside table)", () => {
+  it("resolveStandaloneComplexBlockDropTarget: a standalone fenced-code block CAN now be dropped AFTER a genuine standalone sibling in the same section (fenced-code D&D parity follow-up)", () => {
     const text = ["# H", "```", "code", "```", "", "> [!tip] two", "> body b"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
@@ -271,7 +280,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
       { range: two.range, parentId: two.parentId },
       "after"
     );
-    expect(resolution).toEqual({ allowed: false, reason: "not-supported" });
+    expect(resolution).toEqual({ allowed: true, insertBeforeLine: two.range.endLine + 1 });
   });
 
   it("dropStandaloneComplexBlock: end-to-end drop of a standalone table BEFORE a standalone list item in the same section matches a manual cut-paste move", () => {
@@ -348,6 +357,31 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
     expect(outcome.reason).toBe("source-boundary-changed");
     expect(outcome.lines).toEqual(parseDocument(laterText).lines);
   });
+
+  it("dropStandaloneComplexBlock: end-to-end drop of a standalone fenced-code block AFTER a standalone callout in the same section matches a manual cut-paste move (fenced-code D&D parity follow-up)", () => {
+    const text = ["# H", "```", "code", "```", "", "> [!note] one", "> body a"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
+    const one = complexScan.blocks.find((b) => doc.lines[b.range.startLine].includes("one"))!;
+    const snapshot = buildStandaloneComplexBlockSnapshot(fenced)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(one.range, one.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "",
+      "> [!note] one",
+      "> body a",
+      "```",
+      "code",
+      "```",
+    ]);
+  });
 });
 
 describe("Phase 5E-3d category D: UI 配線 (view/OutlineTreeView.ts)", () => {
@@ -377,14 +411,21 @@ describe("Phase 5E-3d category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     );
   }
 
-  /** Reproduces renderNode's standalone-bridge D&D drag-wiring guard, as widened by this phase. */
+  /**
+   * Reproduces renderNode's standalone-bridge D&D drag-wiring guard. As of
+   * the follow-up ticket "fenced-code D&D parity" (2026-09-24, same
+   * branch), this now also admits "fenced-code" alongside
+   * callout/blockquote/table — the real guard in
+   * view/OutlineTreeView.ts was widened identically.
+   */
   function wouldWireDragSource(node: ReturnType<typeof flattenOutlineTree>[number]): boolean {
     return (
       isOutlineComplexMemberNode(node) &&
       node.isStandalone &&
       (node.complexKind === "callout" ||
         node.complexKind === "blockquote" ||
-        node.complexKind === "table")
+        node.complexKind === "table" ||
+        node.complexKind === "fenced-code")
     );
   }
 
@@ -397,13 +438,13 @@ describe("Phase 5E-3d category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     expect(wouldWireDragSource(tableRow)).toBe(true);
   });
 
-  it("a standalone fenced-code row still satisfies the menu guard but NOT the D&D drag-wiring guard (fenced-code D&D remains out of scope, unchanged by this phase)", () => {
+  it("a standalone fenced-code row satisfies BOTH the menu guard and the D&D drag-wiring guard (fenced-code D&D parity follow-up lifted the prior exclusion)", () => {
     const { tree } = treeWithTable(["# H", "```ts", "code", "```"].join("\n"));
     const flat = flattenOutlineTree(tree);
     const codeRow = flat.find((n) => isOutlineComplexMemberNode(n) && n.complexKind === "fenced-code")!;
     expect(codeRow).toBeDefined();
     expect(wouldAttachStandaloneMenu(codeRow)).toBe(true);
-    expect(wouldWireDragSource(codeRow)).toBe(false);
+    expect(wouldWireDragSource(codeRow)).toBe(true);
   });
 
   it("collectReadOnlyOutlineNodeIds still includes a standalone table row (deliberate: table reaches Move/Delete/Partial-Edit/D&D via the dedicated, non-readOnly-gated menu/drag paths instead, exactly like callout/blockquote/fenced-code already do)", () => {

@@ -1552,18 +1552,24 @@ export class OutlineTreeView extends ItemView {
     // as a valid drag source/target on desktop. Without a handle, mobile
     // had no way to lift it (see that branch's own updated doc comment for
     // why `!Platform.isMobile` is removed there too). `isEligibleStandalone
-    // ComplexMember` below is the exact same three-kind allow-list as that
-    // branch's own guard — fenced-code is deliberately NOT included: it
-    // still gets no handle and no D&D (Phase 5E-1/5E-3d's own explicit
-    // scope decision, unchanged by this fix — see that branch's doc
-    // comment for the full rationale). A handle with no drag capability
-    // behind it would be a dead, confusing UI element.
+    // ComplexMember` below is the exact same allow-list as that branch's
+    // own guard — callout/blockquote/table plus, as of the follow-up
+    // ticket "fenced-code D&D parity" (2026-09-24), fenced-code too:
+    // fenced-code previously got a standalone Tree row and Move/Delete/
+    // Partial Edit (Phase 5E-1/5E-3d) but was deliberately excluded from
+    // D&D specifically; that exclusion is lifted here so fenced-code now
+    // reaches full D&D parity with the other three standalone complex
+    // kinds, on both desktop and mobile. A handle with no drag capability
+    // behind it would be a dead, confusing UI element, which is why this
+    // stays a single shared allow-list rather than two independently
+    // drifting ones.
     const isEligibleStandaloneComplexMember =
       isComplexMember &&
       node.isStandalone &&
       (node.complexKind === "callout" ||
         node.complexKind === "blockquote" ||
-        node.complexKind === "table");
+        node.complexKind === "table" ||
+        node.complexKind === "fenced-code");
     let dragHandleEl: HTMLElement | null = null;
     if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
@@ -2297,7 +2303,8 @@ export class OutlineTreeView extends ItemView {
       node.isStandalone &&
       (node.complexKind === "callout" ||
         node.complexKind === "blockquote" ||
-        node.complexKind === "table")
+        node.complexKind === "table" ||
+        node.complexKind === "fenced-code")
     ) {
       // Phase 5T-2 real-device-verification fix (found via the ticket's
       // own mandated 実機検証 pass, before this row's own D&D was ever
@@ -2328,22 +2335,30 @@ export class OutlineTreeView extends ItemView {
       // set, before falling through to their original paragraph-only
       // logic (see either method's own updated doc comment).
       //
-      // fenced-code/thematic-break are deliberately excluded here.
-      // thematic-break is never projected as its own standalone Tree row
-      // at all (tree/buildOutlineTree.ts's own isStandaloneComplexBlock-
-      // equivalent check never admits it), so there is no row to wire a
-      // listener onto for it. fenced-code DOES get a standalone Tree row
-      // (Phase 5E-0 widened isStandaloneComplexBlockEligible to also admit
-      // it, and Phase 5E-1 gave it Move/Delete/Partial Edit) but was never
-      // given Drag and Drop by that phase — its own scope was explicitly
-      // Partial Edit/Move/Delete only (see
-      // edit/deleteStandaloneComplexBlock.ts's own top doc comment) — so
-      // this guard intentionally still excludes it here; widening
-      // fenced-code into D&D was not requested by any phase to date,
-      // including this one (Phase 5E-3d, table-only). Paragraph D&D
-      // against a fenced-code/thematic-break target therefore stays out
-      // of reach via the Tree UI, a known, pre-existing constraint (not a
-      // 5T-2 regression), recorded as such in the 5T-2 completion report.
+      // thematic-break is deliberately excluded here: it is never
+      // projected as its own standalone Tree row at all (tree/
+      // buildOutlineTree.ts's own isStandaloneComplexBlock-equivalent
+      // check never admits it), so there is no row to wire a listener
+      // onto for it — that exclusion is structural, not a scope choice,
+      // and is unaffected by anything below.
+      //
+      // fenced-code DOES get a standalone Tree row (Phase 5E-0 widened
+      // isStandaloneComplexBlockEligible to also admit it, and Phase 5E-1
+      // gave it Move/Delete/Partial Edit). Through Phase 5E-3d (table-
+      // only) it was deliberately excluded from D&D specifically — its
+      // scope was explicitly Partial Edit/Move/Delete only (see
+      // edit/deleteStandaloneComplexBlock.ts's own top doc comment history)
+      // — leaving paragraph D&D against a fenced-code target out of reach
+      // via the Tree UI, a known, pre-existing constraint (not a 5T-2
+      // regression), recorded as such in the 5T-2 completion report.
+      // The follow-up ticket "fenced-code D&D parity" (2026-09-24) lifts
+      // that exclusion: fenced-code is now included in this guard's kind
+      // allow-list alongside callout/blockquote/table, reusing this exact
+      // same wiring unchanged — only the guard's kind allow-list changed
+      // (mirroring exactly how Phase 5E-3d itself added "table" here).
+      // See docs/phase5e3d_table-move-delete-dnd-design-memo.md §3.7 for
+      // the dated addendum recording this reversal of the original
+      // exclusion decision.
       //
       // Phase 5D-3C ADDS `draggable`/`dragstart`/`dragend` here — a
       // standalone callout/blockquote row now ALSO becomes a valid D&D
