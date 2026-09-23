@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-09-23
+
+### Added
+
+- Phase 5E-3a: a new fenced code block or Markdown table can now be inserted directly below a section heading or a list item from the Outline Tree's right-click menu ("Insert code block below" / "Insert table below"), without leaving the Tree. Insertion is only offered where the resulting position is unambiguous — immediately under a section/root or right after a list item's own block, never inside a list item's own text or a composite/complex-member row — every other position shows the menu item as unavailable, and clicking it explains why via a Notice rather than silently doing nothing. A fenced code block is inserted via a language picker (Plain, Mermaid, Dataview, DataviewJS, JavaScript, TypeScript, Python, YAML, JSON, SQL, Shell, CSS, HTML, or a validated Custom… info string), reusing the same `CodeBlockPreset` registry the Partial Edit pane's own language selector already draws from; a table is inserted via a column-count dialog (1–8 columns) or a one-click minimal 2-column template. Either insertion opens the new block directly in the Partial Edit pane, and required blank-line padding is added without disturbing any existing blank lines elsewhere in the note. The insert and the pane's first Apply on that block are folded into a single Undo step, and the whole insertion is rejected — leaving the note byte-for-byte unchanged — if it would break an existing fenced-code pairing or a composite block's structure. Also fixes two real-device-reported issues found during this phase's own verification: the Partial Edit pane's empty-state placeholder text no longer leaks into a freshly loaded node, and — because fenced-code/table block ids are positional and can shift when an inserted block is undone in the note body — the pane now correctly shows an "unavailable" state instead of silently displaying an unrelated pre-existing block's content after such an Undo. See `docs/phase5e3a_structured-block-insert-design-memo.md` for the full design and real-device verification record.
+
 ## [0.7.4] - 2026-09-23
 
 ### Changed
