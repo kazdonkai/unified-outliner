@@ -1965,8 +1965,59 @@ export class PartialEditView extends ItemView {
     this.pendingStructuredInsert = this.nodeId === info.nodeId ? { ...info } : null;
   }
 
+  /**
+   * Phase 5E-3a fix #2 ("挿入後、本文 Undo で別ブロックが誤って表示される
+   * のを防ぐ"): a fenced-code/table complex-block id is POSITIONAL
+   * (`fenced-<N>`/`table-<N>` = the N-th such block in document order —
+   * see parser/complexBlocks.ts's own scanners) and carries no
+   * content/structural anchor of its own, unlike a paragraph's
+   * ParagraphMoveAnchor (edit/paragraphTreeMove.ts). So once the block
+   * THIS pane inserted is later removed by an Undo elsewhere in the note
+   * (a chain of body-side Undo/Redo this pane never mediates), its own id
+   * can be silently reassigned to whatever OTHER same-kind block now
+   * happens to sit at that position — resolveCurrentTarget's plain
+   * `doc.nodes`/`extractSubtreeText` id lookup below has no way to tell
+   * "still my block, edited externally" apart from "a completely
+   * different block that inherited my id", so a naive re-resolution
+   * would report a normal content difference and the clean-Pane
+   * auto-reload path (evaluateAgainstText) would silently swap that
+   * unrelated block's text into this pane as if it were an external edit
+   * to the SAME block.
+   *
+   * Set right alongside pendingStructuredInsert's own first-Apply
+   * consumption (unconditionally, whether or not that Apply's own
+   * insert+Apply merge actually fired — see that call site) and
+   * DELIBERATELY KEPT after a successful merge/Apply (never cleared on a
+   * later in-pane Apply) — `preInsertText` stays a valid "this exact text
+   * means nothing was ever inserted" signature for as long as this pane
+   * keeps the same nodeId, regardless of how many further edits are made
+   * to that same block afterward. resolveCurrentTarget checks it BEFORE
+   * doing its normal id lookup: if the document's CURRENT full text is
+   * byte-identical to `preInsertText`, the inserted block cannot possibly
+   * still exist under this id no matter what a lookup finds there, so
+   * resolution is forced to fail (ok:false, ambiguous:false) — which
+   * classifySyncOutcome turns into "unavailable" (the same state an
+   * ordinary deleted node already gets: the stale content stays visible,
+   * read-only, Apply disabled, with an explicit Reload the only way
+   * forward — see transitionToUnavailable's own doc comment for why that
+   * state deliberately never auto-clears). This is a full-text equality
+   * check, so it is exact regardless of how many Undo/Redo steps the user
+   * takes to reach (or leave) that exact state, and it protects BOTH the
+   * passive stale check (performStaleCheck) and an explicit Reload
+   * (executeReload) at their one shared choke point, resolveCurrentTarget.
+   * Cleared only by resetLoadedState (switching away from this node) —
+   * never partially invalidated, since a false negative here (missing a
+   * genuine identity swap once the document has moved on from
+   * `preInsertText`) is exactly the pre-existing, documented, deferred
+   * general limitation of positional complex-block ids (see this file's
+   * own class doc comment / the project roadmap's "resolver hardening
+   * backlog" note), not a regression this fix claims to solve in full.
+   */
+  private structuredInsertGuard: { nodeId: string; preInsertText: string } | null = null;
+
   private resetLoadedState(): void {
     this.pendingStructuredInsert = null;
+    this.structuredInsertGuard = null;
     this.nodeId = null;
     this.nodeKind = null;
     this.paragraphAnchor = null;
@@ -2135,6 +2186,18 @@ export class PartialEditView extends ItemView {
    * load, covering title, breadcrumb, and navigator together.
    */
   private loadNodeInternal(nodeId: string): void {
+    // Phase 5E-3a fix #2: any fresh "load this node" call — even reloading
+    // the exact same nodeId later — ends whatever structured-insert guard
+    // a PREVIOUS load may have left set (see structuredInsertGuard's own
+    // doc comment for why a stale guard from an earlier binding of this
+    // same id string must never leak into a later, unrelated one). Placed
+    // unconditionally before every branch below, including the early
+    // failure returns (which separately clear it again via
+    // renderEmptyState -> resetLoadedState) — clearing it twice is
+    // harmless. main.ts's setPendingStructuredInsert (called right after
+    // requestLoadNode for a genuine Tree-triggered insert) is what makes
+    // it live again for THIS load, if applicable.
+    this.structuredInsertGuard = null;
     const view = this.activeMarkdownView.get();
     if (!view) {
       // 2026-09-09 ("単独 Callout Partial Edit Pane の stale snapshot 表示
@@ -5563,6 +5626,12 @@ export class PartialEditView extends ItemView {
       // pendingStructuredInsert's own doc comment).
       const pending = this.pendingStructuredInsert;
       this.pendingStructuredInsert = null;
+      // Phase 5E-3a fix #2: set unconditionally as soon as we know this IS
+      // the first Apply after a Tree structured insert — regardless of
+      // whether the merge below actually fires (e.g. the note diverged
+      // from postInsertText before this Apply ran) — see
+      // structuredInsertGuard's own doc comment.
+      if (pending) this.structuredInsertGuard = { nodeId: pending.nodeId, preInsertText: pending.preInsertText };
       let merged = false;
       if (
         pending &&
@@ -6934,6 +7003,19 @@ export class PartialEditView extends ItemView {
    * that ALSO fails escalates it to "unavailable" (see executeReload).
    */
   private resolveCurrentTarget(doc: ParsedDocument): { ok: boolean; text: string | null; ambiguous: boolean } {
+    // Phase 5E-3a fix #2: checked BEFORE the normal id lookup below — see
+    // structuredInsertGuard's own doc comment for why a full-text match
+    // against the pre-insert snapshot is a stronger, unambiguous signal
+    // than anything the id-based lookup below could ever produce on its
+    // own for a positional complex-block id.
+    if (
+      this.nodeId &&
+      this.structuredInsertGuard &&
+      this.structuredInsertGuard.nodeId === this.nodeId &&
+      doc.lines.join("\n") === this.structuredInsertGuard.preInsertText
+    ) {
+      return { ok: false, text: null, ambiguous: false };
+    }
     if (this.nodeId) {
       const extracted = extractSubtreeText(doc, this.nodeId);
       return { ok: extracted.ok, text: extracted.ok ? extracted.text : null, ambiguous: false };

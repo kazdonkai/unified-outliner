@@ -121,7 +121,44 @@ describe("source wiring", () => {
     expect(block).toContain('doc.lines.join("\\n") === pending.postInsertText');
     expect(block.indexOf("editor.undo()")).toBeLessThan(block.indexOf("editor.getValue() === pending.preInsertText"));
     expect(block).toContain("editor.redo()");
-    expect(pane).toContain("this.pendingStructuredInsert = null;\n    this.nodeId = null;");
+    expect(pane).toContain(
+      "this.pendingStructuredInsert = null;\n    this.structuredInsertGuard = null;\n    this.nodeId = null;"
+    );
+  });
+
+  it("fix #2: a structured-insert guard blocks resolveCurrentTarget when the note reverts to the pre-insert snapshot", () => {
+    // Field declaration + resetLoadedState clears it.
+    expect(pane).toContain(
+      "private structuredInsertGuard: { nodeId: string; preInsertText: string } | null = null;"
+    );
+    // applyEdit's merge block sets it unconditionally whenever this IS the
+    // first Apply after a Tree structured insert, regardless of whether the
+    // undo/redo merge itself succeeds.
+    expect(pane).toContain(
+      "if (pending) this.structuredInsertGuard = { nodeId: pending.nodeId, preInsertText: pending.preInsertText };"
+    );
+    // loadNodeInternal clears any leftover guard from a previous binding of
+    // the same positional id, as its very first statement (before the "no
+    // active editor" early return and everything else).
+    const loadStart = pane.indexOf("private loadNodeInternal(nodeId: string): void {");
+    expect(loadStart).toBeGreaterThan(0);
+    const loadHead = pane.slice(loadStart, loadStart + 1200);
+    expect(loadHead.indexOf("this.structuredInsertGuard = null;")).toBeLessThan(
+      loadHead.indexOf("const view = this.activeMarkdownView.get();")
+    );
+    // resolveCurrentTarget checks the guard BEFORE the normal id-based
+    // lookup, forcing resolution to fail (unavailable) rather than letting
+    // a shifted positional id silently resolve to a different block.
+    const resolveStart = pane.indexOf("private resolveCurrentTarget(doc: ParsedDocument):");
+    expect(resolveStart).toBeGreaterThan(0);
+    const resolveBody = pane.slice(resolveStart, resolveStart + 1500);
+    const guardCheckIdx = resolveBody.indexOf("this.structuredInsertGuard &&");
+    const idLookupIdx = resolveBody.indexOf("const extracted = extractSubtreeText(doc, this.nodeId);");
+    expect(guardCheckIdx).toBeGreaterThan(0);
+    expect(idLookupIdx).toBeGreaterThan(0);
+    expect(guardCheckIdx).toBeLessThan(idLookupIdx);
+    expect(resolveBody).toContain('doc.lines.join("\\n") === this.structuredInsertGuard.preInsertText');
+    expect(resolveBody).toContain("return { ok: false, text: null, ambiguous: false };");
   });
 
   it("fix: a loaded node never shows the empty-state guidance placeholder, and fenced/table get their own title kind", () => {
