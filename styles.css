@@ -618,7 +618,10 @@ settings:
 .unified-outliner-partial-edit-task-checkbox-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-ordered-number-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"],
-.unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"] {
+.unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-table-mode-tab-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-table-mode-grid[style*="visibility: hidden"],
+.unified-outliner-partial-edit-textarea[style*="visibility: hidden"] {
   display: none;
 }
 
@@ -1222,6 +1225,188 @@ settings:
 
 .unified-outliner-partial-edit-fenced-code-language-custom-input:disabled {
   opacity: 0.6;
+}
+
+/* Phase 5E-3c ("軽量 Table Mode"): the Raw/Table tab row — sits directly
+ * above the shared textarea (Raw tab) / the Table Mode grid (Table tab),
+ * mirroring fenced-code-language-row's own "one flex row, above the
+ * shared editor surface" placement immediately above. */
+.unified-outliner-partial-edit-table-mode-tab-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.unified-outliner-partial-edit-table-mode-tab {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  font-family: inherit;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-table-mode-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.unified-outliner-partial-edit-table-mode-tab-active {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.unified-outliner-partial-edit-table-mode-parse-failure {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--text-error);
+  opacity: 0.85;
+}
+
+/* Phase 5E-3c: the Table tab's own cell/row/column grid — a flex column
+ * of "rows" (the header row plus one per data row), each itself a flex
+ * row of cells, mirroring composite-list-row's own transparent/inline
+ * input styling for every text field inside it. */
+.unified-outliner-partial-edit-table-mode-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px 8px 8px;
+  overflow-x: auto;
+}
+
+.unified-outliner-partial-edit-table-mode-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.unified-outliner-partial-edit-table-mode-header-row {
+  align-items: flex-start;
+}
+
+.unified-outliner-partial-edit-table-mode-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  flex: 1 1 96px;
+}
+
+.unified-outliner-partial-edit-table-mode-cell-input {
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  font-family: var(--font-monospace, monospace);
+  padding: 2px 6px;
+}
+
+.unified-outliner-partial-edit-table-mode-cell-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.unified-outliner-partial-edit-table-mode-align-row {
+  display: flex;
+  gap: 2px;
+}
+
+.unified-outliner-partial-edit-table-mode-align-button {
+  /* Phase 5E-3c follow-up: was a flex-1 text button showing the full
+     translated label ("左揃え"/"中央揃え"/"右揃え"/"揃えなし"), which
+     overflowed and overlapped at this width in Japanese. Now renders a
+     single icon glyph (setIcon) centered in a small fixed square, with
+     the full label moved to the tooltip — same sizing idiom as the
+     delete/add/move icon buttons below. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 3px;
+  background-color: rgba(128, 128, 128, 0.06);
+  color: var(--uo-text-color);
+  opacity: 0.7;
+  padding: 1px;
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-table-mode-align-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.unified-outliner-partial-edit-table-mode-align-button-active {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  opacity: 1;
+}
+
+.unified-outliner-partial-edit-table-mode-delete-column,
+.unified-outliner-partial-edit-table-mode-delete-row,
+.unified-outliner-partial-edit-table-mode-add-column,
+.unified-outliner-partial-edit-table-mode-row-move {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--uo-text-color);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.unified-outliner-partial-edit-table-mode-delete-column:hover,
+.unified-outliner-partial-edit-table-mode-delete-row:hover,
+.unified-outliner-partial-edit-table-mode-add-column:hover,
+.unified-outliner-partial-edit-table-mode-row-move:hover {
+  opacity: 1;
+  background-color: rgba(128, 128, 128, 0.1);
+}
+
+.unified-outliner-partial-edit-table-mode-row-move:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.unified-outliner-partial-edit-table-mode-row-handle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.unified-outliner-partial-edit-table-mode-add-row {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: 4px;
+  background-color: rgba(128, 128, 128, 0.08);
+  color: var(--uo-text-color);
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-table-mode-add-row:hover {
+  background-color: rgba(128, 128, 128, 0.14);
 }
 
 .unified-outliner-partial-edit-textarea {
