@@ -40,12 +40,28 @@
  *
  * ---- What this function does NOT do ----
  *
- * No blank-line cleanup, no Markdown reformatting/renormalization of any
- * kind, no content/text-hash comparison of the SOURCE (matching Move's own
- * "a move/drop relocates whatever content currently sits at the
- * re-verified structural position" policy — this is not a round-trip edit
- * like the Partial Edit Pane). Every rejection path leaves `lines`
- * byte-identical to the input (`changed: false`).
+ * [2026-09-24 追記, feat/standalone-complex-dnd-cross-section] The
+ * "no blank-line cleanup" sentence directly below was true of v1 and is
+ * kept for history, but is now only half true: this function now DOES
+ * insert a blank line either side of the moved block (via this file's own
+ * local `ensureBlankSeparation`), but ONLY on a drop that actually crosses
+ * a section boundary (`target.parentId !== resolvedSource.parentId`,
+ * checked AFTER both sides are freshly re-resolved). A same-section drop
+ * still gets none — see this file's own call site of
+ * `ensureBlankSeparation`, below, for the exact condition and rationale.
+ * This mirrors edit/paragraphNonAdjacentMove.ts's own
+ * `ensureBlankSeparation`, reused here as a byte-identical, independently
+ * duplicated copy (same "duplicated, not imported" convention that
+ * module's own top doc comment, and edit/deleteParagraph.ts's own copy,
+ * already establish) rather than an import, since this module has always
+ * deliberately avoided a dependency on the paragraph-move family.
+ *
+ * No Markdown reformatting/renormalization of any other kind, no
+ * content/text-hash comparison of the SOURCE (matching Move's own "a
+ * move/drop relocates whatever content currently sits at the re-verified
+ * structural position" policy — this is not a round-trip edit like the
+ * Partial Edit Pane). Every rejection path leaves `lines` byte-identical
+ * to the input (`changed: false`).
  */
 import { ParsedDocument } from "../model/block";
 import { ComplexBlockScanResult, StandaloneComplexBlockDropRejectReason } from "../model/complexBlock";
@@ -65,6 +81,52 @@ import {
   snapshotMatches,
 } from "./moveStandaloneComplexBlock";
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
+import { isBlankLine } from "../parser/parseDocument";
+
+// [2026-09-24 追記, feat/standalone-complex-dnd-cross-section]
+// Byte-identical duplicate of edit/paragraphNonAdjacentMove.ts's own
+// HEADING_RE/LIST_RE/needsSeparatingBlankLine/ensureBlankSeparation —
+// same "duplicated, not imported" policy that file's own top doc comment
+// already establishes (and edit/deleteParagraph.ts's own copy already
+// follows). Needed here because a CROSS-SECTION standalone
+// callout/blockquote/fenced-code/table drop can now land the moved block
+// directly next to arbitrary destination-section content that never used
+// to be adjacent to it — exactly the same "two things merge into one
+// parsed unit because no blank line separates them" risk
+// moveParagraphNonAdjacent's own blank-line policy already guards against.
+// SAME-SECTION drops keep their pre-existing behavior (no blank-line
+// insertion at all) — see dropStandaloneComplexBlock's own call site
+// below for why this is applied conditionally, not unconditionally.
+const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
+const LIST_RE = /^([ \t]*)([-*+]|\d+[.)])(?:[ \t]+.*)?$/;
+
+function needsSeparatingBlankLine(neighborLine: string | undefined): boolean {
+  if (neighborLine === undefined) return false;
+  if (isBlankLine(neighborLine)) return false;
+  if (HEADING_RE.test(neighborLine)) return false;
+  if (LIST_RE.test(neighborLine)) return false;
+  return true;
+}
+
+function ensureBlankSeparation(
+  lines: string[],
+  start: number,
+  length: number
+): { lines: string[]; newStart: number } {
+  let out = lines;
+  let s = start;
+  const end = start + length - 1;
+
+  if (needsSeparatingBlankLine(out[end + 1])) {
+    out = [...out.slice(0, end + 1), "", ...out.slice(end + 1)];
+  }
+  if (needsSeparatingBlankLine(out[s - 1])) {
+    out = [...out.slice(0, s), "", ...out.slice(s)];
+    s += 1;
+  }
+
+  return { lines: out, newStart: s };
+}
 
 export interface StandaloneComplexBlockDropRequest {
   snapshot: StandaloneComplexBlockSnapshot;
@@ -187,6 +249,23 @@ export function dropStandaloneComplexBlock(
   }
 
   const { lines: outLines, newStart } = insertBlockAt(lines, resolvedSource.range, resolution.insertBeforeLine);
+
+  // [2026-09-24 追記, feat/standalone-complex-dnd-cross-section]
+  // ensureBlankSeparation is applied ONLY when this drop actually crossed
+  // a section boundary (`target.parentId !== resolvedSource.parentId`) —
+  // a same-section drop keeps its exact pre-existing byte-for-byte output
+  // (see tests/dropStandaloneComplexBlock.test.ts's own same-section
+  // fixtures, which assert precise `lines[]` with no inserted blank
+  // lines). A cross-section drop can land the moved block directly next
+  // to destination-section content it was never previously validated
+  // against, so it gets the same blank-line safety net
+  // moveParagraphNonAdjacent already applies unconditionally to every one
+  // of its own (always same-parent) moves.
+  if (target.parentId !== resolvedSource.parentId) {
+    const blockLength = resolvedSource.range.endLine - resolvedSource.range.startLine + 1;
+    const separated = ensureBlankSeparation(outLines, newStart, blockLength);
+    return { changed: true, lines: separated.lines, newStartLine: separated.newStart };
+  }
 
   return { changed: true, lines: outLines, newStartLine: newStart };
 }

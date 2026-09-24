@@ -361,6 +361,12 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     expect(stylesCss).toContain(".unified-outliner-drop-after");
   });
 
+  it("[2026-09-24, feat/standalone-complex-dnd-cross-section] dispatchAndApplyStandaloneComplexBlockDrop still calls applyLineEditOutcome EXACTLY ONCE, even for a cross-section drop — the executor's own ensureBlankSeparation post-step (edit/dropStandaloneComplexBlock.ts) folds its blank-line insertion into the SAME single outcome.lines[], so a cross-section drop remains one edit / one Undo step, never a second, separate editor write", () => {
+    const body = methodBody("dispatchAndApplyStandaloneComplexBlockDrop");
+    const occurrences = (body.match(/applyLineEditOutcome\(/g) ?? []).length;
+    expect(occurrences).toBe(1);
+  });
+
   it("buildOutlineTree.ts needed NO changes for this ticket — it is never referenced by name in the new callout drag methods beyond the pre-existing isOutlineListNode/isOutlineParagraphNode type-guard imports every prior phase already used", () => {
     for (const name of ["calloutDropTargetHint", "handleCalloutDragStart", "resolveCalloutDragSource"]) {
       const body = methodBody(name);
