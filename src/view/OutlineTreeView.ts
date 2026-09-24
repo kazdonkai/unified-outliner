@@ -333,6 +333,7 @@ import { applyParagraphEdit, paragraphEditTextContainsBlankLine } from "../edit/
 import { evaluateRenameNoteIdentity } from "../edit/renameNoteIdentityGuard";
 import { TranslationKey } from "../i18n";
 import { createMirrorBelow, MirrorCreateRef } from "../mirror/createMirror";
+import { buildMirrorOpSnapshots, deleteMirror, evaluateMirrorMove } from "../mirror/mirrorOps";
 import {
   BlockCopySourceRef,
   BlockCopyTargetHint,
@@ -2113,6 +2114,17 @@ export class OutlineTreeView extends ItemView {
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showParagraphMoveMenu(evt, node.id);
+      });
+    } else if (isOutlineMirrorNode(node)) {
+      // Phase 5M-2 ("ミラー行に対する操作"): a mirror row's own, narrow menu —
+      // Move mirror up / Move mirror down / Delete mirror ONLY (see
+      // showMirrorMenu). Same "explicit exception layered on top of the
+      // read-only contract" shape as the paragraph branch above: the row
+      // stays in readOnlyNodeIds, so rename, drag and drop, Partial Edit
+      // and Phase 5E-Copy's copy/paste are still never attached to it.
+      selfEl.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        this.showMirrorMenu(evt, node.id);
       });
     }
 
@@ -5223,6 +5235,101 @@ export class OutlineTreeView extends ItemView {
           .onClick(() => this.plugin.clearPendingBlockCopy({ notify: true }))
       );
     }
+  }
+
+  // ---- Phase 5M-2: mirror row operations ---------------------------------
+  //
+  // Move/Delete reuse the EXISTING standalone callout/blockquote pipelines
+  // (moveStandaloneComplexBlock / deleteStandaloneComplexBlock, widened in
+  // Phase 5M-2 to admit a mirror embed line) through the thin wrappers in
+  // mirror/mirrorOps.ts; the click-time dispatch reuses this view's own
+  // dispatchAndApplyStandaloneComplexBlockMove and the same Delete
+  // confirmation modal fenced-code/table/callout/blockquote already use.
+  // Deleting a mirror removes the embed line only — never the referenced
+  // block or its ^block-id (mirrorOps.deleteMirror enforces this).
+
+  private showMirrorMenu(evt: MouseEvent, nodeId: string): void {
+    const node = this.nodeById.get(nodeId);
+    const doc = this.currentDoc;
+    const scan = this.currentComplexScan;
+    if (!node || !isOutlineMirrorNode(node) || !doc || !scan) return;
+    const snapshots = buildMirrorOpSnapshots(doc, scan, node.line);
+    if (!snapshots) return;
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const menu = new Menu();
+
+    const addMove = (titleKey: TranslationKey, icon: string, direction: StandaloneMoveDirection) => {
+      const judge = evaluateMirrorMove(doc, scan, this.currentComposites, node.line, direction);
+      const title = this.plugin.t(titleKey);
+      const reasonText = judge.eligible
+        ? undefined
+        : standaloneComplexBlockMoveReasonText((k) => this.plugin.t(k), judge.reason);
+      menu.addItem((item) =>
+        item
+          .setTitle(judge.eligible ? title : `${title}${this.plugin.t("tree.menu.unavailableSuffix")}`)
+          .setIcon(judge.eligible ? icon : OutlineTreeView.UNAVAILABLE_ICON)
+          .setWarning(!judge.eligible)
+          .onClick(() => {
+            if (!judge.eligible) {
+              if (reasonText) new Notice(reasonText);
+              return;
+            }
+            this.dispatchAndApplyMirrorMove(snapshots.move, direction, rules);
+          })
+      );
+    };
+    addMove("tree.menu.moveMirrorUp", "arrow-up", "up");
+    addMove("tree.menu.moveMirrorDown", "arrow-down", "down");
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(this.plugin.t("tree.menu.deleteMirror"))
+        .setIcon("trash-2")
+        .setWarning(true)
+        .onClick(() => {
+          new ConfirmFencedCodeDeleteModal(
+            this.app,
+            this.plugin,
+            snapshots.delete.kind,
+            node.label,
+            snapshots.delete.range,
+            (confirmed) => {
+              if (confirmed) this.dispatchAndApplyMirrorDelete(snapshots.delete, rules);
+            }
+          ).open();
+        })
+    );
+    this.showTrackedMenu(menu, evt);
+  }
+
+  /** Mirror Move: the existing standalone Move dispatch, unchanged (same multi-cursor guard, write path and follow/refresh tail). */
+  private dispatchAndApplyMirrorMove(
+    snapshot: StandaloneComplexBlockSnapshot,
+    direction: StandaloneMoveDirection,
+    rules: CompositeBlockRule[]
+  ): boolean {
+    return this.dispatchAndApplyStandaloneComplexBlockMove(snapshot, direction, rules);
+  }
+
+  /** Mirror Delete: mirrorOps.deleteMirror (existing standalone delete + "embed line only" invariant) via applyLineEditOutcome — one Undo step. */
+  private dispatchAndApplyMirrorDelete(snapshot: StandaloneComplexBlockDeleteSnapshot, rules: CompositeBlockRule[]): boolean {
+    const view = this.activeMarkdownView.get();
+    if (!view) return false;
+    const editor: Editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return false;
+    }
+    const text = editor.getValue();
+    const outcome = deleteMirror(text, snapshot, rules);
+    const changed = applyLineEditOutcome(editor, { line: snapshot.range.startLine, ch: 0 }, snapshot.range.startLine, text.split("\n"), outcome, () => {});
+    if (!changed) {
+      new Notice(this.plugin.t("notice.mirrorDeleteRefused"));
+      return false;
+    }
+    new Notice(this.plugin.t("notice.mirrorDeleted"));
+    this.refresh();
+    return true;
   }
 
   // ---- Phase 5M-1: Create mirror -------------------------------------------

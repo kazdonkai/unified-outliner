@@ -79,9 +79,14 @@ import { scanComplexBlocks } from "../parser/complexBlocks";
 import { isComposedMember, isStandaloneComplexBlockShapeEligible, matchCompositeBlocks } from "../parser/compositeBlocks";
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
 import { TranslationKey } from "../i18n";
+import { isMirrorEmbedBlock } from "../mirror/isMirrorEmbedBlock";
 
 /** The ComplexBlockKind values this module ever deletes — see this file's own top doc comment for this allow-list's history (originally "fenced-code" only, widened to "table" by Phase 5E-3d, and to "callout"/"blockquote" by this same branch's 2026-09-24 follow-up — now matching moveStandaloneComplexBlock.ts's own StandaloneComplexBlockMoveKind exactly). */
-export type StandaloneComplexBlockDeleteKind = "fenced-code" | "table" | "callout" | "blockquote";
+export type StandaloneComplexBlockDeleteKind = "fenced-code" | "table" | "callout" | "blockquote" | "paragraph";
+// Phase 5M-2: "paragraph" is admitted ONLY for a same-note mirror embed line
+// (mirror/isMirrorEmbedBlock.ts) — built solely by buildMirrorEmbedDeleteSnapshot
+// and re-verified inside deleteStandaloneComplexBlock. An ordinary paragraph
+// snapshot is refused exactly as before.
 
 /**
  * A point-in-time capture of a standalone fenced-code ComplexBlockInfo,
@@ -122,6 +127,24 @@ export function buildStandaloneComplexBlockDeleteSnapshot(
   return {
     id: info.id,
     kind: info.kind,
+    range: { startLine: info.range.startLine, endLine: info.range.endLine },
+    parentId: info.parentId,
+  };
+}
+
+/**
+ * Phase 5M-2: the Delete snapshot for a mirror row (a same-note mirror embed
+ * line), or null for anything else. The line range is the embed line ONLY —
+ * deleting it never touches the block the mirror references.
+ */
+export function buildMirrorEmbedDeleteSnapshot(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo
+): StandaloneComplexBlockDeleteSnapshot | null {
+  if (!isMirrorEmbedBlock(doc, info)) return null;
+  return {
+    id: info.id,
+    kind: "paragraph",
     range: { startLine: info.range.startLine, endLine: info.range.endLine },
     parentId: info.parentId,
   };
@@ -170,7 +193,8 @@ function findRangeInvalidReason(
     snapshot.kind !== "fenced-code" &&
     snapshot.kind !== "table" &&
     snapshot.kind !== "callout" &&
-    snapshot.kind !== "blockquote"
+    snapshot.kind !== "blockquote" &&
+    snapshot.kind !== "paragraph" // Phase 5M-2: mirror embed snapshots only
   ) {
     return "range-invalid";
   }
@@ -245,7 +269,13 @@ export function deleteStandaloneComplexBlock(
     return rejected(lines, "boundary-changed");
   }
 
-  if (!isStandaloneComplexBlockShapeEligible(doc, resolved)) {
+  // Phase 5M-2: a "paragraph" snapshot must still be a mirror embed line
+  // right now; every other kind keeps its pre-existing eligibility check.
+  if (
+    resolved.kind === "paragraph"
+      ? !isMirrorEmbedBlock(doc, resolved)
+      : !isStandaloneComplexBlockShapeEligible(doc, resolved)
+  ) {
     return rejected(lines, "not-supported");
   }
   if (isComposedMember(composites, resolved.id)) {

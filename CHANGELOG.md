@@ -4,6 +4,10 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Added
+
+- Phase 5M-2 (mirror row operations): with "Show mirror embeds in Outline Tree" on, a `⧉ Mirror:` row now has its own context menu (long-press on mobile) with exactly **Move mirror up**, **Move mirror down** and **Delete mirror**. Both reuse the existing standalone callout/blockquote pipelines unchanged in behavior — `evaluateStandaloneComplexBlockMovability` / `moveStandaloneComplexBlock` (same adjacency judge, same same-section-only rule, same swap) and `deleteStandaloneComplexBlock` (same snapshot re-verification, same "3+ blank lines → 2" normalization, same confirmation modal) — which now also admit exactly one extra shape: a same-note mirror embed line (`mirror/isMirrorEmbedBlock.ts`); ordinary paragraphs are still refused by both. Delete removes the embed line ONLY: `mirror/mirrorOps.ts#deleteMirror` additionally refuses any result that is not "the original minus the embed line and some blank lines", so the referenced heading/block and its `^block-id` (inline or on its own line) are never touched. Delete is one Undo step. Mirror rows stay read-only otherwise: no rename, no drag and drop (cross-section moves and D&D are out of scope), no Partial Edit, no Copy/Duplicate/Paste. The Partial Edit Pane now shows, at its bottom, a display-only link "Mirrors referencing this block: N" when resolved same-note mirrors of the loaded block exist; clicking it moves the note's cursor to the next such mirror (cycling), and the count refreshes on every change to the note. It never touches the draft, dirty state, Apply or Cancel. The Phase 5E-Copy copy-pending state is untouched. See `docs/phase5m-2_mirror-ops-design-memo.md` and the real-device checklist `docs/phase5m-2-verification.md` (not yet run — the developer's own responsibility).
+
 ## [0.8.1] - 2026-09-25
 
 ### Added

@@ -145,6 +145,7 @@ import {
   setTooltip,
 } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
+import { mirrorReferencesForTarget, nextMirrorJumpIndex, PartialEditMirrorTarget } from "../mirror/mirrorOps";
 import { parseDocument } from "../parser/parseDocument";
 import { applySubtreeEdit, extractSubtreeText, FencedCodeBodyExtraction, SubtreeKind } from "../edit/partialEdit";
 import {
@@ -1320,6 +1321,18 @@ export class PartialEditView extends ItemView {
   private leafFirstChildAddRowEl!: HTMLElement;
   private leafFirstChildAddButtonEl!: HTMLButtonElement;
   private applyButtonEl!: HTMLButtonElement;
+  /**
+   * Phase 5M-2: the display-only "Mirrors referencing this block: N" link
+   * row at the bottom of the pane (see updateMirrorReferences). It never
+   * reads or writes the textarea/draft state, the dirty flag, originalText
+   * or syncState, and is independent of Apply/Cancel — it only reads the
+   * source note's current text and moves the editor cursor on click.
+   */
+  private mirrorRefsEl!: HTMLElement;
+  /** Phase 5M-2: embed lines of the mirrors currently referencing the loaded block (document order). */
+  private mirrorRefLines: number[] = [];
+  /** Phase 5M-2: index into mirrorRefLines of the mirror the last click jumped to (-1 = none yet). */
+  private mirrorRefJumpIndex = -1;
   private cancelButtonEl!: HTMLButtonElement;
   private closeButtonEl!: HTMLElement;
 
@@ -1925,6 +1938,15 @@ export class PartialEditView extends ItemView {
     });
     this.newChildTextareaEl.addEventListener("input", () => this.updateDirtyState());
     this.newChildEditorEl.toggleVisibility(false);
+
+    // Phase 5M-2: display-only mirror-reference link row, last in the pane.
+    // See mirrorRefsEl's own field doc comment.
+    this.mirrorRefsEl = this.contentEl.createDiv({ cls: "unified-outliner-partial-edit-mirror-refs" });
+    this.mirrorRefsEl.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      this.jumpToNextMirrorReference();
+    });
+    this.mirrorRefsEl.toggleVisibility(false);
 
     // Real-device follow-up: keep exactly one visible close affordance.
     // See updateCloseButtonVisibility's doc comment for why a lone leaf
@@ -2827,6 +2849,8 @@ export class PartialEditView extends ItemView {
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
+    // Phase 5M-2: nothing loaded -> no mirror-reference row.
+    this.renderMirrorReferences([]);
   }
 
   /**
@@ -2889,6 +2913,9 @@ export class PartialEditView extends ItemView {
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
     this.updateDirtyState();
+    // Phase 5M-2: display-only mirror-reference row for the newly loaded block.
+    this.mirrorRefJumpIndex = -1;
+    this.updateMirrorReferences();
   }
 
   /**
@@ -7384,6 +7411,8 @@ export class PartialEditView extends ItemView {
     if (this.closed || !this.sourcePath) return;
     if (info.file?.path !== this.sourcePath) return;
     this.scheduleStaleCheck();
+    // Phase 5M-2: display-only; independent of the stale check above.
+    this.scheduleMirrorReferencesUpdate();
   }
 
   /** vault "modify" handler — path-based, works even with no open editor for sourcePath. */
@@ -7391,6 +7420,96 @@ export class PartialEditView extends ItemView {
     if (this.closed || !this.sourcePath) return;
     if (!(file instanceof TFile) || file.path !== this.sourcePath) return;
     this.scheduleStaleCheck();
+    this.scheduleMirrorReferencesUpdate();
+  }
+
+  // ---- Phase 5M-2: "mirrors referencing this block" (display only) ---------
+
+  private scheduleMirrorReferencesUpdate = debounce(() => this.updateMirrorReferences(), 200, true);
+
+  /** What this pane has loaded, in the shape mirror/mirrorOps.ts needs. CompositeBlocks are not mirror targets. */
+  private mirrorTargetDescriptor(): PartialEditMirrorTarget {
+    if (this.nodeId) return { kind: "node", nodeId: this.nodeId };
+    if (this.paragraphAnchor) {
+      return {
+        kind: "paragraph",
+        parentId: this.paragraphAnchor.parentId,
+        originalText: this.paragraphAnchor.originalText,
+      };
+    }
+    return { kind: "none" };
+  }
+
+  /**
+   * Recomputes the mirror-reference link row from the source note's CURRENT
+   * text (open editor, else vault.cachedRead). Touches ONLY mirrorRefsEl /
+   * mirrorRefLines / mirrorRefJumpIndex — never the draft, dirty state,
+   * originalText or syncState, so it cannot affect Apply/Cancel.
+   */
+  private updateMirrorReferences(): void {
+    if (!this.mirrorRefsEl) return;
+    const path = this.sourcePath;
+    const target = this.mirrorTargetDescriptor();
+    if (this.closed || !path || target.kind === "none") {
+      this.renderMirrorReferences([]);
+      return;
+    }
+    const editor = this.findOpenEditorForSourcePath();
+    if (editor) {
+      this.renderMirrorReferences(mirrorReferencesForTarget(editor.getValue(), path, target));
+      return;
+    }
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      this.renderMirrorReferences([]);
+      return;
+    }
+    void this.app.vault
+      .cachedRead(file)
+      .then((text) => {
+        if (this.closed || this.sourcePath !== path) return;
+        this.renderMirrorReferences(mirrorReferencesForTarget(text, path, this.mirrorTargetDescriptor()));
+      })
+      .catch(() => this.renderMirrorReferences([]));
+  }
+
+  private renderMirrorReferences(lines: number[]): void {
+    if (!this.mirrorRefsEl) return;
+    const changed = lines.length !== this.mirrorRefLines.length || lines.some((l, i) => l !== this.mirrorRefLines[i]);
+    this.mirrorRefLines = lines;
+    if (changed) this.mirrorRefJumpIndex = -1;
+    this.mirrorRefsEl.empty();
+    if (lines.length === 0) {
+      this.mirrorRefsEl.toggleVisibility(false);
+      return;
+    }
+    this.mirrorRefsEl.toggleVisibility(true);
+    const linkEl = this.mirrorRefsEl.createEl("a", {
+      cls: "unified-outliner-partial-edit-mirror-refs-link",
+      text: this.plugin.t("partialEdit.mirrorReferences", { count: lines.length }),
+      attr: { href: "#", role: "button" },
+    });
+    const nextIndex = nextMirrorJumpIndex(this.mirrorRefJumpIndex, lines.length);
+    setTooltip(linkEl, this.plugin.t("partialEdit.mirrorReferencesJump", { n: nextIndex + 1, count: lines.length }));
+  }
+
+  /** Click: move the source note's cursor to the next referencing mirror (cycling). Display/navigation only. */
+  private jumpToNextMirrorReference(): void {
+    const count = this.mirrorRefLines.length;
+    if (count === 0) return;
+    const editor = this.findOpenEditorForSourcePath();
+    if (!editor) return;
+    this.mirrorRefJumpIndex = nextMirrorJumpIndex(this.mirrorRefJumpIndex, count);
+    const line = this.mirrorRefLines[this.mirrorRefJumpIndex];
+    if (line >= editor.lineCount()) return;
+    editor.setCursor({ line, ch: 0 });
+    const lineLen = editor.getLine(line)?.length ?? 0;
+    editor.scrollIntoView({ from: { line, ch: 0 }, to: { line, ch: lineLen } }, true);
+    const nextIndex = nextMirrorJumpIndex(this.mirrorRefJumpIndex, count);
+    const linkEl = this.mirrorRefsEl.querySelector(".unified-outliner-partial-edit-mirror-refs-link");
+    if (linkEl instanceof HTMLElement) {
+      setTooltip(linkEl, this.plugin.t("partialEdit.mirrorReferencesJump", { n: nextIndex + 1, count }));
+    }
   }
 
   /**
