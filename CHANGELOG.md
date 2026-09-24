@@ -4,6 +4,10 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Added
+
+- Phase 5M-0 (mirror foundation): the first, display-only step of single-note mirrors. New pure modules under `src/mirror/` — `mirrorTypes.ts` (`MirrorKind` = `"heading" | "block-id"`, `MirrorSource`, `MirrorNode`, `MirrorResolutionResult`), `parseMirrorEmbed.ts` (a whole-line `![[#Heading]]` / `![[#Parent#Child]]` / `![[#^block-id]]` embed referring to the same note; another note's heading/block, whole-file embeds and anything else return null), `detectMirrorCycle.ts` (an embed whose target contains another embed — or itself — forms an edge; strongly-connected components mark circular embeds) and `scanMirrorEmbeds.ts` (recognizes such embed lines on top of the existing paragraph scan, without changing `parseDocument`/`scanComplexBlocks`, and resolves each to its heading's section or its block-id block). A new, off-by-default setting "Show mirror embeds in Outline Tree" projects each one as its own read-only `⧉ Mirror: <target>` row (a new `"mirror"` Tree node kind, in the read-only set, with no context menu, rename, drag and drop, Partial Edit or copy/paste entry point, and no fold identity); an unresolved or circular embed is flagged. Clicking the row (or Enter) jumps to the referenced heading/block. With the setting off, embed lines are handled exactly as before (as paragraphs), and while it is on an embed shown as a mirror row is not also listed as a paragraph row. No mirror editing or syncing yet, and no mirror database — the note's own embed syntax is the only source of truth. See `docs/phase5m-0_mirror-foundation-design-memo.md`.
+
 ## [0.7.9] - 2026-09-24
 
 ### Added

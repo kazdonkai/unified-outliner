@@ -264,6 +264,21 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           })
       );
 
+    // Phase 5M-0: single-note mirror embed rows (off by default) — same
+    // on/off -> refreshOutlineTreeViews() shape as the two toggles above.
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.showMirrorEmbedsInOutline.name"))
+      .setDesc(this.plugin.t("settings.showMirrorEmbedsInOutline.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.showMirrorEmbedsInOutline)
+          .onChange(async (v) => {
+            this.plugin.settings.showMirrorEmbedsInOutline = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
+
     new Setting(containerEl)
       .setName(this.plugin.t("settings.outlineTreeAppearanceHeading"))
       .setHeading();

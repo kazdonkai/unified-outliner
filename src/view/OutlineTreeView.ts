@@ -182,6 +182,7 @@ import {
   isOutlineComplexMemberNode,
   isOutlineListNode,
   isOutlineParagraphNode,
+  isOutlineMirrorNode,
   isOutlineSectionNode,
   listItemDisplayText,
   OutlineTreeComplexMemberNode,
@@ -431,6 +432,16 @@ interface StandaloneComplexBlockDragSession {
   snapshot: StandaloneComplexBlockSnapshot;
   /** The dragged row's OWN Tree view id — DOM cleanup / row-highlight bookkeeping ONLY, never a comparison key for identity or safety (mirrors ParagraphDragSession.sourceTreeNodeId's own role). */
   sourceTreeNodeId: string;
+}
+
+
+/**
+ * Phase 5M-0: where activating a Tree row moves the cursor — a mirror row's
+ * referenced heading/block (its `targetLine`), or, for an unresolved /
+ * circular mirror and every other row kind, the row's own `line`.
+ */
+export function mirrorJumpLine(node: OutlineTreeNode): number {
+  return isOutlineMirrorNode(node) && node.targetLine !== null ? node.targetLine : node.line;
 }
 
 /**
@@ -1046,6 +1057,15 @@ export class OutlineTreeView extends ItemView {
       // standaloneComplexBlocks (one scan, both projections read from it).
       paragraphs: this.plugin.settings.showParagraphsInOutline
         ? { blocks: complexScan.blocks }
+        : undefined,
+      // Phase 5M-0: single-note mirror embed rows — same "presence of the
+      // option is the gate" pattern as `paragraphs` just above; off by
+      // default (settings.showMirrorEmbedsInOutline). Read-only display
+      // only: this view's projection state, never the Phase 5E-Copy
+      // copy-pending state (plugin.pendingBlockCopy), which it neither
+      // reads nor writes.
+      mirrors: this.plugin.settings.showMirrorEmbedsInOutline
+        ? { blocks: complexScan.blocks, notePath: view.file?.path ?? "" }
         : undefined,
       // UXP-04 (2026-08-15, "Configurable List Marker Prefix Display"):
       // resolved once here at build time — see
@@ -1840,6 +1860,19 @@ export class OutlineTreeView extends ItemView {
         text: "¶ ",
       });
       innerEl.createSpan({ cls: "unified-outliner-paragraph-label", text: node.label });
+    } else if (isOutlineMirrorNode(node)) {
+      // Phase 5M-0: read-only "Mirror: <target>" row. Like a paragraph row
+      // it is in readOnlyNodeIds (collectReadOnlyOutlineNodeIds), and no
+      // context-menu / rename / drag / Partial Edit branch below matches
+      // kind "mirror" — so this label is the ONLY thing rendered for it.
+      // data-mirror-status lets styles.css flag a dangling or circular
+      // embed without any color logic here.
+      selfEl.setAttribute("data-mirror-status", node.status);
+      const innerEl = selfEl.createDiv({
+        cls: "tree-item-inner unified-outliner-mirror-text",
+      });
+      innerEl.createSpan({ cls: "unified-outliner-mirror-prefix", text: "⧉ " });
+      innerEl.createSpan({ cls: "unified-outliner-mirror-label", text: node.label });
     }
     // Phase 5P-3 (design doc §6): deliberately NO further else branch here
     // (matches the pre-existing lack of a final else for composite/
@@ -1894,7 +1927,9 @@ export class OutlineTreeView extends ItemView {
       // scrolls it into view, but keeps DOM focus in the tree panel so an
       // immediately-following arrow key still navigates the tree instead
       // of silently being swallowed by the now-focused editor.
-      this.jumpToLine(node.id, node.line, { focusEditor: false });
+      // Phase 5M-0: a mirror row jumps to the referenced heading/block
+      // (mirrorJumpLine), not to its own embed line.
+      this.jumpToLine(node.id, mirrorJumpLine(node), { focusEditor: false });
     });
 
     // Right-click structure menu: the full move/indent/outdent/contextual
@@ -2891,7 +2926,8 @@ export class OutlineTreeView extends ItemView {
     if (!this.selectedId) return;
     const node = this.nodeById.get(this.selectedId);
     if (!node) return;
-    this.jumpToLine(node.id, node.line);
+    // Phase 5M-0: Enter on a mirror row jumps to the referenced block, like a click.
+    this.jumpToLine(node.id, mirrorJumpLine(node));
   }
 
   /**

@@ -203,6 +203,16 @@ export interface UnifiedOutlinerSettings {
    * comment for why this is a separate toggle rather than a shared one.
    */
   showTablesInOutline: boolean;
+  /**
+   * Phase 5M-0 ("ミラーの基盤型定義と読み取り専用 Outline Tree 投影"):
+   * opt-in toggle for projecting a single-note mirror embed line
+   * (`![[#Heading]]` / `![[#^block-id]]`) as its own read-only "Mirror:"
+   * Outline Tree row — see tree/buildOutlineTree.ts's
+   * BuildOutlineTreeOptions.mirrors. Off by default, like every other
+   * opt-in display toggle here; when off, embed lines are handled exactly
+   * as before this phase (as ordinary paragraphs).
+   */
+  showMirrorEmbedsInOutline: boolean;
 }
 
 /** See UnifiedOutlinerSettings.headingPrefixStyle's doc comment. */
@@ -310,6 +320,7 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   showParagraphsInOutline: false,
   showFencedCodeInOutline: false,
   showTablesInOutline: false,
+  showMirrorEmbedsInOutline: false,
 };
 
 /**

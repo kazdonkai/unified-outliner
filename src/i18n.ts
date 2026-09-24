@@ -98,6 +98,12 @@ const en = {
   "settings.showFencedCodeInOutline.name": "Show fenced code blocks in Outline Tree View",
   "settings.showFencedCodeInOutline.desc":
     "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
+  "settings.showMirrorEmbedsInOutline.name": "Show mirror embeds in Outline Tree",
+  "settings.showMirrorEmbedsInOutline.desc":
+    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row jumps to the referenced heading or block. Off by default; when off, embed lines are shown as ordinary paragraphs.",
+  "tree.mirrorLabel": "Mirror: {target}",
+  "tree.mirrorNotFoundSuffix": " (not found)",
+  "tree.mirrorCycleSuffix": " (circular)",
   "settings.showTablesInOutline.name": "Show tables in Outline Tree View",
   "settings.showTablesInOutline.desc":
     "Show Markdown tables as read-only navigation nodes in the Outline Tree View. Click a row to jump to its header row; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
@@ -1436,6 +1442,12 @@ const ja: Record<TranslationKey, string> = {
   "settings.showFencedCodeInOutline.name": "アウトラインツリーにコードブロックを表示",
   "settings.showFencedCodeInOutline.desc":
     "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
+  "settings.showMirrorEmbedsInOutline.name": "アウトラインツリーにミラー（埋め込み）を表示",
+  "settings.showMirrorEmbedsInOutline.desc":
+    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると参照先の見出しまたはブロックへ移動する。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
+  "tree.mirrorLabel": "Mirror: {target}",
+  "tree.mirrorNotFoundSuffix": "（参照先なし）",
+  "tree.mirrorCycleSuffix": "（循環参照）",
   "settings.showTablesInOutline.name": "アウトラインツリーに表を表示",
   "settings.showTablesInOutline.desc":
     "Markdown の表を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックするとヘッダー行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
