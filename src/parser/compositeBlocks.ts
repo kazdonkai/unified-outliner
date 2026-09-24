@@ -933,9 +933,19 @@ export function findAdjacentStandaloneComplexBlock(
 // move/findStandaloneComplexBlockMoveTarget.ts now call INSTEAD, so the
 // widened behavior is centralized in exactly one place.
 //
-// Deliberately still excludes "table": Phase 5E-1 left table read-only,
-// unchanged, and this ticket does not touch that (see
-// docs/fix_standalone-complex-move-adjacent-parity-design-memo.md).
+// ADDENDUM (2026-09-24, merge with phase5e3d-table-move-delete-dnd): the
+// paragraph above ("Deliberately still excludes 'table'") was accurate at
+// the time this ticket was implemented on top of `main` (0.7.7), where
+// table was still read-only/non-movable. Merging in
+// phase5e3d-table-move-delete-dnd (which widens table into the
+// standalone-Move-eligible kind set, see that branch's own design memo)
+// means a standalone callout/blockquote/fenced-code/paragraph/list item
+// can now legitimately sit adjacent to a standalone table block too, so
+// `isStandaloneMoveAdjacentComplexCandidate`'s own kind check below is
+// widened to also accept "table" — matching
+// evaluateStandaloneComplexBlockMovability's own target-kind check and
+// findAdjacentStandaloneComplexBlock's (already table-inclusive)
+// candidate set. No other condition changes.
 
 /**
  * A single, uniform shape for "whatever real, standalone unit sits exactly
@@ -978,6 +988,7 @@ function isStandaloneMoveAdjacentComplexCandidate(
     info.kind !== "callout" &&
     info.kind !== "blockquote" &&
     info.kind !== "fenced-code" &&
+    info.kind !== "table" &&
     info.kind !== "paragraph"
   ) {
     return false;
