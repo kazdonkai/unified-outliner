@@ -263,7 +263,7 @@ describe("Tree read-only contract maintained after Phase 5P-4/5T-1 (paragraph st
     expect(dragSectionStart).toBeGreaterThan(-1);
     const readOnlyBlockStart = viewTs.indexOf("if (!readOnly) {", dragSectionStart);
     const paragraphBranchStart = viewTs.indexOf(
-      "} else if (isOutlineParagraphNode(node) && !Platform.isMobile) {",
+      "} else if (isOutlineParagraphNode(node)) {",
       dragSectionStart
     );
     expect(readOnlyBlockStart).toBeGreaterThan(dragSectionStart);
@@ -531,9 +531,9 @@ describe("Phase 5T-1: paragraph Tree-triggered Move (narrow, safety-gated except
 
 /**
  * Phase 5T-2 ("Outline Tree paragraph の D&D による安全な隣接 swap", plan A
- * only, desktop only — docs/phase5t2_paragraph-tree-dnd-design.md): static
- * UI-wiring checks for the new paragraph drag & drop branch, modeled on
- * this file's own existing Phase 5T-1 describe block above (same
+ * only, originally desktop only — docs/phase5t2_paragraph-tree-dnd-design.md):
+ * static UI-wiring checks for the new paragraph drag & drop branch, modeled
+ * on this file's own existing Phase 5T-1 describe block above (same
  * "supplementary only, never the sole defense" framing — the REAL
  * adjacency/safety defense is the pure-function test suite in
  * tests/paragraphTreeMove.test.ts's own
@@ -542,8 +542,21 @@ describe("Phase 5T-1: paragraph Tree-triggered Move (narrow, safety-gated except
  * routes through that logic rather than reinventing it, and that no
  * child/inside drop affordance or general write-capability was
  * introduced alongside it).
+ *
+ * Mobile follow-up fix (2026-09-24, "Outline Tree の paragraph 行に mobile
+ * 用のドラッグハンドルを追加する"): the desktop-only scope above is no
+ * longer current — this branch's own `&& !Platform.isMobile` guard term was
+ * removed, and dragHandleEl's generation condition (checked in a dedicated
+ * describe block further below) was separately widened to also admit a
+ * paragraph row, mirroring the exact same fix already applied to the
+ * standalone callout/blockquote/table/fenced-code bridge branch in
+ * tests/standaloneComplexBlockDropUiWiring.test.ts's own 2026-09-24
+ * addendum. The tests immediately below are updated in place to assert the
+ * new, correct desktop+mobile contract; the plan-A-only / no-child-drop /
+ * no-general-write-capability invariants they also check are otherwise
+ * unaffected.
  */
-describe("Phase 5T-2: paragraph drag & drop wiring (narrow, desktop-only, plan-A-only exception)", () => {
+describe("Phase 5T-2: paragraph drag & drop wiring (narrow, plan-A-only exception; desktop+mobile as of the 2026-09-24 mobile follow-up fix)", () => {
   const viewTs = readFileSync(path.resolve(__dirname, "../src/view/OutlineTreeView.ts"), "utf-8");
   const moveTs = readFileSync(path.resolve(__dirname, "../src/edit/paragraphTreeMove.ts"), "utf-8");
   const stylesCss = readFileSync(path.resolve(__dirname, "../styles.css"), "utf-8");
@@ -572,16 +585,32 @@ describe("Phase 5T-2: paragraph drag & drop wiring (narrow, desktop-only, plan-A
    * of the whole chain, five branches later.
    */
   function paragraphDragBranch(): string {
-    const startLandmark = "} else if (isOutlineParagraphNode(node) && !Platform.isMobile) {";
-    const start = viewTs.indexOf(startLandmark);
+    // Mobile follow-up fix (2026-09-24) addendum: removing this branch's
+    // own former `&& !Platform.isMobile` guard term made its opening
+    // condition text ("} else if (isOutlineParagraphNode(node)) {")
+    // textually IDENTICAL to the unrelated render/context-menu chain's own
+    // `else if (isOutlineParagraphNode(node))` branch earlier in the file
+    // (the one that only draws the "¶ " label) — a bare `viewTs.indexOf`
+    // would now find that EARLIER, wrong occurrence first. The drag-wiring
+    // section's own preceding landmark ("Phase 3A (section) / Phase 4A
+    // (list): drag & drop.") disambiguates by searching only from that
+    // point onward, same technique the §5-5 test above already uses.
+    const dragSectionStart = viewTs.indexOf(
+      "Phase 3A (section) / Phase 4A (list): drag & drop."
+    );
+    expect(dragSectionStart).toBeGreaterThan(-1);
+    const startLandmark = "} else if (isOutlineParagraphNode(node)) {";
+    const start = viewTs.indexOf(startLandmark, dragSectionStart);
     if (start === -1) {
       throw new Error(
         `paragraph drag branch start landmark ${JSON.stringify(startLandmark)} not found — has the paragraph drag branch been renamed, removed, or reordered? Update this test's bounding logic.`
       );
     }
-    // A second occurrence would make `start` itself ambiguous — assert
-    // there is exactly one before trusting it.
-    expect(viewTs.split(startLandmark).length - 1).toBe(1);
+    // Exactly one occurrence from the drag-wiring section onward would
+    // make `start` itself unambiguous — confirmed here rather than over
+    // the whole file (which now legitimately contains a second, EARLIER,
+    // unrelated occurrence in the render/context-menu chain — see above).
+    expect(viewTs.slice(dragSectionStart).split(startLandmark).length - 1).toBe(1);
 
     // The paragraph branch's actual next sibling: the standalone
     // callout/blockquote branch's own opening condition. Written WITHOUT a
@@ -612,19 +641,28 @@ describe("Phase 5T-2: paragraph drag & drop wiring (narrow, desktop-only, plan-A
     return branch;
   }
 
-  it("the paragraph drag branch is gated by isOutlineParagraphNode(node) && !Platform.isMobile — desktop only, never attached for a mobile paragraph row", () => {
+  it("the paragraph drag branch is gated by isOutlineParagraphNode(node) alone — no !Platform.isMobile exclusion since the 2026-09-24 mobile follow-up fix, so it now attaches for a mobile paragraph row too (via the handle — see the mobile/desktop draggable-split test below)", () => {
     const branch = paragraphDragBranch();
-    expect(branch.startsWith("} else if (isOutlineParagraphNode(node) && !Platform.isMobile) {")).toBe(
-      true
-    );
+    expect(branch.startsWith("} else if (isOutlineParagraphNode(node)) {")).toBe(true);
+    // The branch's own CODE (not its explanatory comment, which
+    // legitimately discusses the old, now-removed `&& !Platform.isMobile`
+    // guard term in prose for historical context) must not actually test
+    // Platform.isMobile as an eligibility gate for the branch itself — only
+    // inside the mobile-vs-desktop draggable split checked separately
+    // below.
+    const codeOnly = branch
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"))
+      .join("\n");
+    expect(codeOnly).not.toContain("&& !Platform.isMobile");
   });
 
   it("the paragraph drag branch never widens the original section/list !readOnly gate — it is its own else-if arm, and paragraph rows remain in readOnlyNodeIds (unrelated to this branch existing)", () => {
     const branch = paragraphDragBranch();
     // The branch's own code (not its explanatory comment) never tests
     // `readOnly` at all — its eligibility is entirely
-    // isOutlineParagraphNode(node) && !Platform.isMobile, checked in the
-    // enclosing else-if condition already asserted above.
+    // isOutlineParagraphNode(node), checked in the enclosing else-if
+    // condition already asserted above.
     const codeOnly = branch
       .split("\n")
       .filter((line) => !line.trim().startsWith("//"))
@@ -642,17 +680,37 @@ describe("Phase 5T-2: paragraph drag & drop wiring (narrow, desktop-only, plan-A
     expect(branch).toContain("this.handleDragEnd()");
   });
 
-  it("the paragraph drag branch never references dragHandleEl in its actual CODE (desktop-only — selfEl itself is the drag source, exactly like desktop's existing section/list behavior; no mobile drag-handle carve-out was added) - the branch's own explanatory comment legitimately mentions dragHandleEl by name to explain why it is irrelevant here, so comments are excluded from this check. (Phase 5D-4D: also re-verified that none of handleCompositeDragStart/handleCompositeDragOverNode/handleCompositeDropNode/compositeDragSession leaked in — the new mobile CompositeBlock drag handle work is confined to its own, separate branch, five branches later in the same if/else-if chain.)", () => {
+  it("2026-09-24 mobile follow-up fix: the paragraph drag branch now DOES reference dragHandleEl in its actual CODE — via the same mobile-vs-desktop draggable split section/list's own UXP-01 wiring and the standalone callout/blockquote/table/fenced-code bridge branch already use — but still references NOTHING CompositeBlock-specific (handleCompositeDragStart/handleCompositeDragOverNode/handleCompositeDropNode/compositeDragSession stay confined to the CompositeBlock branch, several branches later in the same if/else-if chain)", () => {
     const branch = paragraphDragBranch();
     const codeOnly = branch
       .split("\n")
       .filter((line) => !line.trim().startsWith("//"))
       .join("\n");
-    expect(codeOnly).not.toContain("dragHandleEl");
+    expect(codeOnly).toContain("dragHandleEl");
     expect(codeOnly).not.toContain("handleCompositeDragStart");
     expect(codeOnly).not.toContain("handleCompositeDragOverNode");
     expect(codeOnly).not.toContain("handleCompositeDropNode");
     expect(codeOnly).not.toContain("compositeDragSession");
+  });
+
+  it("2026-09-24 mobile follow-up fix: the paragraph drag branch follows the exact section/list UXP-01 mobile-vs-desktop draggable split: dragHandleEl on mobile, selfEl on desktop", () => {
+    const branch = paragraphDragBranch();
+    expect(branch.startsWith("} else if (isOutlineParagraphNode(node)) {\n")).toBe(true);
+    expect(branch).toContain("if (Platform.isMobile) {");
+    expect(branch).toContain('dragHandleEl?.setAttribute("draggable", "true");');
+    expect(branch).toContain("} else {");
+    expect(branch).toContain('selfEl.setAttribute("draggable", "true");');
+  });
+
+  it("2026-09-24 mobile follow-up fix: dragHandleEl's generation condition now also admits a paragraph row (isParagraph), alongside the pre-existing !readOnly / isComposite / isEligibleStandaloneComplexMember terms, so it finally gets the mobile six-dot handle needed to lift it by touch", () => {
+    const start = viewTs.indexOf("let dragHandleEl: HTMLElement | null = null;");
+    expect(start).toBeGreaterThan(-1);
+    const end = viewTs.indexOf("// Inline rename trigger", start);
+    expect(end).toBeGreaterThan(start);
+    const generationBody = viewTs.slice(start, end);
+    expect(generationBody).toContain(
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+    );
   });
 
   it("no child/inside drop affordance exists anywhere in the paragraph drag path — 'unified-outliner-drop-inside' never appears in the branch itself, in computeParagraphDropZone, or in resolveParagraphDropDirection/ParagraphDropZone's own type", () => {
