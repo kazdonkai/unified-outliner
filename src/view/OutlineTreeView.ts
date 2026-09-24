@@ -4408,7 +4408,13 @@ export class OutlineTreeView extends ItemView {
     }
 
     const text = editor.getValue();
-    const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, position);
+    // [2026-09-24 追記, feat/paragraph-dnd-cross-section] rules is now
+    // passed so moveParagraphNonAdjacent's own composite-internal-boundary
+    // guard (new in this ticket) can actually fire — see that function's
+    // own top doc comment addendum. Same enabled-rule-set every other
+    // matchCompositeBlocks caller in this view already reads.
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, position, rules);
 
     const cursor = { line: sourceAnchor.rangeStart, ch: 0 };
     const changed = applyLineEditOutcome(
@@ -6515,16 +6521,34 @@ export class OutlineTreeView extends ItemView {
    *      restriction (list-item-child paragraphs excluded from THIS new
    *      path; the existing adjacent-swap D&D's own handling of such rows,
    *      whatever it already is, is untouched).
-   *   3. `node.parentId === session.anchor.parentId` — "same section
-   *      scope" per the approved design: since both sides are already
-   *      constrained to top-level (`parentId === null`) or section-direct
-   *      (`parentId` = that section's id) by gate 2, parentId equality
-   *      IS exactly "same section, or both top-level" — no separate
-   *      enclosing-section walk is needed. This is also exactly the same
-   *      condition moveParagraphNonAdjacent's own `parent-mismatch`
-   *      rejection re-checks independently at drop time — this gate is a
-   *      preview optimization only (skip showing an indicator for a drop
-   *      that would certainly be rejected), never a substitute for it.
+   *   3. [SUPERSEDED 2026-09-24, feat/paragraph-dnd-cross-section] This
+   *      gate used to require `node.parentId === session.anchor.parentId`
+   *      ("same section scope") — see this method's own history below.
+   *      That restriction is REMOVED: gate 2 already constrains both
+   *      sides to top-level (`parentId === null`) or section-direct
+   *      (`parentId` = some section's id), and `moveParagraphNonAdjacent`
+   *      itself no longer rejects a `parentId` mismatch between source and
+   *      target (see edit/paragraphNonAdjacentMove.ts's own top doc
+   *      comment addendum) — so a target under a DIFFERENT section is now
+   *      a valid preview candidate too, following the exact same decision
+   *      already shipped for standalone-complex-block D&D
+   *      (view/OutlineTreeView.ts required no change for THAT ticket
+   *      because its own drop-target-hint resolution was already
+   *      section-agnostic; paragraph D&D's own preview gate, unlike that
+   *      one, DID hard-code a same-parentId check, so it needed this
+   *      explicit removal).
+   *   [ORIGINAL gate 3 — SUPERSEDED, kept for history] `node.parentId ===
+   *      session.anchor.parentId` — "same section scope" per the approved
+   *      design: since both sides are already constrained to top-level
+   *      (`parentId === null`) or section-direct (`parentId` = that
+   *      section's id) by gate 2, parentId equality IS exactly "same
+   *      section, or both top-level" — no separate enclosing-section walk
+   *      is needed. This was also exactly the same condition
+   *      moveParagraphNonAdjacent's own (then-existing) `parent-mismatch`
+   *      rejection re-checked independently at drop time — this gate was
+   *      a preview optimization only (skip showing an indicator for a
+   *      drop that would certainly be rejected), never a substitute for
+   *      it.
    *   4. `resolveParagraphFromTreeHint` + `buildSiblingTargetAnchor` — the
    *      EXACT SAME pair used at dragstart for the source anchor
    *      (handleParagraphDragStart) and inside showParagraphMoveMenu for
@@ -6551,7 +6575,13 @@ export class OutlineTreeView extends ItemView {
     if (node.kind !== "paragraph") return null;
     if (!this.isTopLevelOrSectionDirectParagraphParent(doc, session.anchor.parentId)) return null;
     if (!this.isTopLevelOrSectionDirectParagraphParent(doc, node.parentId)) return null;
-    if (node.parentId !== session.anchor.parentId) return null;
+    // [2026-09-24, feat/paragraph-dnd-cross-section] The
+    // `node.parentId !== session.anchor.parentId` -> null ("same section
+    // scope") gate that used to live here has been REMOVED — see this
+    // method's own doc comment (gate 3) for the full rationale. A target
+    // under a different section (still constrained to top-level or
+    // section-direct by the two isTopLevelOrSectionDirectParagraphParent
+    // checks above) now falls through to gate 4 below.
 
     const complexScan = this.currentComplexScan;
     if (!complexScan) return null;

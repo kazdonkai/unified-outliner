@@ -1516,12 +1516,22 @@ describe("paragraph D&D adjacent/non-adjacent routing (pure-function integration
     );
   });
 
-  it("a target belonging to a DIFFERENT parentId (different section, or a list-item parent) never reaches an allowed non-adjacent move — moveParagraphNonAdjacent itself rejects it as parent-mismatch, matching the adapter's own preview-time same-parentId gate", () => {
+  it("[SUPERSEDED 2026-09-24, feat/paragraph-dnd-cross-section] a target under a DIFFERENT section used to be rejected as parent-mismatch; it is now an ALLOWED cross-section move — see edit/paragraphNonAdjacentMove.ts's own top doc comment addendum and tests/paragraphNonAdjacentMove.test.ts's own 'cross-section' describe block for the full coverage", () => {
     const text = ["# H1", "A", "", "B", "# H2", "C", "", "D"].join("\n");
     const sourceAnchor = anchorAtLine(text, 1); // "A", under H1
     const targetAnchor = siblingAnchorAtLine(text, 5); // "C", under H2 — different section
     const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, "before");
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("parent-mismatch");
+    expect(outcome.changed).toBe(true);
+    expect(outcome.reason).toBeUndefined();
+  });
+
+  it("the D&D adapter's own preview gate (resolveParagraphNonAdjacentDragTarget) no longer excludes a target under a different section — only a list-item-child parent on either side still excludes it (isTopLevelOrSectionDirectParagraphParent, unchanged)", () => {
+    const viewTs = readFileSync(path.resolve(__dirname, "../src/view/OutlineTreeView.ts"), "utf-8");
+    const method = viewTs.slice(
+      viewTs.indexOf("private resolveParagraphNonAdjacentDragTarget("),
+      viewTs.indexOf("private clearDropIndicator(")
+    );
+    expect(method).not.toContain("if (node.parentId !== session.anchor.parentId) return null;");
+    expect(method).toContain("isTopLevelOrSectionDirectParagraphParent");
   });
 });
