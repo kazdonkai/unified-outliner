@@ -174,3 +174,88 @@ Undo についての注記: 本リポジトリの vitest テストは実際の C
 - composite-internal-boundary 以外の新しい安全ガードは追加していない
   （リストの cross-section 実装にも同等の追加ガードは存在しない）。
 - Move up/down のセクション越え対応は本チケットのスコープ外（6節参照）。
+
+
+---
+
+## 8. 追記（2026-09-25, fix/standalone-dnd-blank-separation-always）: 同一セクション内ドロップでも空行分離が必要だった
+
+### 8.1 実機報告の要約
+
+ユーザーが実機 iPad で、blockquote を D&D でドラッグし、段落の直上（同一
+セクション内）にドロップしたところ、間に空行がないために段落がその
+blockquote の本文に結合して取り込まれてしまうという不具合が報告された
+（添付スクリーンショットで確認済み）。
+
+### 8.2 原因
+
+本メモの 4節・5節で記述した `ensureBlankSeparation` は、上記 6.（
+`edit/dropStandaloneComplexBlock.ts` 末尾）に実装した通り、当初
+「セクション越えの場合のみ」呼び出す条件付きだった。その理由は「同一
+セクション内のドロップは、ドロップ先の候補が既に空行分離済みの安全な
+位置に限られているはずだから」という設計上の前提に基づいていた。
+
+しかし `move/findStandaloneComplexBlockDropTarget.ts` の
+`resolveStandaloneComplexBlockDropTarget`（本メモ 3節で記述したリゾルバ）
+を再確認したところ、このリゾルバは self-drop と
+composite-internal-boundary の2種類の安全性チェックしか行っておらず、
+空行分離を一切保証していないことが判明した。つまり「同一セクション内の
+ドロップは安全」という前提自体が誤りだった。
+
+この結合バグは本チケット（セクション越え対応）が生んだ新しい不具合では
+なく、Phase 5D-3C（callout/blockquote D&D の最初期実装）から存在していた、
+より古い欠陥である。今回のセクション越え対応で `ensureBlankSeparation`
+自体は実装されたが、その適用条件を「セクション越えのみ」に限定した
+ことが、既存の同一セクション内の欠陥をそのまま温存させる結果になった。
+セクション越え対応がユーザーの実機テストを通じてこの欠陥を初めて可視化
+させた、という位置付けになる。
+
+### 8.3 修正内容
+
+`src/edit/dropStandaloneComplexBlock.ts` の `dropStandaloneComplexBlock`
+関数末尾で、`target.parentId !== resolvedSource.parentId` による分岐を
+撤廃し、`ensureBlankSeparation` を同一セクション内・セクション越えを
+問わず常に無条件で適用するよう修正した。`edit/paragraphNonAdjacentMove.ts`
+の `moveParagraphNonAdjacent` が既に空行補完を無条件（every move）に
+適用しているのと同じ設計に揃えている。`ensureBlankSeparation` 自体
+（および複製元の `needsSeparatingBlankLine`/`HEADING_RE`/`LIST_RE`）は
+一切変更していない — 呼び出し側の条件のみを変更した。
+
+同ファイル冒頭のドキュメントコメント、および `ensureBlankSeparation`
+呼び出し箇所・定義箇所近傍の既存コメントには、「同一セクション内ドロップ
+は空行補完なし」という当時の前提が記述されていたため、これを削除せず、
+日付付き追記として訂正した（本節 8.2 の説明と同内容）。
+
+### 8.4 追加したテストケース
+
+`tests/dropStandaloneComplexBlock.test.ts`:
+
+- 既存の「同一セクション内ドロップ」系テスト2件（callout AFTER sibling /
+  blockquote BEFORE sibling）を、空行が挿入される新しい期待値に更新。
+- 「案A — CompositeBlock member drop」の1件（callout member を Middle
+  paragraph の直前にドロップ）を、`> body` と `Middle paragraph.` の間に
+  空行が挿入される新しい期待値に更新（実機報告と全く同じ形状: callout
+  が段落の直上に無空行で着地するケース）。
+- 「does NOT insert blank-line separation for a SAME-section drop」という
+  旧・回帰ガードテストを、前提が反転したため「DOES insert...」に書き換え。
+- 新規 describe ブロック「blank-line separation applies regardless of
+  section」を追加し、以下を検証:
+  - callout を段落の直前（無空行）にドロップ → 空行挿入、段落が独立
+    段落のまま再パースされることを確認(実機報告の直接的回帰テスト)。
+  - blockquote / fenced-code / table についても同型のケースを各1件確認。
+  - リスト項目に隣接するドロップでは空行が一切追加されない(ゼロ挿入)
+    ことを確認(`ensureBlankSeparation` 自身の no-op 設計の回帰確認、
+    LIST_RE 除外により)。
+  - セクション越えドロップで、片側(far side)が既に空行分離済みの場合、
+    そちら側には余分な空行が二重に追加されないことを確認。
+
+`tests/phase5e3dTableMoveDeleteDnd.test.ts`:
+
+- 既存のテーブル/fenced-code の「AFTER a standalone callout」end-to-end
+  テスト2件を、`> body a` の直後に空行が挿入される新しい期待値に更新
+  (こちらも無空行で結合しうる危険な入力だった)。
+
+全既存テストは意味を精査した上で期待値を更新し、`npx vitest run` は
+158ファイル・3296テストすべて成功、`npx tsc -noEmit -skipLibCheck` は
+エラー0、`npx eslint "src/**/*.ts"` はエラー0(既存の無関係な warning
+3件のみ)を確認している。

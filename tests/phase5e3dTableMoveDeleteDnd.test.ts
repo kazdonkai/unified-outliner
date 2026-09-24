@@ -315,7 +315,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
     ]);
   });
 
-  it("dropStandaloneComplexBlock: end-to-end drop of a standalone table AFTER a standalone callout in the same section matches a manual cut-paste move", () => {
+  it("dropStandaloneComplexBlock: end-to-end drop of a standalone table AFTER a standalone callout in the same section matches a manual cut-paste move, plus the blank-line separation ensureBlankSeparation now applies unconditionally (fix/standalone-dnd-blank-separation-always, 2026-09-25: without it a table row immediately following '> body a' with no blank line risks being parsed as part of the blockquote)", () => {
     const text = ["# H", "| a |", "| --- |", "| 1 |", "", "> [!note] one", "> body a"].join("\n");
     const { doc, complexScan } = pipeline(text);
     const table = tableOf(complexScan, doc, "1");
@@ -334,6 +334,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
       "",
       "> [!note] one",
       "> body a",
+      "",
       "| a |",
       "| --- |",
       "| 1 |",
@@ -358,7 +359,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
     expect(outcome.lines).toEqual(parseDocument(laterText).lines);
   });
 
-  it("dropStandaloneComplexBlock: end-to-end drop of a standalone fenced-code block AFTER a standalone callout in the same section matches a manual cut-paste move (fenced-code D&D parity follow-up)", () => {
+  it("dropStandaloneComplexBlock: end-to-end drop of a standalone fenced-code block AFTER a standalone callout in the same section matches a manual cut-paste move (fenced-code D&D parity follow-up), plus the blank-line separation ensureBlankSeparation now applies unconditionally (fix/standalone-dnd-blank-separation-always, 2026-09-25: without it a fenced-code opening ``` immediately following '> body a' with no blank line risks being parsed as part of the blockquote)", () => {
     const text = ["# H", "```", "code", "```", "", "> [!note] one", "> body a"].join("\n");
     const { doc, complexScan } = pipeline(text);
     const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
@@ -377,6 +378,7 @@ describe("Phase 5E-3d category C: table drag and drop", () => {
       "",
       "> [!note] one",
       "> body a",
+      "",
       "```",
       "code",
       "```",
