@@ -338,15 +338,28 @@ export type StandaloneComplexBlockDropRejectReason =
    */
   | "self-drop"
   /**
-   * The resolved drop target's own `parentId` differs from the source's
-   * own `parentId` — D&D v1 never crosses a section boundary, exactly
-   * like Move's own "different-section". Incidentally, this single check
-   * ALSO structurally prevents "drop as a list item's new child": a
-   * source that passed its own eligibility check always has `parentId`
-   * equal to a section id or null (never a list id — nested-in-list
-   * sources are already rejected), so a target nested inside ANY list
-   * item's continuation (whose own `parentId` is necessarily that list
-   * item's id) can never equal the source's own `parentId` either, and is
+   * [2026-09-24 追記, feat/standalone-complex-dnd-cross-section] This
+   * value is NO LONGER PRODUCED by
+   * move/findStandaloneComplexBlockDropTarget.ts#resolveStandaloneComplexBlockDropTarget
+   * — that resolver's own `target.parentId !== source.parentId` check was
+   * removed so that standalone callout/blockquote/fenced-code/table D&D
+   * can cross a section boundary, mirroring how list items already cross
+   * sections via move/findMoveTarget.ts's own `{ kind: "insert" }` path.
+   * The literal is kept in this union purely for history/back-compat (any
+   * external code still narrowing on it keeps compiling) — see that
+   * resolver's own top doc comment for the full addendum. The original
+   * doc text below describes the RETIRED behavior verbatim.
+   *
+   * [ORIGINAL, retired 2026-09-24] The resolved drop target's own
+   * `parentId` differed from the source's own `parentId` — D&D v1 never
+   * crossed a section boundary, exactly like Move's own
+   * "different-section". Incidentally, this single check ALSO
+   * structurally prevented "drop as a list item's new child": a source
+   * that passed its own eligibility check always has `parentId` equal to
+   * a section id or null (never a list id — nested-in-list sources are
+   * already rejected), so a target nested inside ANY list item's
+   * continuation (whose own `parentId` is necessarily that list item's
+   * id) could never equal the source's own `parentId` either, and was
    * therefore always caught here even without a separate, dedicated
    * "target is nested in a list" reason value.
    */

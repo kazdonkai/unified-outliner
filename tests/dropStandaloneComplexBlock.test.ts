@@ -9,12 +9,43 @@
  * move/moveBlock.ts's existing insertBlockAt primitive.
  *
  * tests/findStandaloneComplexBlockDropTarget.test.ts already covers the
- * resolver's own decision logic (self-drop / not-same-section /
- * composite-internal-boundary / source shape eligibility) against an
+ * resolver's own decision logic (self-drop / composite-internal-boundary /
+ * source shape eligibility / cross-section allowance) against an
  * already-resolved (source, target, zone) triple. This file does NOT
  * re-duplicate that matrix — it instead focuses on the executor's own
  * concerns: re-resolution against fresh text, snapshot/target staleness,
  * and the actual insertBlockAt output (byte-exact `lines`).
+ *
+ * [2026-09-24 追記, feat/standalone-complex-dnd-cross-section] This file
+ * used to also assert a "not-same-section: rejects a drop whose source
+ * and target sit under different headings" case here — that behavior was
+ * retired (see model/complexBlock.ts's own dated addendum on the
+ * "not-same-section" reason value, and
+ * move/findStandaloneComplexBlockDropTarget.ts's own top doc comment
+ * addendum). Its replacement, executor-level cross-section coverage lives
+ * in the "dropStandaloneComplexBlock: cross-section drops" describe block
+ * below, which also asserts this executor's own `ensureBlankSeparation`
+ * post-step fires only for a cross-section drop.
+ *
+ * [2026-09-25 追記, fix/standalone-dnd-blank-separation-always] The
+ * sentence directly above ("fires only for a cross-section drop") is now
+ * WRONG — a real-device (iPad) report showed that a SAME-section drop
+ * could just as easily land a standalone block directly against
+ * unrelated content with no blank line between them, silently merging
+ * the two on re-parse (see src/edit/dropStandaloneComplexBlock.ts's own
+ * top doc comment, dated addendum, for the full root-cause writeup).
+ * `ensureBlankSeparation` is now applied unconditionally, on EVERY drop.
+ * The fixtures below that used to assert a same-section drop produces
+ * NO inserted blank line have been corrected to assert the blank line
+ * IS now inserted where the drop position was genuinely unseparated —
+ * see "dropStandaloneComplexBlock: successful standalone drops" and
+ * the 案A composite-member describe block below. A new
+ * "dropStandaloneComplexBlock: blank-line separation applies regardless
+ * of section (regression test, 2026-09-25)" describe block below adds
+ * direct coverage of this fix, including the exact callout-before-
+ * paragraph shape from the original iPad report, and confirms
+ * `ensureBlankSeparation`'s own no-op behavior (no extra blank line) is
+ * preserved when the destination is already separated.
  */
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "../src/parser/parseDocument";
@@ -54,7 +85,7 @@ function targetHintOf(range: { startLine: number; endLine: number }, parentId: s
 }
 
 describe("dropStandaloneComplexBlock: successful standalone drops", () => {
-  it("drops a standalone callout AFTER a genuine standalone sibling in the same section, preserving raw range verbatim", () => {
+  it("drops a standalone callout AFTER a genuine standalone sibling in the same section, inserting blank-line separation from the following block (2026-09-25: ensureBlankSeparation now applies unconditionally, not just cross-section)", () => {
     const text = ["# H", "> [!note] one", "> body a", "", "> [!tip] two", "> body b"].join("\n");
     const { doc, complexScan } = pipeline(text);
     const one = blockOf(complexScan, "one", doc);
@@ -67,19 +98,27 @@ describe("dropStandaloneComplexBlock: successful standalone drops", () => {
       DEFAULT_COMPOSITE_BLOCK_RULES
     );
 
+    // Before insertBlockAt's own raw output would have left "> body b"
+    // (the end of "two") directly adjacent to "> [!note] one" (the moved
+    // block) with no blank line between them -- two blockquote-shaped
+    // blocks back to back would merge into one on re-parse. This is
+    // exactly the "結合" (merge) bug reported on iPad, just with the moved
+    // block as the ATTACKER instead of the victim. ensureBlankSeparation now
+    // inserts the missing blank line.
     expect(outcome.changed).toBe(true);
     expect(outcome.lines).toEqual([
       "# H",
       "",
       "> [!tip] two",
       "> body b",
+      "",
       "> [!note] one",
       "> body a",
     ]);
     expect(outcome.lines[outcome.newStartLine]).toBe("> [!note] one");
   });
 
-  it("drops a standalone blockquote BEFORE a genuine standalone sibling in the same section, preserving raw range verbatim", () => {
+  it("drops a standalone blockquote BEFORE a genuine standalone sibling in the same section, inserting blank-line separation before the following block (2026-09-25: ensureBlankSeparation now applies unconditionally, not just cross-section)", () => {
     const text = ["# H", "> quote one", "", "> quote two"].join("\n");
     const { doc, complexScan } = pipeline(text);
     const one = blockOf(complexScan, "quote one", doc);
@@ -92,14 +131,18 @@ describe("dropStandaloneComplexBlock: successful standalone drops", () => {
       DEFAULT_COMPOSITE_BLOCK_RULES
     );
 
+    // Raw insertBlockAt output would have left "> quote two" (the moved
+    // block) directly adjacent to "> quote one" with no blank line --
+    // ensureBlankSeparation now inserts one after the moved block, since
+    // its own start neighbor ("# H", a heading) already needs none.
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "> quote two", "> quote one", ""]);
+    expect(outcome.lines).toEqual(["# H", "> quote two", "", "> quote one", ""]);
     expect(outcome.lines[outcome.newStartLine]).toBe("> quote two");
   });
 });
 
 describe("dropStandaloneComplexBlock: 案A — CompositeBlock-member drop tolerates the source's own matching dissolution", () => {
-  it("drops a composite's own callout member cleanly away from its anchor: Markdown holds the user's move, no coincidental recomposition, Tree reprojects to individual display", () => {
+  it("drops a composite's own callout member cleanly away from its anchor: Markdown holds the user's move, no coincidental recomposition, Tree reprojects to individual display, and gets blank-line separation from the following paragraph (2026-09-25: ensureBlankSeparation now applies unconditionally -- this is the exact shape of the reported iPad merge bug, a callout dropped directly above a paragraph)", () => {
     const text = [
       "- ![[scan.png]]",
       "> [!ocr]",
@@ -121,12 +164,18 @@ describe("dropStandaloneComplexBlock: 案A — CompositeBlock-member drop tolera
       DEFAULT_COMPOSITE_BLOCK_RULES
     );
 
+    // Without ensureBlankSeparation, "> body" would sit directly above
+    // "Middle paragraph." with no blank line -- exactly the merge shape
+    // from the iPad bug report (a paragraph swallowed into a callout's
+    // own body on re-parse). ensureBlankSeparation now inserts the
+    // missing blank line.
     expect(outcome.changed).toBe(true);
     expect(outcome.lines).toEqual([
       "- ![[scan.png]]",
       "",
       "> [!ocr]",
       "> body",
+      "",
       "Middle paragraph.",
       "",
       "> [!tip] standalone",
@@ -205,24 +254,6 @@ describe("dropStandaloneComplexBlock: rejections leave text byte-identical", () 
 
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("composite-internal-boundary");
-    expect(outcome.lines).toEqual(text.split("\n"));
-  });
-
-  it("not-same-section: rejects a drop whose source and target sit under different headings", () => {
-    const text = ["# A", "> [!note] a", "> body", "", "# B", "> [!tip] b", "> body"].join("\n");
-    const { doc, complexScan } = pipeline(text);
-    const a = blockOf(complexScan, "a", doc);
-    const b = blockOf(complexScan, "b", doc);
-    const snapshot = buildStandaloneComplexBlockSnapshot(a)!;
-
-    const outcome = dropStandaloneComplexBlock(
-      text,
-      { snapshot, target: targetHintOf(b.range, b.parentId), zone: "after" },
-      DEFAULT_COMPOSITE_BLOCK_RULES
-    );
-
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("not-same-section");
     expect(outcome.lines).toEqual(text.split("\n"));
   });
 
@@ -314,5 +345,318 @@ describe("dropStandaloneComplexBlock: rejections leave text byte-identical", () 
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("range-invalid");
     expect(outcome.lines).toEqual(text.split("\n"));
+  });
+});
+
+describe("dropStandaloneComplexBlock: cross-section drops (feat/standalone-complex-dnd-cross-section, 2026-09-24)", () => {
+  it("moves a callout across a section boundary, dropped BEFORE a paragraph in the destination section, and inserts blank-line separation on both sides", () => {
+    const text = [
+      "# A",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Untouched paragraph in A.",
+      "",
+      "# B",
+      "Destination paragraph.",
+    ].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const callout = blockOf(complexScan, "callout", doc);
+    const destParagraph = blockOf(complexScan, "Destination paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# A",
+      "",
+      "Untouched paragraph in A.",
+      "",
+      "# B",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Destination paragraph.",
+    ]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("> [!note] callout");
+
+    // Re-parsing confirms the moved callout's own parentId is now
+    // section B's — never manually rewritten by this executor, purely a
+    // consequence of re-parsing the new text (per this ticket's own
+    // approved design: "parentId は書き戻し後の再パースで自然に解決させ、
+    // 書き戻し時に手動で parentId を書き換えない").
+    const { doc: afterDoc, complexScan: afterScan } = pipeline(outcome.lines.join("\n"));
+    const movedCallout = blockOf(afterScan, "callout", afterDoc);
+    const sectionB = [...afterDoc.nodes.values()].find(
+      (n) => n.type === "section" && afterDoc.lines[n.range.startLine] === "# B"
+    )!;
+    expect(movedCallout.parentId).toBe(sectionB.id);
+  });
+
+  it("moves a blockquote across a section boundary, dropped at the very end (AFTER the destination section's last block)", () => {
+    const text = ["# A", "> quoted", "", "# B", "Only paragraph in B."].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const quoted = blockOf(complexScan, "quoted", doc);
+    const destParagraph = blockOf(complexScan, "Only paragraph in B.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(quoted)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# A", "", "# B", "Only paragraph in B.", "", "> quoted"]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("> quoted");
+  });
+
+  it("moves a fenced-code block across a section boundary, dropped BEFORE the destination section's first block (at the very start of that section)", () => {
+    const text = ["# A", "```", "code", "```", "", "# B", "First paragraph in B."].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
+    const destParagraph = blockOf(complexScan, "First paragraph in B.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(fenced)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# A",
+      "",
+      "# B",
+      "```",
+      "code",
+      "```",
+      "",
+      "First paragraph in B.",
+    ]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("```");
+  });
+
+  it("composite-internal-boundary: still rejects a cross-section drop that would land inside a THIRD-PARTY composite in the destination section", () => {
+    const text = [
+      "# A",
+      "> [!tip] standalone",
+      "",
+      "# B",
+      "- ![[scan.png]]",
+      "> [!ocr]",
+      "> body",
+    ].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    expect(composites).toHaveLength(1);
+    const standalone = blockOf(complexScan, "standalone", doc);
+    const anchorNode = doc.nodes.get(composites[0].members[0].id)!;
+    const snapshot = buildStandaloneComplexBlockSnapshot(standalone)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(anchorNode.range, anchorNode.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(false);
+    expect(outcome.reason).toBe("composite-internal-boundary");
+    expect(outcome.lines).toEqual(text.split("\n"));
+  });
+
+  it("DOES insert blank-line separation for a SAME-section drop too (2026-09-25: ensureBlankSeparation now fires regardless of section — this test used to guard the opposite, now-corrected, behavior; see src/edit/dropStandaloneComplexBlock.ts's own dated addendum)", () => {
+    const text = ["# H", "> [!note] one", "> body a", "", "> [!tip] two", "> body b"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const one = blockOf(complexScan, "one", doc);
+    const two = blockOf(complexScan, "two", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(one)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(two.range, two.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    // Identical fixture and drop to the "successful standalone drops"
+    // describe block's own first case above — kept here too, under its
+    // own (corrected) title, as a direct same-section regression guard
+    // for this fix.
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "",
+      "> [!tip] two",
+      "> body b",
+      "",
+      "> [!note] one",
+      "> body a",
+    ]);
+  });
+});
+
+describe("dropStandaloneComplexBlock: blank-line separation applies regardless of section (regression test, 2026-09-25, fix/standalone-dnd-blank-separation-always)", () => {
+  it("callout dropped directly BEFORE a paragraph with no blank line between them (the exact shape of the reported iPad bug): inserts a blank line so the paragraph is NOT swallowed into the callout's own body", () => {
+    const text = ["# H", "Some paragraph.", "", "> [!note] callout", "> body"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const callout = blockOf(complexScan, "callout", doc);
+    const paragraph = blockOf(complexScan, "Some paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(paragraph.range, paragraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Some paragraph.",
+      "",
+    ]);
+
+    // Re-parsing confirms the paragraph survived as its own standalone
+    // paragraph block, not swallowed into the callout's own body.
+    const { complexScan: afterScan, doc: afterDoc } = pipeline(outcome.lines.join("\n"));
+    const survivingParagraph = blockOf(afterScan, "Some paragraph.", afterDoc);
+    expect(survivingParagraph.kind).toBe("paragraph");
+  });
+
+  it("blockquote dropped directly BEFORE a paragraph with no blank line: inserts a blank line, same as callout", () => {
+    const text = ["# H", "Some paragraph.", "", "> quoted text"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const quoted = blockOf(complexScan, "quoted text", doc);
+    const paragraph = blockOf(complexScan, "Some paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(quoted)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(paragraph.range, paragraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# H", "> quoted text", "", "Some paragraph.", ""]);
+  });
+
+  it("fenced-code block dropped directly BEFORE a paragraph with no blank line: inserts a blank line, same as callout/blockquote", () => {
+    const text = ["# H", "Some paragraph.", "", "```", "code", "```"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
+    const paragraph = blockOf(complexScan, "Some paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(fenced)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(paragraph.range, paragraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# H", "```", "code", "```", "", "Some paragraph.", ""]);
+  });
+
+  it("table dropped directly BEFORE a paragraph with no blank line: inserts a blank line, same as the other complex block kinds", () => {
+    const text = ["# H", "Some paragraph.", "", "| a | b |", "| - | - |", "| 1 | 2 |"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const table = complexScan.blocks.find((b) => b.kind === "table")!;
+    const paragraph = blockOf(complexScan, "Some paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(table)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(paragraph.range, paragraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "| a | b |",
+      "| - | - |",
+      "| 1 | 2 |",
+      "",
+      "Some paragraph.",
+      "",
+    ]);
+  });
+
+  it("inserts ZERO extra blank lines when the drop position is fully already-separated on both sides (ensureBlankSeparation's own no-op behavior, same-section, dropped adjacent to a list item)", () => {
+    // A block dropped directly "before" a LIST item never needs a
+    // separating blank line on that touching side (LIST_RE exempts list
+    // items -- this is the same exemption that lets a CompositeBlock
+    // intentionally form directly under its own anchor list item, see
+    // the "tolerates a coincidental NEW composite" test above). Combined
+    // with a far side that is already blank in the source document, this
+    // drop needs no insertion at all -- insertBlockAt's own raw output
+    // is the final output, byte-identical.
+    const text = ["# H", "> [!tip] two", "> body b", "", "- list item", "", "> [!warn] three", "> body c"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const three = blockOf(complexScan, "three", doc);
+    const listItem = listNodeOf(doc, "list item");
+    const snapshot = buildStandaloneComplexBlockSnapshot(three)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(listItem.range, listItem.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "> [!tip] two",
+      "> body b",
+      "",
+      "> [!warn] three",
+      "> body c",
+      "- list item",
+      "",
+    ]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("> [!warn] three");
+  });
+
+  it("inserts only the ONE missing blank line -- not a second, redundant one -- when the far side of a cross-section drop is already blank (ensureBlankSeparation's own no-op behavior on the already-separated side)", () => {
+    const text = ["# A", "> [!note] callout", "> body", "", "Paragraph in A.", "", "# B", "", "Destination paragraph."].join(
+      "\n"
+    );
+    const { doc, complexScan } = pipeline(text);
+    const callout = blockOf(complexScan, "callout", doc);
+    const destParagraph = blockOf(complexScan, "Destination paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    // The FAR side (between "# B" and the moved callout) was already
+    // blank in the source document and stays a single blank line -- no
+    // second one is stacked on top of it. The TOUCHING side (directly
+    // against "Destination paragraph.", which was not separated at all)
+    // does get exactly one blank line inserted.
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# A",
+      "",
+      "Paragraph in A.",
+      "",
+      "# B",
+      "",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Destination paragraph.",
+    ]);
   });
 });

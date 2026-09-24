@@ -73,10 +73,60 @@
  * 5T-1/5T-2/5T-2S adjacent-move contracts. This file imports nothing from
  * `move/relocateSection.ts`/`move/relocateListSubtree.ts` and does not
  * touch `parser/parseDocument.ts`.
+ *
+ * [2026-09-24 追記, feat/paragraph-dnd-cross-section] The "crossing a
+ * section/list-item boundary" exclusion directly above described this
+ * file's ORIGINAL (5T-3A) scope and is kept verbatim for history, but no
+ * longer reflects current behavior for the section-boundary half of it
+ * (list-item boundary crossing remains out of scope — see
+ * docs/feat_paragraph-dnd-cross-section-design-memo.md's own "Move との
+ * 整合性" note). `moveParagraphNonAdjacent` no longer rejects a target
+ * whose `parentId` differs from the source's own `parentId`
+ * ("parent-mismatch"/"depth-mismatch" are no longer returned by this
+ * function, though both reason values are kept in `NonAdjacentMoveReason`
+ * and `paragraphNonAdjacentMoveReasonText` for i18n-key backward
+ * compatibility) — following the EXACT same design already shipped for
+ * standalone-complex-block D&D
+ * (move/findStandaloneComplexBlockDropTarget.ts#resolveStandaloneComplexBlockDropTarget,
+ * commit 6938898, feat/standalone-complex-dnd-cross-section, not yet
+ * merged to main at the time of this addendum): cut the source's own line
+ * range via the existing `insertBlockAt` primitive, insert at the
+ * target-derived `insertBeforeLine`, and let re-parsing resolve the moved
+ * paragraph's new `parentId` naturally — no `parentId` is ever written or
+ * read back out of this function. `listNonAdjacentMoveTargets` (the
+ * context-menu "指定 sibling の前へ/後へ" picker's own candidate list) is
+ * DELIBERATELY NOT widened by this addendum and still only lists
+ * same-parentId/same-depth siblings — see the design memo for why: this
+ * ticket's own scope note explicitly excludes Move menu-command
+ * cross-section support, and `deleteParagraph.ts` also reuses this same
+ * function for an unrelated purpose (safe-delete sibling-group
+ * computation) that must not change shape either. Only the D&D adapter in
+ * view/OutlineTreeView.ts (`resolveParagraphNonAdjacentDragTarget`'s own
+ * same-parentId preview gate) was widened to match this function's new
+ * permissiveness.
+ *
+ * This addendum also adds a NEW safety check this file never had before,
+ * for either same-section or cross-section moves: `moveParagraphNonAdjacent`
+ * now takes an optional `rules: CompositeBlockRule[]` parameter (default
+ * `[]`, so every pre-existing call site that does not pass it keeps its
+ * exact prior behavior) and rejects, as `"composite-internal-boundary"`,
+ * an `insertBeforeLine` that would land strictly inside any
+ * CompositeBlockInfo's own aggregate range — mirroring
+ * resolveStandaloneComplexBlockDropTarget's own identically-named guard.
+ * This file's original design (5T-3A) never re-derived `CompositeBlockInfo`
+ * at all, unlike edit/deleteParagraph.ts's own `matchCompositeBlocks`
+ * call for its "composite-member" source guard — that gap is now closed
+ * for the DESTINATION side only (a moved paragraph landing inside a
+ * composite's own aggregate range), not for the SOURCE side (moving a
+ * paragraph that is itself a composite member) — see the design memo's
+ * own "既知の制約" section for why the source-side gap is left as-is by
+ * this ticket.
  */
 import { ParsedDocument } from "../model/block";
 import { ComplexBlockInfo, ComplexBlockKind, ComplexBlockScanResult } from "../model/complexBlock";
+import { CompositeBlockRule } from "../model/compositeBlock";
 import { complexBlockDepth, scanComplexBlocks } from "../parser/complexBlocks";
+import { matchCompositeBlocks } from "../parser/compositeBlocks";
 import { isBlankLine, parseDocument } from "../parser/parseDocument";
 import { insertBlockAt } from "../move/moveBlock";
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
@@ -193,7 +243,8 @@ export type NonAdjacentMoveReason =
   | "self-target"
   | "parent-mismatch"
   | "depth-mismatch"
-  | "range-overlap";
+  | "range-overlap"
+  | "composite-internal-boundary";
 
 export interface ParagraphNonAdjacentMoveOutcome extends LineEditOutcome {
   reason?: NonAdjacentMoveReason;
@@ -340,14 +391,26 @@ function ensureBlankSeparation(
  *      range — can happen if a caller passes the same block as both,
  *      including via two different SiblingTargetAnchor/ParagraphMoveAnchor
  *      captures of what turns out to be the same live block).
- *   4. Reject "parent-mismatch" (different parentId) / "depth-mismatch"
- *      (defense-in-depth — structurally implied by parentId equality, same
- *      "recheck rather than only rely on how it was derived" style
- *      `findComplexSiblingTarget` already uses).
+ *   4. [SUPERSEDED 2026-09-24, feat/paragraph-dnd-cross-section — see this
+ *      file's own top doc comment addendum] `source.parentId` no longer
+ *      needs to equal `target.parentId`, and no depth check is performed
+ *      either — cross-section moves are allowed, so both rejections
+ *      (formerly "parent-mismatch"/"depth-mismatch" here) are skipped
+ *      entirely. Numbering below keeps its original slots to minimize
+ *      churn in cross-references to it.
  *   5. Reject "range-overlap" — the one case this function must catch
  *      itself rather than leaning on `insertBlockAt`'s own silent
  *      mid-source clamp (design doc §5-2's explicit warning against
  *      relying on that).
+ *   5b. [2026-09-24 追記, feat/paragraph-dnd-cross-section] Reject
+ *      "composite-internal-boundary" when the computed `insertBeforeLine`
+ *      would land strictly inside any `CompositeBlockInfo` from
+ *      `matchCompositeBlocks(doc, scan, rules)` — mirrors
+ *      resolveStandaloneComplexBlockDropTarget's own identically-named
+ *      guard (move/findStandaloneComplexBlockDropTarget.ts). `rules`
+ *      defaults to `[]` (no composites ever matched, guard never fires)
+ *      so every pre-existing call site that omits it keeps its exact
+ *      prior behavior — see this file's own top doc comment addendum.
  *   6. `insertBlockAt(doc.lines, source.range, insertBeforeLine)` — a
  *      single cut-and-reinsert, ORIGINAL (pre-cut) line numbers, exactly
  *      as that function's own contract requires. `insertBeforeLine` is
@@ -369,7 +432,8 @@ export function moveParagraphNonAdjacent(
   text: string,
   sourceAnchor: ParagraphMoveAnchor,
   targetAnchor: SiblingTargetAnchor,
-  position: NonAdjacentMovePosition
+  position: NonAdjacentMovePosition,
+  rules: CompositeBlockRule[] = []
 ): ParagraphNonAdjacentMoveOutcome {
   const doc: ParsedDocument = parseDocument(text);
   const scan = scanComplexBlocks(doc);
@@ -390,20 +454,38 @@ export function moveParagraphNonAdjacent(
     return rejected(doc.lines, "self-target");
   }
 
-  if (source.parentId !== target.parentId) {
-    return rejected(doc.lines, "parent-mismatch");
-  }
-  const sourceDepth = complexBlockDepth(doc, source.parentId);
-  const targetDepth = complexBlockDepth(doc, target.parentId);
-  if (sourceDepth !== targetDepth) {
-    return rejected(doc.lines, "depth-mismatch");
-  }
+  // [2026-09-24, feat/paragraph-dnd-cross-section] The
+  // `source.parentId !== target.parentId` -> "parent-mismatch" and
+  // `sourceDepth !== targetDepth` -> "depth-mismatch" rejections that used
+  // to live here have been REMOVED — see this file's own top doc comment
+  // addendum for the full rationale. A cross-section move now falls
+  // straight through to the range-overlap and composite-internal-boundary
+  // checks below, exactly like the standalone-complex-block D&D precedent.
 
   if (rangesOverlap(source.range, target.range)) {
     return rejected(doc.lines, "range-overlap");
   }
 
   const insertBeforeLine = position === "before" ? target.range.startLine : target.range.endLine + 1;
+
+  // [2026-09-24 追記, feat/paragraph-dnd-cross-section] New guard this
+  // file never had before (for either same-section or cross-section
+  // moves): reject a drop that would land strictly inside any existing
+  // CompositeBlock's own aggregate range, mirroring
+  // resolveStandaloneComplexBlockDropTarget's own "composite-internal-
+  // boundary" check. `rules` defaults to `[]`, so `matchCompositeBlocks`
+  // matches nothing and this loop is a no-op for any caller that has not
+  // opted in by passing its enabled rule set. See this file's own top doc
+  // comment addendum, and the design memo's "既知の制約" section, for why
+  // this only guards the DESTINATION side (not source-side composite
+  // membership).
+  const composites = matchCompositeBlocks(doc, scan, rules);
+  for (const composite of composites) {
+    if (insertBeforeLine > composite.range.startLine && insertBeforeLine <= composite.range.endLine) {
+      return rejected(doc.lines, "composite-internal-boundary");
+    }
+  }
+
   const { lines: cutLines, newStart } = insertBlockAt(doc.lines, source.range, insertBeforeLine);
   const blockLength = source.range.endLine - source.range.startLine + 1;
   const separated = ensureBlankSeparation(cutLines, newStart, blockLength);
@@ -419,7 +501,9 @@ export function moveParagraphNonAdjacent(
  * function already uses (they describe the identical situation — a
  * paragraph anchor failing to re-resolve — regardless of which move
  * command triggered it); only the `target-*`/`self-target`/
- * `parent-mismatch`/`depth-mismatch`/`range-overlap` reasons need NEW keys.
+ * `parent-mismatch`/`depth-mismatch`/`range-overlap`/
+ * `composite-internal-boundary` (added 2026-09-24,
+ * feat/paragraph-dnd-cross-section) reasons need NEW keys.
  */
 export function paragraphNonAdjacentMoveReasonText(
   t: (key: TranslationKey) => string,
@@ -451,6 +535,8 @@ export function paragraphNonAdjacentMoveReasonText(
       return t("reason.paragraphNonAdjacentDepthMismatch");
     case "range-overlap":
       return t("reason.paragraphNonAdjacentRangeOverlap");
+    case "composite-internal-boundary":
+      return t("reason.paragraphNonAdjacentCompositeInternalBoundary");
     default:
       return t(("reason." + reason) as TranslationKey);
   }

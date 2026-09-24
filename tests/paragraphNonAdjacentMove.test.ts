@@ -15,6 +15,7 @@ import {
   SiblingTargetAnchor,
 } from "../src/edit/paragraphNonAdjacentMove";
 import { createTranslator } from "../src/i18n";
+import { DEFAULT_COMPOSITE_BLOCK_RULES } from "../src/model/compositeBlock";
 
 /**
  * Phase 5T-3A §5 ("必要なテスト"): real, executable tests for
@@ -202,7 +203,7 @@ describe("moveParagraphNonAdjacent: no-op / rejection cases", () => {
     expect(outcome.lines.join("\n")).toBe(text);
   });
 
-  it("parent-mismatch: target lives under a different section than source", () => {
+  it("[SUPERSEDED 2026-09-24, feat/paragraph-dnd-cross-section — see the 'cross-section' describe block below for the current behavior] a target under a different section used to be rejected as parent-mismatch; it is now an ALLOWED cross-section move", () => {
     const text = ["# H1", "A", "", "# H2", "B"].join("\n");
     const doc = parseDocument(text);
     const scan = scanComplexBlocks(doc);
@@ -211,9 +212,8 @@ describe("moveParagraphNonAdjacent: no-op / rejection cases", () => {
     const sourceAnchor = buildParagraphMoveAnchor(doc, sourceInfo)!;
     const targetAnchor = buildSiblingTargetAnchor(doc, targetInfo)!;
     const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, "before");
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("parent-mismatch");
-    expect(outcome.lines.join("\n")).toBe(text);
+    expect(outcome.changed).toBe(true);
+    expect(outcome.reason).toBeUndefined();
   });
 
   it("depth-mismatch is unreachable given equal parentId (defense-in-depth only, same precedent as findComplexSiblingTarget's own recheck — see tests/resolveMoveTarget.test.ts's identically-named invariant test): complexBlockDepth is a pure function of parentId, so two blocks sharing a parentId in the SAME doc always share a depth", () => {
@@ -333,6 +333,122 @@ describe("regression: existing adjacent-move contracts (5T-1/5T-2/5T-2S) are unt
     const outcome = moveParagraphFromAnchor(text, anchor, "down");
     expect(outcome.changed).toBe(true);
     expect(outcome.lines.join("\n")).toBe(["# H", "B", "", "A"].join("\n"));
+  });
+});
+
+/**
+ * feat/paragraph-dnd-cross-section (2026-09-24): moveParagraphNonAdjacent
+ * no longer rejects a target under a DIFFERENT section as
+ * "parent-mismatch" — see this module's own top doc comment addendum.
+ * These tests cover the ticket's own §"テスト追加" list items 1–5.
+ */
+describe("moveParagraphNonAdjacent: cross-section (feat/paragraph-dnd-cross-section)", () => {
+  it("drops a paragraph BEFORE a paragraph in a DIFFERENT section — reparents naturally, blank-line policy preserved", () => {
+    const text = ["# H1", "A", "", "# H2", "B"].join("\n");
+    const outcome = move(text, 1, 4, "before"); // "A" (under H1) -> before "B" (under H2)
+    expect(outcome.changed).toBe(true);
+    expect(outcome.reason).toBeUndefined();
+
+    const reparsed = parseDocument(outcome.lines.join("\n"));
+    const reScan = scanComplexBlocks(reparsed);
+    const movedA = reScan.blocks.find(
+      (b) => b.kind === "paragraph" && reparsed.lines[b.range.startLine] === "A"
+    )!;
+    const h2 = [...reparsed.nodes.values()].find(
+      (n) => n.type === "section" && reparsed.lines[n.range.startLine] === "# H2"
+    )!;
+    // "A" naturally re-resolves to H2's own section as its parentId — no
+    // parentId is ever written or read back out of moveParagraphNonAdjacent
+    // itself (see this module's own top doc comment addendum).
+    expect(movedA.parentId).toBe(h2.id);
+    expect(movedA.editability).toBe("supported");
+    // "B" must still be independently recognized right after "A" — the
+    // blank-line safety net must have kept them from merging into one
+    // ambiguous candidate range on reparse.
+    const movedB = reScan.blocks.find(
+      (b) => b.kind === "paragraph" && reparsed.lines[b.range.startLine] === "B"
+    )!;
+    expect(movedB.editability).toBe("supported");
+  });
+
+  it("drops a paragraph at the END of a DIFFERENT section (after its last block)", () => {
+    const text = ["# H1", "A", "", "# H2", "B", "", "C"].join("\n");
+    const outcome = move(text, 1, 6, "after"); // "A" (under H1) -> after "C" (under H2, its last block)
+    expect(outcome.changed).toBe(true);
+    expect(outcome.reason).toBeUndefined();
+
+    const reparsed = parseDocument(outcome.lines.join("\n"));
+    const reScan = scanComplexBlocks(reparsed);
+    const movedA = reScan.blocks.find(
+      (b) => b.kind === "paragraph" && reparsed.lines[b.range.startLine] === "A"
+    )!;
+    expect(movedA.editability).toBe("supported");
+    // "A" must land AFTER "C" in document order.
+    const c = reScan.blocks.find((b) => b.kind === "paragraph" && reparsed.lines[b.range.startLine] === "C")!;
+    expect(movedA.range.startLine).toBeGreaterThan(c.range.endLine);
+  });
+
+  it("drops a paragraph at the START of a DIFFERENT section (right under its heading)", () => {
+    const text = ["# H1", "A", "", "# H2", "B"].join("\n");
+    const outcome = move(text, 1, 4, "before"); // same as the first test above — B is H2's own first block
+    expect(outcome.changed).toBe(true);
+    const reparsed = parseDocument(outcome.lines.join("\n"));
+    const reScan = scanComplexBlocks(reparsed);
+    const h2Index = outcome.lines.findIndex((l) => l === "# H2");
+    const movedA = reScan.blocks.find(
+      (b) => b.kind === "paragraph" && reparsed.lines[b.range.startLine] === "A"
+    )!;
+    // "A" is the first non-heading block under H2 — no target heading row
+    // is ever needed (inserting relative to H2's own first block, "B",
+    // suffices) — see the design memo's own "見出し行のドロップターゲット
+    // 扱い" decision.
+    expect(movedA.range.startLine).toBeGreaterThan(h2Index);
+  });
+
+  it("rejects a cross-section drop that would land STRICTLY INSIDE a destination CompositeBlock's own aggregate range (composite-internal-boundary)", () => {
+    // "- ![[scan.png]]" + the [!ocr] callout right after it forms one
+    // image-ocr CompositeBlock (DEFAULT_COMPOSITE_BLOCK_RULES) spanning
+    // both lines. Dropping "before" the callout member lands strictly
+    // inside that composite's own aggregate range.
+    const text = ["# H1", "A", "", "# H2", "- ![[scan.png]]", "> [!ocr]", "> body text"].join("\n");
+    const doc = parseDocument(text);
+    const scan = scanComplexBlocks(doc);
+    const sourceInfo = scan.blocks.find((b) => b.kind === "paragraph" && b.range.startLine === 1)!;
+    const sourceAnchor = buildParagraphMoveAnchor(doc, sourceInfo)!;
+    const calloutInfo = scan.blocks.find((b) => b.kind === "callout")!;
+    const targetAnchor = buildSiblingTargetAnchor(doc, calloutInfo)!;
+
+    const outcome = moveParagraphNonAdjacent(
+      text,
+      sourceAnchor,
+      targetAnchor,
+      "before",
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+    expect(outcome.changed).toBe(false);
+    expect(outcome.reason).toBe("composite-internal-boundary");
+    expect(outcome.lines.join("\n")).toBe(text);
+  });
+
+  it("omitting `rules` (the default `[]`) keeps prior behavior — the SAME drop that composite-internal-boundary rejects above is allowed when no rule set is passed", () => {
+    const text = ["# H1", "A", "", "# H2", "- ![[scan.png]]", "> [!ocr]", "> body text"].join("\n");
+    const doc = parseDocument(text);
+    const scan = scanComplexBlocks(doc);
+    const sourceInfo = scan.blocks.find((b) => b.kind === "paragraph" && b.range.startLine === 1)!;
+    const sourceAnchor = buildParagraphMoveAnchor(doc, sourceInfo)!;
+    const calloutInfo = scan.blocks.find((b) => b.kind === "callout")!;
+    const targetAnchor = buildSiblingTargetAnchor(doc, calloutInfo)!;
+
+    const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, "before");
+    expect(outcome.changed).toBe(true);
+  });
+
+  it("is a single edit for a cross-section drop too (one final lines[] from one call) — matches the '1操作=1編集=1Undo' contract when fed through applyLineEditOutcome's single replaceRange", () => {
+    const text = ["# H1", "A", "", "# H2", "B"].join("\n");
+    const outcome = move(text, 1, 4, "before");
+    expect(outcome.changed).toBe(true);
+    expect(typeof outcome.newStartLine).toBe("number");
+    expect(outcome.newStartLine).toBeGreaterThanOrEqual(0);
   });
 });
 

@@ -1563,6 +1563,23 @@ export class OutlineTreeView extends ItemView {
     // behind it would be a dead, confusing UI element, which is why this
     // stays a single shared allow-list rather than two independently
     // drifting ones.
+    //
+    // Mobile follow-up fix (2026-09-24, "Outline Tree の paragraph 行に
+    // mobile 用のドラッグハンドルを追加する" — real-device iPad report that
+    // a standalone paragraph row's D&D could not be triggered at all on
+    // mobile): a paragraph row is always `readOnly` (Phase 5T-2 design
+    // §2, unchanged) and is never `isComplexMember`/`isComposite`, so it
+    // matched neither existing widening above and got NO handle at all —
+    // yet the paragraph-only D&D wiring branch further below (previously
+    // gated `!Platform.isMobile`, now also fixed by this same ticket)
+    // already treats a paragraph row as a valid drag source/target on
+    // desktop. `isParagraph` is added as its own, separate OR-term here
+    // (not folded into `isEligibleStandaloneComplexMember`, which stays
+    // the callout/blockquote/table/fenced-code-only allow-list its own
+    // name promises) for exactly the same reason `isComposite` is its own
+    // separate term: each is a narrow, independently-reasoned widening of
+    // this one shared generation condition, layered on top of the
+    // still-unrelaxed read-only contract.
     const isEligibleStandaloneComplexMember =
       isComplexMember &&
       node.isStandalone &&
@@ -1571,7 +1588,7 @@ export class OutlineTreeView extends ItemView {
         node.complexKind === "table" ||
         node.complexKind === "fenced-code");
     let dragHandleEl: HTMLElement | null = null;
-    if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {
+    if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
       setIcon(dragHandleEl, "grip-vertical");
       dragHandleEl.setAttribute("aria-hidden", "true");
@@ -1642,10 +1659,21 @@ export class OutlineTreeView extends ItemView {
       // split. Still layered on top of the read-only contract exactly like
       // the paragraph context menu (5T-1) and drag wiring (5T-2) — this
       // remains a separate `else if` branch, never a relaxation of
-      // `!readOnly` above. dragHandleEl is always null here (paragraph rows
-      // never have one — see its own creation above), so the shared
-      // handler's drag-handle exclusion is simply a no-op for this branch,
-      // exactly as it was before this ticket.
+      // `!readOnly` above. dragHandleEl was always null here when this
+      // comment was written (paragraph rows never had one — see its own
+      // creation above), so the shared handler's drag-handle exclusion was
+      // simply a no-op for this branch at the time.
+      //
+      // Mobile follow-up fix (2026-09-24, "Outline Tree の paragraph 行に
+      // mobile 用のドラッグハンドルを追加する"): dragHandleEl is no longer
+      // always null here — a paragraph row now gets one too (see its
+      // creation condition above, widened with `isParagraph`). This needed
+      // NO change here: `isEligibleRowBodyPointerDown`'s dragHandleEl
+      // exclusion (passed straight through below) is already generic —
+      // it now simply starts doing real work for a paragraph row's
+      // handle-origin touches, exactly as it already did for composite/
+      // standalone-complex rows, correctly keeping a handle-origin touch
+      // from ever being misread as the first half of a double click.
       selfEl.addEventListener("pointerdown", (evt) => {
         this.handleRowPointerDownForDoubleClick(evt, node.id, collapseEl, dragHandleEl, () =>
           this.beginParagraphRenameForNode(node.id)
@@ -2254,15 +2282,15 @@ export class OutlineTreeView extends ItemView {
       selfEl.addEventListener("dragleave", () => this.handleDragLeave(selfEl));
       selfEl.addEventListener("drop", (evt) => this.handleDrop(evt, node.id, selfEl));
       selfEl.addEventListener("dragend", () => this.handleDragEnd());
-    } else if (isOutlineParagraphNode(node) && !Platform.isMobile) {
+    } else if (isOutlineParagraphNode(node)) {
       // Phase 5T-2 ("Outline Tree paragraph の D&D による安全な隣接 swap",
       // docs/phase5t2_paragraph-tree-dnd-design.md): a FIFTH, entirely
-      // separate drag-wiring branch — for a paragraph row only, desktop
-      // only (see the 5T-2 ticket's §1/§8: "初期版はデスクトップ限定とし、
-      // モバイル・タッチ・長押し D&D は実装しない" — Platform.isMobile is
-      // excluded here rather than gated inside the handlers, so a mobile
-      // paragraph row gets NO drag wiring/attribute at all, exactly like
-      // it had none before this ticket). Deliberately NOT folded into the
+      // separate drag-wiring branch — for a paragraph row only. Originally
+      // desktop only (see the 5T-2 ticket's §1/§8: "初期版はデスクトップ限
+      // 定とし、モバイル・タッチ・長押し D&D は実装しない" — a `&&
+      // !Platform.isMobile` term used to be ANDed into this branch's own
+      // guard, excluding mobile entirely; see the dated addendum below for
+      // why that was lifted). Deliberately NOT folded into the
       // `if (!readOnly)` block above: paragraph rows are ALWAYS in
       // readOnlyNodeIds (5T-2 design doc §2 — this ticket does not, and
       // must not, relax that), so widening that existing gate to admit
@@ -2274,12 +2302,36 @@ export class OutlineTreeView extends ItemView {
       // separate `else if (isParagraph)` rather than a relaxation of
       // `!readOnly` — never a general write-capability unlock.
       //
-      // No dragHandleEl involvement at all: dragHandleEl is created only
-      // for `!readOnly` rows (see its own creation above), and since this
-      // is desktop-only, the row itself (`selfEl`) is the drag source —
+      // dragHandleEl involvement: at the time this branch was first
+      // written, dragHandleEl was created only for `!readOnly` rows (see
+      // its own creation above), and since this branch was desktop-only,
+      // the row itself (`selfEl`) was unconditionally the drag source —
       // exactly like desktop's existing section/list behavior already
-      // uses `selfEl` rather than a handle.
-      selfEl.setAttribute("draggable", "true");
+      // uses `selfEl` rather than a handle. See the dated addendum
+      // immediately below for how this changed.
+      //
+      // Mobile follow-up fix (2026-09-24, "Outline Tree の paragraph 行に
+      // mobile 用のドラッグハンドルを追加する" — real-device iPad report,
+      // "モバイルではD&Dができない", that a standalone paragraph row could
+      // not be dragged at all on mobile): this branch's own former
+      // `&& !Platform.isMobile` guard term is removed here, and
+      // dragHandleEl's generation condition above is separately widened
+      // (with a new `isParagraph` OR-term) so a paragraph row now also
+      // gets a handle. `draggable` now follows the exact same
+      // mobile-handle/desktop-row platform split section/list's own
+      // UXP-01 wiring, the composite-parent branch, and the standalone
+      // callout/blockquote/table/fenced-code bridge branch below all
+      // already use — the handle is the sole drag origin on mobile,
+      // `selfEl` stays the drag origin on desktop, unchanged. The
+      // dragstart/dragover/dragleave/drop/dragend listeners below were
+      // already platform-agnostic (they never referenced Platform.isMobile
+      // themselves), so they needed no change to start working correctly
+      // from a handle-origin drag on mobile too.
+      if (Platform.isMobile) {
+        dragHandleEl?.setAttribute("draggable", "true");
+      } else {
+        selfEl.setAttribute("draggable", "true");
+      }
       selfEl.addEventListener("dragstart", (evt) =>
         this.handleParagraphDragStart(evt, node, itemEl)
       );
@@ -4408,7 +4460,13 @@ export class OutlineTreeView extends ItemView {
     }
 
     const text = editor.getValue();
-    const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, position);
+    // [2026-09-24 追記, feat/paragraph-dnd-cross-section] rules is now
+    // passed so moveParagraphNonAdjacent's own composite-internal-boundary
+    // guard (new in this ticket) can actually fire — see that function's
+    // own top doc comment addendum. Same enabled-rule-set every other
+    // matchCompositeBlocks caller in this view already reads.
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const outcome = moveParagraphNonAdjacent(text, sourceAnchor, targetAnchor, position, rules);
 
     const cursor = { line: sourceAnchor.rangeStart, ch: 0 };
     const changed = applyLineEditOutcome(
@@ -6515,16 +6573,34 @@ export class OutlineTreeView extends ItemView {
    *      restriction (list-item-child paragraphs excluded from THIS new
    *      path; the existing adjacent-swap D&D's own handling of such rows,
    *      whatever it already is, is untouched).
-   *   3. `node.parentId === session.anchor.parentId` — "same section
-   *      scope" per the approved design: since both sides are already
-   *      constrained to top-level (`parentId === null`) or section-direct
-   *      (`parentId` = that section's id) by gate 2, parentId equality
-   *      IS exactly "same section, or both top-level" — no separate
-   *      enclosing-section walk is needed. This is also exactly the same
-   *      condition moveParagraphNonAdjacent's own `parent-mismatch`
-   *      rejection re-checks independently at drop time — this gate is a
-   *      preview optimization only (skip showing an indicator for a drop
-   *      that would certainly be rejected), never a substitute for it.
+   *   3. [SUPERSEDED 2026-09-24, feat/paragraph-dnd-cross-section] This
+   *      gate used to require `node.parentId === session.anchor.parentId`
+   *      ("same section scope") — see this method's own history below.
+   *      That restriction is REMOVED: gate 2 already constrains both
+   *      sides to top-level (`parentId === null`) or section-direct
+   *      (`parentId` = some section's id), and `moveParagraphNonAdjacent`
+   *      itself no longer rejects a `parentId` mismatch between source and
+   *      target (see edit/paragraphNonAdjacentMove.ts's own top doc
+   *      comment addendum) — so a target under a DIFFERENT section is now
+   *      a valid preview candidate too, following the exact same decision
+   *      already shipped for standalone-complex-block D&D
+   *      (view/OutlineTreeView.ts required no change for THAT ticket
+   *      because its own drop-target-hint resolution was already
+   *      section-agnostic; paragraph D&D's own preview gate, unlike that
+   *      one, DID hard-code a same-parentId check, so it needed this
+   *      explicit removal).
+   *   [ORIGINAL gate 3 — SUPERSEDED, kept for history] `node.parentId ===
+   *      session.anchor.parentId` — "same section scope" per the approved
+   *      design: since both sides are already constrained to top-level
+   *      (`parentId === null`) or section-direct (`parentId` = that
+   *      section's id) by gate 2, parentId equality IS exactly "same
+   *      section, or both top-level" — no separate enclosing-section walk
+   *      is needed. This was also exactly the same condition
+   *      moveParagraphNonAdjacent's own (then-existing) `parent-mismatch`
+   *      rejection re-checked independently at drop time — this gate was
+   *      a preview optimization only (skip showing an indicator for a
+   *      drop that would certainly be rejected), never a substitute for
+   *      it.
    *   4. `resolveParagraphFromTreeHint` + `buildSiblingTargetAnchor` — the
    *      EXACT SAME pair used at dragstart for the source anchor
    *      (handleParagraphDragStart) and inside showParagraphMoveMenu for
@@ -6551,7 +6627,13 @@ export class OutlineTreeView extends ItemView {
     if (node.kind !== "paragraph") return null;
     if (!this.isTopLevelOrSectionDirectParagraphParent(doc, session.anchor.parentId)) return null;
     if (!this.isTopLevelOrSectionDirectParagraphParent(doc, node.parentId)) return null;
-    if (node.parentId !== session.anchor.parentId) return null;
+    // [2026-09-24, feat/paragraph-dnd-cross-section] The
+    // `node.parentId !== session.anchor.parentId` -> null ("same section
+    // scope") gate that used to live here has been REMOVED — see this
+    // method's own doc comment (gate 3) for the full rationale. A target
+    // under a different section (still constrained to top-level or
+    // section-direct by the two isTopLevelOrSectionDirectParagraphParent
+    // checks above) now falls through to gate 4 below.
 
     const complexScan = this.currentComplexScan;
     if (!complexScan) return null;

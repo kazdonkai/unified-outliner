@@ -232,8 +232,12 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     const end = viewTs.indexOf("// Inline rename trigger", start);
     expect(end).toBeGreaterThan(start);
     const generationBody = viewTs.slice(start, end);
+    // A separate, later 2026-09-24 mobile follow-up fix (paragraph rows —
+    // see paragraphOutlineTreeUiWiring.test.ts's own dedicated coverage)
+    // widened this condition once more, to also admit `isParagraph`; the
+    // condition text checked here is updated to match.
     expect(generationBody).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {"
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
 
     const constStart = viewTs.lastIndexOf(
@@ -359,6 +363,12 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     expect(stylesCss).toContain(".unified-outliner-dragging");
     expect(stylesCss).toContain(".unified-outliner-drop-before");
     expect(stylesCss).toContain(".unified-outliner-drop-after");
+  });
+
+  it("[2026-09-24, feat/standalone-complex-dnd-cross-section] dispatchAndApplyStandaloneComplexBlockDrop still calls applyLineEditOutcome EXACTLY ONCE, even for a cross-section drop — the executor's own ensureBlankSeparation post-step (edit/dropStandaloneComplexBlock.ts) folds its blank-line insertion into the SAME single outcome.lines[], so a cross-section drop remains one edit / one Undo step, never a second, separate editor write", () => {
+    const body = methodBody("dispatchAndApplyStandaloneComplexBlockDrop");
+    const occurrences = (body.match(/applyLineEditOutcome\(/g) ?? []).length;
+    expect(occurrences).toBe(1);
   });
 
   it("buildOutlineTree.ts needed NO changes for this ticket — it is never referenced by name in the new callout drag methods beyond the pre-existing isOutlineListNode/isOutlineParagraphNode type-guard imports every prior phase already used", () => {

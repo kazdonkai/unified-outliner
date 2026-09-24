@@ -1255,6 +1255,9 @@ const en = {
     "Unified Outliner: the destination is not at the same nesting depth, so the move was cancelled.",
   "reason.paragraphNonAdjacentRangeOverlap":
     "Unified Outliner: the destination overlaps the paragraph being moved, so the move was cancelled.",
+  // [2026-09-24 追記, feat/paragraph-dnd-cross-section]
+  "reason.paragraphNonAdjacentCompositeInternalBoundary":
+    "Unified Outliner: the destination is inside another block, so the move was cancelled.",
 
   // Phase 5T-9A ("paragraph delete の最小スコープ実装",
   // edit/deleteParagraph.ts): deliberately NEW, dedicated keys rather than
@@ -2155,6 +2158,9 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 移動先が同じ深さにないため、移動を取り消した。",
   "reason.paragraphNonAdjacentRangeOverlap":
     "Unified Outliner: 移動先が移動対象の段落と重なっているため、移動を取り消した。",
+  // [2026-09-24 追記, feat/paragraph-dnd-cross-section]
+  "reason.paragraphNonAdjacentCompositeInternalBoundary":
+    "Unified Outliner: 移動先が他のブロックの内部にあるため、移動を取り消した。",
 
   // Phase 5T-9A（paragraph delete の最小スコープ実装、edit/deleteParagraph.ts）
   "reason.paragraphDeleteResolveFailed":
