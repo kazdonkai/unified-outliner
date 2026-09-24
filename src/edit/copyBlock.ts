@@ -518,7 +518,7 @@ function isNonBlank(line: string | undefined): line is string {
  *
  * Never removes or doubles an existing blank line.
  */
-function ensureCopySeparation(
+export function ensureCopySeparation(
   lines: string[],
   start: number,
   length: number,

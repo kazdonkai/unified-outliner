@@ -332,6 +332,7 @@ import { applyLineEditOutcome, LineEditOutcome } from "../commands/applyLineEdit
 import { applyParagraphEdit, paragraphEditTextContainsBlankLine } from "../edit/paragraphPartialEdit";
 import { evaluateRenameNoteIdentity } from "../edit/renameNoteIdentityGuard";
 import { TranslationKey } from "../i18n";
+import { createMirrorBelow, MirrorCreateRef } from "../mirror/createMirror";
 import {
   BlockCopySourceRef,
   BlockCopyTargetHint,
@@ -3258,6 +3259,8 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(sectionId))
     );
 
+    // Phase 5M-1: Create mirror (see addMirrorCreateMenuItem).
+    this.addMirrorCreateMenuItem(menu, sectionId);
     // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
     this.addBlockCopyMenuItems(menu, sectionId);
     this.showTrackedMenu(menu, evt);
@@ -3433,6 +3436,8 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(listId))
     );
 
+    // Phase 5M-1: Create mirror (see addMirrorCreateMenuItem).
+    this.addMirrorCreateMenuItem(menu, listId);
     // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
     this.addBlockCopyMenuItems(menu, listId);
     this.showTrackedMenu(menu, evt);
@@ -3778,6 +3783,8 @@ export class OutlineTreeView extends ItemView {
       }
     }
 
+    // Phase 5M-1: Create mirror (see addMirrorCreateMenuItem).
+    this.addMirrorCreateMenuItem(menu, nodeId);
     // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
     this.addBlockCopyMenuItems(menu, nodeId);
     this.showTrackedMenu(menu, evt);
@@ -4306,6 +4313,8 @@ export class OutlineTreeView extends ItemView {
       );
     }
 
+    // Phase 5M-1: Create mirror (see addMirrorCreateMenuItem).
+    this.addMirrorCreateMenuItem(menu, nodeId);
     // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
     this.addBlockCopyMenuItems(menu, nodeId);
     this.showTrackedMenu(menu, evt);
@@ -5214,6 +5223,68 @@ export class OutlineTreeView extends ItemView {
           .onClick(() => this.plugin.clearPendingBlockCopy({ notify: true }))
       );
     }
+  }
+
+  // ---- Phase 5M-1: Create mirror -------------------------------------------
+  //
+  // The decision and write logic is the pure mirror/createMirror.ts; this
+  // view only maps a row to a MirrorCreateRef (reusing Phase 5E-Copy's own
+  // row -> source mapping, since the eligible rows are the same: sections,
+  // non-composite list items, standalone callout/blockquote/fenced-code/
+  // table rows and paragraph rows), labels an item that would be refused
+  // right now as unavailable (clicking it explains why), and at click time
+  // hands the editor's CURRENT text to createMirrorBelow, applying the
+  // outcome through plugin.applyMirrorCreateOutcome -> applyLineEditOutcome
+  // (one replaceRange = one Undo step). Mirror rows themselves never reach
+  // here — they have no context menu at all — so no new read-only
+  // exception path is added.
+
+  private mirrorCreateRefForNode(nodeId: string): MirrorCreateRef | null {
+    return this.blockCopySourceRefForNode(nodeId);
+  }
+
+  private addMirrorCreateMenuItem(menu: Menu, nodeId: string): void {
+    const doc = this.currentDoc;
+    const ref = this.mirrorCreateRefForNode(nodeId);
+    if (!doc || !ref) return;
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    // Menu-time feasibility only (a fixed candidate id — the real click
+    // re-runs everything against the editor's current text with a fresh id).
+    menu.addSeparator();
+    const probe = createMirrorBelow(doc.lines.join("\n"), ref, rules, {
+      generateBlockId: () => "uo-menuprob",
+      notePath: this.currentFilePath ?? "",
+    });
+    const titleKey: TranslationKey = ref.kind === "section" ? "tree.menu.createMirrorAbove" : "tree.menu.createMirrorBelow";
+    const title = this.plugin.t(titleKey);
+    const reason = probe.changed ? undefined : probe.reason;
+    menu.addItem((item) =>
+      item
+        .setTitle(reason ? `${title}${this.plugin.t("tree.menu.unavailableSuffix")}` : title)
+        .setIcon(reason ? OutlineTreeView.UNAVAILABLE_ICON : "copy-check")
+        .setWarning(!!reason)
+        .onClick(() => {
+          if (reason) {
+            this.plugin.blockCopyReasonNotice(reason);
+            return;
+          }
+          this.runCreateMirrorCommand(ref);
+        })
+    );
+  }
+
+  private runCreateMirrorCommand(ref: MirrorCreateRef): void {
+    const view = this.activeMarkdownView.get();
+    if (!view) return;
+    const editor: Editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return;
+    }
+    const text = editor.getValue();
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const outcome = createMirrorBelow(text, ref, rules, { notePath: view.file?.path ?? "" });
+    this.plugin.applyMirrorCreateOutcome(editor, text, outcome);
   }
 
   /** Human label for a copy source row (banner / Notices), falling back to the block's own first line. */

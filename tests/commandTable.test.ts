@@ -104,6 +104,8 @@ describe("main.ts command table (static source check)", () => {
       "duplicate-block-below",
       "paste-block",
       "cancel-block-copy",
+      // Phase 5M-1: create mirror.
+      "create-mirror-below",
     ]);
   });
 

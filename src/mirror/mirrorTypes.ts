@@ -72,6 +72,16 @@ export type MirrorUnresolvedReason = "not-found";
  *   loop, starting from this one.
  */
 export type MirrorResolutionResult =
-  | { status: "resolved"; source: MirrorSource & { lineRange: LineRange } }
+  | {
+      status: "resolved";
+      source: MirrorSource & { lineRange: LineRange };
+      /**
+       * Phase 5M-1: how many headings / `^id` lines matched. Greater than
+       * 1 means the reference is ambiguous — the FIRST match is used (as
+       * Obsidian does) and a caller may warn. Optional so Phase 5M-0
+       * results without it stay valid.
+       */
+      matchCount?: number;
+    }
   | { status: "unresolved"; reason: MirrorUnresolvedReason; source: MirrorSource }
   | { status: "cycle"; cycle: string[]; source: MirrorSource };
