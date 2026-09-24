@@ -69,13 +69,21 @@ describe("Phase 5D-4D: CompositeBlock parent-row mobile drag handle (additive UI
     return viewTs.slice(start, end);
   }
 
-  it("dragHandleEl generation admits isComposite alongside !readOnly, but nothing else — member/complex-member/paragraph rows (readOnly, not isComposite) still get no handle at all", () => {
+  it("dragHandleEl generation admits isComposite alongside !readOnly (Phase 5D-4D) and, as of the 2026-09-24 mobile follow-up fix, isEligibleStandaloneComplexMember — but nothing else — a plain composite-member/paragraph row (readOnly, not isComposite, not an eligible standalone complex-member kind) still gets no handle at all", () => {
     const body = dragHandleGenerationBody();
-    expect(body).toContain("if (!readOnly || isComposite) {");
+    expect(body).toContain(
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {"
+    );
     // Defense in depth: no OTHER kind flag was added to this condition —
-    // widening it any further than `isComposite` would leak the handle to
-    // rows this ticket must not touch.
-    expect(body).not.toContain("isComplexMember");
+    // widening it any further than `isComposite`/
+    // `isEligibleStandaloneComplexMember` would leak the handle to rows
+    // this ticket (and the 2026-09-24 follow-up) must not touch.
+    // isEligibleStandaloneComplexMember is itself DERIVED from
+    // isComplexMember (see its own const definition, just above this
+    // body's own start point) — so this body legitimately mentions the
+    // derived name, but never bare isComplexMember, isOutlineParagraphNode
+    // or isSection directly in the condition itself.
+    expect(body).not.toContain("isComplexMember &&");
     expect(body).not.toContain("isOutlineParagraphNode");
     expect(body).not.toContain("isSection");
   });

@@ -27,10 +27,17 @@
  *
  * Unlike findCompositeMoveTarget, this module never widens its resolved
  * target: Phase 5C-3's approved adjacency candidates are limited to OTHER
- * standalone callout/blockquote blocks only ("A案") — never a list item or
- * another CompositeBlock — so the adjacent block's own `range` (a single,
- * atomic complex block, never decomposed) is always exactly what gets
- * swapped, with no further resolution step needed.
+ * standalone complex blocks only ("A案") — never a list item or another
+ * CompositeBlock — so the adjacent block's own `range` (a single, atomic
+ * complex block, never decomposed) is always exactly what gets swapped,
+ * with no further resolution step needed. Originally callout/blockquote
+ * only; Phase 5E-1 widened the eligible kind set to also include
+ * fenced-code, and Phase 5E-3d widened it again to also include table —
+ * this module itself required NO code change for either widening, since it
+ * defers entirely to parser/compositeBlocks.ts's own
+ * isStandaloneComplexBlockShapeEligible/evaluateStandaloneComplexBlockMovability/
+ * findAdjacentStandaloneComplexBlock for every kind check (see this file's
+ * own function below).
  *
  * ---- What this module does NOT do ----
  *

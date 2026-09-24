@@ -259,17 +259,19 @@ describe("Phase 5E-2A category D: UI 配線 (view/OutlineTreeView.ts)", () => {
     expect(outcome.ok).toBe(true);
   });
 
-  it("table の complex-member ノードでは Move up / Move down / Delete が表示されない", () => {
+  it("table の complex-member ノードでも Move up / Move down / Delete が表示される（Phase 5E-3d で追加 — tests/phase5e3dTableMoveDeleteDnd.test.ts に詳細カバレッジあり）", () => {
+    // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens
+    // buildStandaloneComplexBlockSnapshot's own StandaloneComplexBlockMoveKind
+    // allow-list, and the Delete item's own kind gate in
+    // showStandaloneComplexBlockMenu, to also admit "table" — this test
+    // originally pinned "table stays Move/Delete-less, unchanged by Phase
+    // 5E-2A" as a regression guard for that phase; Phase 5E-3d
+    // deliberately changes that, so this test is updated to confirm the
+    // new, intentional behavior instead of continuing to pin the old one.
     const { complexScan, doc } = treeWithTable(["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n"));
     const tableInfo = tableOf(complexScan, doc, "1");
-    // Move: showStandaloneComplexBlockMenu only builds Move items inside
-    // `if (snapshot)` — buildStandaloneComplexBlockSnapshot must return
-    // null for table for Move to be absent.
-    expect(buildStandaloneComplexBlockSnapshot(tableInfo)).toBeNull();
-    // Delete: showStandaloneComplexBlockMenu's Delete item is gated
-    // `target.kind === "fenced-code"` — table never satisfies this.
+    expect(buildStandaloneComplexBlockSnapshot(tableInfo)).not.toBeNull();
     expect(tableInfo.kind).toBe("table");
-    expect((tableInfo.kind as string) === "fenced-code").toBe(false);
   });
 
   it("collectReadOnlyOutlineNodeIds は table の complex-member ノードを読み取り専用集合に含め続ける", () => {

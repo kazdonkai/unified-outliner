@@ -20,7 +20,7 @@ import path from "node:path";
  * new rename/delete/insert/Partial-Edit affordance, and without adding a
  * new i18n key for a rejection reason (per this ticket's own approval).
  */
-describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, desktop-only, v1-scope-only)", () => {
+describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-only; desktop+mobile as of the 2026-09-24 mobile follow-up fix)", () => {
   const viewTs = readFileSync(path.resolve(__dirname, "../src/view/OutlineTreeView.ts"), "utf-8");
   const complexBlockTs = readFileSync(path.resolve(__dirname, "../src/model/complexBlock.ts"), "utf-8");
   const i18nTs = readFileSync(path.resolve(__dirname, "../src/i18n.ts"), "utf-8");
@@ -35,8 +35,21 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, desktop-on
   }
 
   function standaloneBridgeBranch(): string {
+    // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this branch's own
+    // kind check to also admit "table" (reformatted across lines to fit),
+    // so the search string below now matches that widened, multi-line
+    // condition rather than the original single-line callout/blockquote-
+    // only one. The 2026-09-24 mobile follow-up fix then REMOVED this
+    // branch's own trailing `&& !Platform.isMobile` (the row is now a
+    // valid D&D source/target on mobile too, via the handle created for it
+    // — see the dragHandleEl generation condition's own updated doc
+    // comment), so the search string below no longer includes it either.
+    // The follow-up ticket "fenced-code D&D parity" (2026-09-24, same day,
+    // same branch) then widened this branch's kind check once more to
+    // also admit "fenced-code" — the search string below now matches that
+    // further-widened condition.
     const start = viewTs.indexOf(
-      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" || node.complexKind === \"blockquote\") &&\n      !Platform.isMobile"
+      "isComplexMember &&\n      node.isStandalone &&\n      (node.complexKind === \"callout\" ||\n        node.complexKind === \"blockquote\" ||\n        node.complexKind === \"table\" ||\n        node.complexKind === \"fenced-code\")\n    ) {"
     );
     expect(start).toBeGreaterThan(-1);
     const end = viewTs.indexOf(
@@ -194,15 +207,69 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, desktop-on
     expect(type).not.toContain("invalid-target");
   });
 
-  it("the standalone callout/blockquote bridge branch is gated by isStandalone && (callout|blockquote) && !Platform.isMobile, and REUSES handleParagraphDragOver/handleParagraphDrop for dragover/drop (not its own direct calloutDragSession check) — those methods themselves check calloutDragSession FIRST internally", () => {
+  it("the standalone callout/blockquote/table bridge branch is gated by isStandalone && (callout|blockquote|table) — with NO !Platform.isMobile exclusion since the 2026-09-24 mobile follow-up fix — and REUSES handleParagraphDragOver/handleParagraphDrop for dragover/drop (not its own direct calloutDragSession check) — those methods themselves check calloutDragSession FIRST internally", () => {
     const branch = standaloneBridgeBranch();
     expect(branch).toContain("node.isStandalone &&");
-    expect(branch).toContain("!Platform.isMobile");
+    expect(branch).not.toContain("!Platform.isMobile");
     expect(branch).toContain('selfEl.setAttribute("draggable", "true");');
     expect(branch).toContain("this.handleCalloutDragStart(evt, node, itemEl)");
     expect(branch).toContain("this.handleParagraphDragOver(evt, node, selfEl)");
     expect(branch).toContain("this.handleParagraphDrop(evt, node, selfEl)");
     expect(branch).toContain('this.handleDragEnd()');
+  });
+
+  it("the standalone callout/blockquote/table bridge branch now also follows the section/list UXP-01 mobile-vs-desktop draggable split: dragHandleEl on mobile, selfEl on desktop", () => {
+    const branch = standaloneBridgeBranch();
+    expect(branch).toContain("if (Platform.isMobile) {");
+    expect(branch).toContain('dragHandleEl?.setAttribute("draggable", "true");');
+    expect(branch).toContain("} else {");
+    expect(branch).toContain('selfEl.setAttribute("draggable", "true");');
+  });
+
+  it("2026-09-24 mobile follow-up fix: dragHandleEl's generation condition now also admits an eligible standalone callout/blockquote/table row (isEligibleStandaloneComplexMember), so it finally gets the mobile six-dot handle needed to lift it by touch", () => {
+    const start = viewTs.indexOf("let dragHandleEl: HTMLElement | null = null;");
+    expect(start).toBeGreaterThan(-1);
+    const end = viewTs.indexOf("// Inline rename trigger", start);
+    expect(end).toBeGreaterThan(start);
+    const generationBody = viewTs.slice(start, end);
+    expect(generationBody).toContain(
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {"
+    );
+
+    const constStart = viewTs.lastIndexOf(
+      "const isEligibleStandaloneComplexMember =",
+      start
+    );
+    expect(constStart).toBeGreaterThan(-1);
+    const constEnd = viewTs.indexOf(";", constStart);
+    const constBody = viewTs.slice(constStart, constEnd);
+    expect(constBody).toContain("isComplexMember &&");
+    expect(constBody).toContain("node.isStandalone &&");
+    expect(constBody).toContain('node.complexKind === "callout"');
+    expect(constBody).toContain('node.complexKind === "blockquote"');
+    expect(constBody).toContain('node.complexKind === "table"');
+    // fenced-code was deliberately NOT part of this allow-list at the
+    // time of this mobile follow-up fix, per Phase 5E-1/5E-3d's own
+    // explicit scope decision — that exclusion was itself lifted shortly
+    // after (same day, same branch) by the follow-up ticket "fenced-code
+    // D&D parity" (see the next test), so fenced-code now IS part of this
+    // allow-list.
+    expect(constBody).toContain('"fenced-code"');
+  });
+
+  it("fenced-code D&D parity follow-up: fenced-code is now admitted into BOTH isEligibleStandaloneComplexMember (which gates dragHandleEl creation) and the D&D bridge branch — on equal footing with callout/blockquote/table, lifting the exclusion the two tests above originally pinned", () => {
+    const constStart = viewTs.indexOf("const isEligibleStandaloneComplexMember =");
+    expect(constStart).toBeGreaterThan(-1);
+    const constEnd = viewTs.indexOf(";", constStart);
+    const constBody = viewTs.slice(constStart, constEnd);
+    expect(constBody).toContain('"fenced-code"');
+
+    const branch = standaloneBridgeBranch();
+    expect(branch).toContain('"fenced-code"');
+    // The branch's own doc comment explicitly documents and re-affirms
+    // this inclusion in prose too, alongside a record of the earlier
+    // exclusion it lifted.
+    expect(branch).toContain("fenced-code D&D parity");
   });
 
   it("the NEW composite-member callout/blockquote branch is gated by !node.isStandalone && (callout|blockquote) && !Platform.isMobile, and checks this.calloutDragSession DIRECTLY for dragover/drop — it deliberately does NOT call handleParagraphDragOver/handleParagraphDrop, so a composite-member row never becomes a paragraph-drag drop target", () => {

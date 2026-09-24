@@ -54,16 +54,19 @@ describe("buildStandaloneComplexBlockSnapshot", () => {
     });
   });
 
-  it("returns null for a non-callout/blockquote/fenced-code kind (defense-in-depth)", () => {
+  it("returns null for a non-callout/blockquote/fenced-code/table kind (defense-in-depth)", () => {
     // Phase 5E-1 widened buildStandaloneComplexBlockSnapshot to also
     // accept kind "fenced-code" (see this file's own new "accepts a
-    // standalone fenced-code block" test below) — this defense-in-depth
-    // case is re-pointed at "table", which remains genuinely unsupported
-    // (table stays read-only; see docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3).
-    const text = ["| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
+    // standalone fenced-code block" test below), and Phase 5E-3d widened
+    // it again to also accept "table" (see this file's own new "accepts a
+    // standalone table block" test below) — this defense-in-depth case is
+    // re-pointed at "thematic-break", which remains genuinely unsupported
+    // (paragraph/thematic-break stay out of scope; see
+    // docs/phase5e3d_table-move-delete-dnd-design-memo.md).
+    const text = ["Some paragraph.", "", "***"].join("\n");
     const { complexScan } = pipeline(text);
-    const table = complexScan.blocks.find((b) => b.kind === "table")!;
-    expect(buildStandaloneComplexBlockSnapshot(table)).toBeNull();
+    const thematicBreak = complexScan.blocks.find((b) => b.kind === "thematic-break")!;
+    expect(buildStandaloneComplexBlockSnapshot(thematicBreak)).toBeNull();
   });
 
   it("Phase 5E-1: accepts a standalone fenced-code block, projecting the same kind/range/parentId shape as callout/blockquote", () => {
@@ -76,6 +79,19 @@ describe("buildStandaloneComplexBlockSnapshot", () => {
       kind: "fenced-code",
       range: { startLine: fenced.range.startLine, endLine: fenced.range.endLine },
       parentId: fenced.parentId,
+    });
+  });
+
+  it("Phase 5E-3d: accepts a standalone table block, projecting the same kind/range/parentId shape as callout/blockquote/fenced-code", () => {
+    const text = ["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
+    const { complexScan } = pipeline(text);
+    const table = complexScan.blocks.find((b) => b.kind === "table")!;
+    const snapshot = buildStandaloneComplexBlockSnapshot(table);
+    expect(snapshot).toEqual({
+      id: table.id,
+      kind: "table",
+      range: { startLine: table.range.startLine, endLine: table.range.endLine },
+      parentId: table.parentId,
     });
   });
 });

@@ -118,7 +118,31 @@ describe("resolveStandaloneComplexBlockDropTarget: cross-section rejection", () 
 });
 
 describe("resolveStandaloneComplexBlockDropTarget: source shape eligibility", () => {
-  it("rejects (not-supported) when the source is not kind callout/blockquote", () => {
+  // Originally used a fenced-code fixture here ("rejects (not-supported)
+  // when the source is not kind callout/blockquote/table"): fenced-code
+  // itself was excluded from D&D through Phase 5E-3d. The follow-up
+  // ticket "fenced-code D&D parity" (2026-09-24, same branch) lifted that
+  // exclusion (see the "accepts fenced-code" test just below), so this
+  // regression guard's fixture was switched to thematic-break — a kind
+  // that genuinely remains unsupported as a D&D source (it is never even
+  // projected as its own standalone Tree row — see
+  // view/OutlineTreeView.ts's own thematic-break doc comment).
+  it("rejects (not-supported) when the source is not kind callout/blockquote/table/fenced-code", () => {
+    const text = ["Some paragraph.", "", "***", "", "> [!tip] two", "> body b"].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    const thematicBreak = complexScan.blocks.find((b) => b.kind === "thematic-break")!;
+    const two = blockOf(complexScan, "two", doc);
+    const resolution = resolveStandaloneComplexBlockDropTarget(
+      doc,
+      thematicBreak,
+      composites,
+      { range: two.range, parentId: two.parentId },
+      "after"
+    );
+    expect(resolution).toEqual({ allowed: false, reason: "not-supported" });
+  });
+
+  it("accepts (allowed: true) when the source is kind fenced-code (fenced-code D&D parity follow-up)", () => {
     const text = ["# H", "```", "code", "```", "", "> [!tip] two", "> body b"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
@@ -130,7 +154,7 @@ describe("resolveStandaloneComplexBlockDropTarget: source shape eligibility", ()
       { range: two.range, parentId: two.parentId },
       "after"
     );
-    expect(resolution).toEqual({ allowed: false, reason: "not-supported" });
+    expect(resolution).toEqual({ allowed: true, insertBeforeLine: two.range.endLine + 1 });
   });
 
   it("rejects (nested-in-list) when the source itself is nested inside a list item's continuation", () => {

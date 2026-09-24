@@ -1525,9 +1525,10 @@ export class OutlineTreeView extends ItemView {
     // on the row BODY (long-press -> context menu, tier 2 below) and a
     // touch on the HANDLE (drag, further below) are never the same gesture
     // recognizer target. null for a readOnly row that is NOT a CompositeBlock
-    // parent row (complex-member/paragraph member rows — never a drag
-    // source, Phase 5D-0.3 approval §1), matching the existing `if
-    // (!readOnly)` gate around the drag listeners further down.
+    // parent row and NOT an eligible standalone complex-member row (see
+    // below) — a plain paragraph/composite-member row stays a non-source,
+    // matching the existing `if (!readOnly)` gate around the drag
+    // listeners further down.
     //
     // Phase 5D-4D (docs/phase5d4d_mobile_composite_block_drag_handle_design.md):
     // a CompositeBlock PARENT row (isComposite) is always `readOnly` (Phase
@@ -1539,8 +1540,38 @@ export class OutlineTreeView extends ItemView {
     // how the composite drag-wiring branch below is its own `else if`
     // rather than a relaxation of `!readOnly`. member/complex-member rows
     // remain excluded: `isComposite` is only ever true for the parent row.
+    //
+    // Mobile follow-up fix (2026-09-24, "モバイルではD&Dができない。6点マー
+    // クが必要ではないか？" — real-device report that D&D silently did not
+    // work at all on mobile for a standalone callout/blockquote/table row):
+    // such a row is always `readOnly` (Phase 5D-0.3 approval §1) and never
+    // `isComposite` (that flag is exclusive to a CompositeBlock PARENT
+    // row), so it never matched this condition and got NO handle — yet the
+    // D&D wiring branch below (`isComplexMember && node.isStandalone &&
+    // complexKind is callout/blockquote/table`) already treats such a row
+    // as a valid drag source/target on desktop. Without a handle, mobile
+    // had no way to lift it (see that branch's own updated doc comment for
+    // why `!Platform.isMobile` is removed there too). `isEligibleStandalone
+    // ComplexMember` below is the exact same allow-list as that branch's
+    // own guard — callout/blockquote/table plus, as of the follow-up
+    // ticket "fenced-code D&D parity" (2026-09-24), fenced-code too:
+    // fenced-code previously got a standalone Tree row and Move/Delete/
+    // Partial Edit (Phase 5E-1/5E-3d) but was deliberately excluded from
+    // D&D specifically; that exclusion is lifted here so fenced-code now
+    // reaches full D&D parity with the other three standalone complex
+    // kinds, on both desktop and mobile. A handle with no drag capability
+    // behind it would be a dead, confusing UI element, which is why this
+    // stays a single shared allow-list rather than two independently
+    // drifting ones.
+    const isEligibleStandaloneComplexMember =
+      isComplexMember &&
+      node.isStandalone &&
+      (node.complexKind === "callout" ||
+        node.complexKind === "blockquote" ||
+        node.complexKind === "table" ||
+        node.complexKind === "fenced-code");
     let dragHandleEl: HTMLElement | null = null;
-    if (!readOnly || isComposite) {
+    if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
       setIcon(dragHandleEl, "grip-vertical");
       dragHandleEl.setAttribute("aria-hidden", "true");
@@ -2201,10 +2232,15 @@ export class OutlineTreeView extends ItemView {
     // handle.
     // Phase 5D-0.3 approval §1: composite/complex-member rows, and any list
     // row currently inside a composite, are neither a drag SOURCE nor a
-    // drop TARGET — skipping every listener here (not just `draggable`)
-    // means dragover/drop simply never fire on this row at all, which is
-    // what actually makes it inert as a drop target too. (dragHandleEl is
-    // already null for these rows — see its own creation above.)
+    // drop TARGET via THIS branch — skipping every listener here (not just
+    // `draggable`) means dragover/drop simply never fire on this row via
+    // this wiring, which is what actually makes it inert as a drop target
+    // here. (dragHandleEl is null for most of these rows — see its own
+    // creation above — EXCEPT for a standalone callout/blockquote/table
+    // row, which now gets a non-null handle too; that row's D&D wiring is
+    // entirely separate, in its own `else if` branch further below, not
+    // this one — the handle existing here does not make this `!readOnly`
+    // branch match it.)
     if (!readOnly) {
       if (Platform.isMobile) {
         dragHandleEl?.setAttribute("draggable", "true");
@@ -2265,8 +2301,10 @@ export class OutlineTreeView extends ItemView {
     } else if (
       isComplexMember &&
       node.isStandalone &&
-      (node.complexKind === "callout" || node.complexKind === "blockquote") &&
-      !Platform.isMobile
+      (node.complexKind === "callout" ||
+        node.complexKind === "blockquote" ||
+        node.complexKind === "table" ||
+        node.complexKind === "fenced-code")
     ) {
       // Phase 5T-2 real-device-verification fix (found via the ticket's
       // own mandated 実機検証 pass, before this row's own D&D was ever
@@ -2297,17 +2335,30 @@ export class OutlineTreeView extends ItemView {
       // set, before falling through to their original paragraph-only
       // logic (see either method's own updated doc comment).
       //
-      // fenced-code/table/thematic-break are deliberately excluded here:
-      // tree/buildOutlineTree.ts only ever computes `isStandalone: true`
-      // for kind "callout"/"blockquote" (see that module's own
-      // isStandaloneComplexBlock-equivalent check) — those other kinds
-      // are never projected as their own Tree row at all, so there is no
-      // row here to wire a listener onto for them. Paragraph D&D against
-      // a fenced-code/table/thematic-break target therefore stays out of
-      // reach via the Tree UI even after this fix — a known, pre-existing
-      // Tree-view-model constraint (not a 5T-2 regression), recorded as
-      // such in the 5T-2 completion report rather than silently
-      // "verified" against a row that cannot exist.
+      // thematic-break is deliberately excluded here: it is never
+      // projected as its own standalone Tree row at all (tree/
+      // buildOutlineTree.ts's own isStandaloneComplexBlock-equivalent
+      // check never admits it), so there is no row to wire a listener
+      // onto for it — that exclusion is structural, not a scope choice,
+      // and is unaffected by anything below.
+      //
+      // fenced-code DOES get a standalone Tree row (Phase 5E-0 widened
+      // isStandaloneComplexBlockEligible to also admit it, and Phase 5E-1
+      // gave it Move/Delete/Partial Edit). Through Phase 5E-3d (table-
+      // only) it was deliberately excluded from D&D specifically — its
+      // scope was explicitly Partial Edit/Move/Delete only (see
+      // edit/deleteStandaloneComplexBlock.ts's own top doc comment history)
+      // — leaving paragraph D&D against a fenced-code target out of reach
+      // via the Tree UI, a known, pre-existing constraint (not a 5T-2
+      // regression), recorded as such in the 5T-2 completion report.
+      // The follow-up ticket "fenced-code D&D parity" (2026-09-24) lifts
+      // that exclusion: fenced-code is now included in this guard's kind
+      // allow-list alongside callout/blockquote/table, reusing this exact
+      // same wiring unchanged — only the guard's kind allow-list changed
+      // (mirroring exactly how Phase 5E-3d itself added "table" here).
+      // See docs/phase5e3d_table-move-delete-dnd-design-memo.md §3.7 for
+      // the dated addendum recording this reversal of the original
+      // exclusion decision.
       //
       // Phase 5D-3C ADDS `draggable`/`dragstart`/`dragend` here — a
       // standalone callout/blockquote row now ALSO becomes a valid D&D
@@ -2318,7 +2369,36 @@ export class OutlineTreeView extends ItemView {
       // unchanged, and handleDragEnd's endDrag() already clears
       // calloutDragSession unconditionally (see that method's own updated
       // doc comment), so no new dragend logic was needed either.
-      selfEl.setAttribute("draggable", "true");
+      //
+      // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this guard's
+      // own kind check (above) to also admit "table" — table's standalone
+      // Tree row now becomes a valid D&D source/bridge-target exactly like
+      // callout/blockquote already were, reusing this exact same wiring
+      // (handleCalloutDragStart/handleParagraphDragOver/handleParagraphDrop)
+      // unchanged; only the guard's kind allow-list changed. Table is
+      // never a CompositeBlock member (no shipped CompositeBlockRule
+      // produces it as one), so the composite-member drag-wiring branch
+      // below (isComplexMember && !node.isStandalone) is intentionally
+      // left unwidened — table can never reach it.
+      //
+      // Mobile follow-up fix (2026-09-24): this branch used to exclude
+      // Platform.isMobile entirely (a negated Platform.isMobile check was
+      // ANDed into the guard above), so a standalone callout/blockquote/
+      // table row had NO drag wiring at all on mobile — confirmed by
+      // real-device testing ("モバイルではD&Dができない"). That exclusion
+      // is removed here; `draggable` now follows the exact same platform
+      // split section/list's own UXP-01 wiring (and the composite-parent branch
+      // below) already use — the handle (created above,
+      // `isEligibleStandaloneComplexMember`) is the sole drag origin on
+      // mobile, `selfEl` stays the drag origin on desktop, unchanged. The
+      // dragover/drop/dragend listeners below were already
+      // platform-agnostic (they never referenced Platform.isMobile), so
+      // they needed no change to start working on mobile too.
+      if (Platform.isMobile) {
+        dragHandleEl?.setAttribute("draggable", "true");
+      } else {
+        selfEl.setAttribute("draggable", "true");
+      }
       selfEl.addEventListener("dragstart", (evt) =>
         this.handleCalloutDragStart(evt, node, itemEl)
       );
@@ -3414,21 +3494,33 @@ export class OutlineTreeView extends ItemView {
    * (`target.kind === "fenced-code"` only).
    *
    * Phase 5E-2A ("Markdown table の raw Partial Edit・Apply 検証・安全な書き
-   * 戻し") widens this menu's reach once more, to standalone table rows.
-   * "Open in Partial Edit" (+ new window) above needs NO code change to
+   * 戻し") widened this menu's reach once more, to standalone table rows.
+   * "Open in Partial Edit" (+ new window) above needed NO code change to
    * cover table — it was already kind-neutral, and
-   * edit/partialEdit.ts#extractComplexBlockText now resolves "table" the
-   * same way it resolves "fenced-code". Move up/down and Delete need NO
-   * change either, for the opposite reason: `buildStandaloneComplexBlockSnapshot`
-   * (edit/moveStandaloneComplexBlock.ts) still returns null for kind
-   * "table" (its own StandaloneComplexBlockMoveKind allow-list is
-   * unchanged), so the `if (snapshot)` block below never runs for a table
-   * target; and the Delete item's own `target.kind === "fenced-code"`
-   * gate below excludes "table" by construction. A table row's menu is
-   * therefore always exactly one item long in practice ("Open in Partial
-   * Edit" + "Open in new window"), with no move/delete capability — this
-   * falls out of the existing per-kind gates already in this method's
-   * body, not from any new table-specific branch.
+   * edit/partialEdit.ts#extractComplexBlockText resolves "table" the
+   * same way it resolves "fenced-code". At that time, Move up/down and
+   * Delete stayed unavailable for table (buildStandaloneComplexBlockSnapshot's
+   * own StandaloneComplexBlockMoveKind allow-list, and the Delete item's
+   * own kind gate, both still excluded it), so a table row's menu was
+   * exactly one item long in practice.
+   *
+   * Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this menu's reach
+   * a final time: `buildStandaloneComplexBlockSnapshot` now also accepts
+   * "table" (edit/moveStandaloneComplexBlock.ts's own
+   * StandaloneComplexBlockMoveKind widened), so the `if (snapshot)` block
+   * below now runs for a table target too, offering Move up/down exactly
+   * like fenced-code already had; and the Delete item's own gate below now
+   * also admits `target.kind === "table"`. Both reuse the EXACT SAME code
+   * paths fenced-code already exercises — no table-specific branch was
+   * added anywhere in this method.
+   *
+   * 2026-09-24 追記（follow-up ticket, standalone callout/blockquote
+   * Delete）: the Delete item's own gate below now also admits
+   * `target.kind === "callout"` and `"blockquote"` — the one remaining
+   * gap in this method, since Move up/down (via
+   * `buildStandaloneComplexBlockSnapshot`) has admitted callout/
+   * blockquote since Phase 5C-3. See that gate's own updated comment,
+   * just above it in this method's body, for the full rationale.
    */
   private showStandaloneComplexBlockMenu(evt: MouseEvent, nodeId: string): void {
     const menu = new Menu();
@@ -3492,23 +3584,42 @@ export class OutlineTreeView extends ItemView {
         }
       }
 
-      // Phase 5E-1: a "Delete" item, fenced-code ONLY — deliberately not
-      // offered for callout/blockquote (no such capability was requested
-      // for those kinds this phase; see
+      // Phase 5E-1: a "Delete" item, originally fenced-code ONLY —
+      // deliberately not offered for callout/blockquote (no such
+      // capability was requested for those kinds; see
       // edit/deleteStandaloneComplexBlock.ts's own top doc comment for why
       // this is intentionally a NEW, narrowly kind-scoped module rather
       // than a widened reuse of anything callout/blockquote already has).
-      // Phase 5E-2A (table's Partial-Edit-only widening) leaves this exact
-      // `target.kind === "fenced-code"` check UNCHANGED — table was never
-      // asked to gain Delete, so it simply never reaches this block; no
-      // additional exclusion logic is needed here for that.
+      // Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this gate to
+      // also admit "table" — reusing this exact same Delete item/modal/
+      // dispatch, unchanged, only passing target.kind through to the
+      // confirmation modal so its title reads correctly per kind (see
+      // ConfirmFencedCodeDeleteModal's own updated doc comment).
       // Mirrors showCompositeCommandMenu's own delete item exactly:
       // build the delete snapshot at menu-build time, gate on it being
       // buildable at all (mirrors that method's `deletability.deletable`
       // gate), and defer all actual re-verification to
       // deleteStandaloneComplexBlock's own re-parse/re-scan/re-match job,
       // run only once "Delete" is confirmed in the modal.
-      if (target.kind === "fenced-code") {
+      //
+      // 2026-09-24 追記（follow-up ticket, discovered during the user's
+      // own real-device acceptance testing of the
+      // phase5e3d-table-move-delete-dnd branch）: this gate now also
+      // admits "callout" and "blockquote" — Move up/down above was
+      // already unconditional on kind (via buildStandaloneComplexBlockSnapshot,
+      // which has covered callout/blockquote since Phase 5C-3), so this
+      // Delete item was the one remaining capability gap between a
+      // standalone callout/blockquote row and fenced-code/table. Reuses
+      // this exact same Delete item/modal/dispatch unchanged — see
+      // edit/deleteStandaloneComplexBlock.ts's and
+      // ConfirmFencedCodeDeleteModal's own dated addenda for why this
+      // widening required no new logic anywhere in the pipeline.
+      if (
+        target.kind === "fenced-code" ||
+        target.kind === "table" ||
+        target.kind === "callout" ||
+        target.kind === "blockquote"
+      ) {
         const deleteSnapshot = buildStandaloneComplexBlockDeleteSnapshot(target);
         if (deleteSnapshot) {
           const rowNode = this.nodeById.get(nodeId);
@@ -3522,6 +3633,7 @@ export class OutlineTreeView extends ItemView {
                 new ConfirmFencedCodeDeleteModal(
                   this.app,
                   this.plugin,
+                  deleteSnapshot.kind,
                   label,
                   deleteSnapshot.range,
                   (confirmed) => {
