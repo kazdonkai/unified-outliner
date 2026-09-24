@@ -140,7 +140,9 @@ function needsSeparatingBlankLine(neighborLine: string | undefined): boolean {
   return true;
 }
 
-function ensureBlankSeparation(
+// Exported (Phase 5E-Copy) for reuse, unchanged, by edit/copyBlock.ts — a pasted copy gets exactly
+// this same blank-line separation (see that module's ensureCopySeparation).
+export function ensureBlankSeparation(
   lines: string[],
   start: number,
   length: number

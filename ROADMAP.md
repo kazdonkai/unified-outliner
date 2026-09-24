@@ -12,6 +12,7 @@ The Partial Edit Pane now hides the Markdown list marker, task-list checkbox, an
 
 ## Next Focus
 
+- **Finishing Phase 5E for 1.0.0**: block copy in the Outline Tree (Copy block / Duplicate below / Paste block, Phase 5E-Copy) is implemented and awaiting real-device acceptance. The mirror feature (Phase 5M, reference/projection-style block display) comes next; 1.0.0 follows once both are complete.
 - **Declarative settings API (0.7.4)**: Implement `PluginSettingTab.getSettingDefinitions()` (Obsidian 1.13.0+) in `src/settings.ts`, mirroring the current `display()` items, while keeping `display()` for Obsidian 1.12.x and earlier (flagged as a warning by the Obsidian Community review of 0.7.3).
 - **Table move/delete and a lightweight Table Mode**: Extend the fenced-code-block Move/Delete support to Markdown tables (Partial Edit with structural validation is done as of Phase 5E-2A); cell-level structured editing and a full Table Mode are tracked separately, beyond this next step.
 - **Free movement to an arbitrary depth or parent**: Explore letting a list item or child move to any chosen ancestor or depth, beyond today's one-level indent/outdent.

@@ -44,6 +44,16 @@ import { ActiveMarkdownViewTracker } from "./view/activeMarkdownViewTracker";
 import { FoldStateManager } from "./persistence/foldStateManager";
 import { applyLineEditOutcome, LineEditOutcome } from "./commands/applyLineEditOutcome";
 import {
+  BlockCopyOutcome,
+  BlockCopySnapshot,
+  BlockCopyTargetHint,
+  blockCopyLabel,
+  buildBlockCopySnapshot,
+  duplicateBlockBelow,
+  isBlockCopySourceLost,
+  pasteBlockCopy,
+} from "./edit/copyBlock";
+import {
   DEFAULT_SETTINGS,
   UnifiedOutlinerSettings,
   UnifiedOutlinerSettingTab,
@@ -74,6 +84,22 @@ function detectObsidianLocale(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Phase 5E-Copy: the single, plugin-wide "copy pending" (コピー待機状態)
+ * record shared by every Outline Tree View leaf and the Command Palette
+ * commands. Deliberately its OWN field, independent of every view's
+ * selection/highlight/drag/rename state (none of which it reads or
+ * writes), so it can never conflict with them. Cleared by a successful
+ * paste, by Escape, by the Tree's copy banner "Cancel" button, or by the
+ * "Cancel block copy" command. `filePath` binds it to the note it was
+ * copied from — pasting is only offered in that same note.
+ */
+export interface PendingBlockCopy {
+  filePath: string;
+  snapshot: BlockCopySnapshot;
+  label: string;
 }
 
 /**
@@ -112,6 +138,9 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * own null-guard.
    */
   private ribbonIconEl: HTMLElement | null = null;
+
+  /** Phase 5E-Copy: see PendingBlockCopy's own doc comment. Null when nothing is waiting to be pasted. */
+  pendingBlockCopy: PendingBlockCopy | null = null;
 
   /** Translate a UI string owned by this plugin. See src/i18n.ts. */
   t(key: TranslationKey, vars?: TranslationVars): string {
@@ -380,6 +409,31 @@ export default class UnifiedOutlinerPlugin extends Plugin {
         translationKey: "command.editParagraphAtCursor",
         editorCallback: (editor) => this.openParagraphPartialEditForCursor(editor),
       },
+      // Phase 5E-Copy: the Command Palette counterparts of the Outline
+      // Tree's "Copy block" / "Duplicate below" / "Paste block" menu items.
+      // The block is the minimal safe unit at the cursor (move/
+      // resolveMoveTarget.ts#resolveMoveUnit — the same resolution
+      // "Move block" uses); Paste inserts after that unit.
+      {
+        id: "copy-block",
+        translationKey: "command.copyBlock",
+        editorCallback: (editor) => this.copyBlockAtCursor(editor),
+      },
+      {
+        id: "duplicate-block-below",
+        translationKey: "command.duplicateBlockBelow",
+        editorCallback: (editor) => this.duplicateBlockAtCursor(editor),
+      },
+      {
+        id: "paste-block",
+        translationKey: "command.pasteBlock",
+        editorCallback: (editor) => this.pasteBlockAtCursor(editor),
+      },
+      {
+        id: "cancel-block-copy",
+        translationKey: "command.cancelBlockCopy",
+        callback: () => this.cancelBlockCopy(),
+      },
     ];
   }
 
@@ -426,6 +480,28 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     this.registerView(
       OUTLINE_TREE_VIEW_TYPE,
       (leaf) => new OutlineTreeView(leaf, this)
+    );
+
+    // Phase 5E-Copy: Escape cancels a pending block copy (コピー待機状態).
+    // Capture phase, so that while a menu / modal / the Command Palette is
+    // open it is still in the DOM when this runs and the Escape is left to
+    // it alone (closing a context menu must not also drop the copy). Never
+    // calls preventDefault — the key still reaches everything else (editor,
+    // vim mode, ...) unchanged; this only clears plugin-owned state. IME
+    // composition (e.g. Japanese input) and text fields (the Tree's inline
+    // rename, settings inputs) are left alone.
+    this.registerDomEvent(
+      document,
+      "keydown",
+      (evt: KeyboardEvent) => {
+        if (evt.key !== "Escape" || !this.pendingBlockCopy) return;
+        if (evt.isComposing) return;
+        const target = evt.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+        if (document.querySelector(".menu, .modal-container, .suggestion-container")) return;
+        this.clearPendingBlockCopy({ notify: true });
+      },
+      { capture: true }
     );
 
     // `void` here is a deliberate marker, not a suppression: Obsidian's
@@ -1618,6 +1694,157 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       outcome,
       () => this.notice(this.reasonText(outcome.reason))
     );
+  }
+
+  // ---- Phase 5E-Copy: block copy / duplicate / paste ----------------------
+
+  /** Enters the copy-pending state (replacing any previous one) and re-renders every Outline Tree (banner + source-row marker). */
+  setPendingBlockCopy(state: PendingBlockCopy): void {
+    this.pendingBlockCopy = state;
+    new Notice(this.t("notice.blockCopied", { label: state.label }));
+    this.refreshOutlineTreeViews();
+  }
+
+  /** Leaves the copy-pending state. `notify` shows the "cancelled" Notice (user-initiated cancel only). */
+  clearPendingBlockCopy(options: { notify?: boolean } = {}): void {
+    if (!this.pendingBlockCopy) return;
+    this.pendingBlockCopy = null;
+    if (options.notify) new Notice(this.t("notice.blockCopyCancelled"));
+    this.refreshOutlineTreeViews();
+  }
+
+  /**
+   * Copy rejections are always reported (never gated by showNoopNotices):
+   * copy/paste is an explicit user action whose refusal — especially
+   * "can't paste a block inside itself" — must be explained.
+   */
+  blockCopyReasonNotice(reason: string | undefined): void {
+    if (!reason) return;
+    new Notice(this.t(("reason." + reason) as TranslationKey));
+  }
+
+  /**
+   * Shared click-time tail for a copy outcome from EITHER entry point (Tree
+   * menu or Command Palette): applies it through the existing single write
+   * path (applyLineEditOutcome — one replaceRange, one Undo step), reports
+   * a refusal, and keeps the copy-pending state consistent. Returns
+   * whether the note changed.
+   */
+  applyBlockCopyOutcome(
+    editor: Editor,
+    text: string,
+    outcome: BlockCopyOutcome,
+    options: { consumesPending: boolean }
+  ): boolean {
+    const changed = applyLineEditOutcome(editor, { line: 0, ch: 0 }, 0, text.split("\n"), outcome, () => {});
+    if (!changed) {
+      this.blockCopyReasonNotice(outcome.reason);
+      if (options.consumesPending && isBlockCopySourceLost(outcome.reason)) this.clearPendingBlockCopy();
+      return false;
+    }
+    const cur = editor.getCursor();
+    const lineLen = editor.getLine(cur.line)?.length ?? 0;
+    editor.scrollIntoView({ from: { line: cur.line, ch: 0 }, to: { line: cur.line, ch: lineLen } }, true);
+    // The Tree selection follows the inserted copy (its first line).
+    const copyStartLine = outcome.insertedRange?.startLine ?? outcome.newStartLine;
+    this.queueOutlineTreeSelectionFollow(copyStartLine);
+    if (options.consumesPending && this.pendingBlockCopy) {
+      new Notice(this.t("notice.blockPasted", { label: this.pendingBlockCopy.label }));
+      this.clearPendingBlockCopy();
+    } else {
+      this.refreshOutlineTreeViews();
+    }
+    return true;
+  }
+
+  /** Resolves the minimal safe block at the cursor into a copy snapshot, or reports why it can't be copied. */
+  private blockCopySnapshotAtCursor(editor: Editor): { text: string; snapshot: BlockCopySnapshot } | null {
+    if (editor.listSelections().length > 1) {
+      this.notice(this.t("notice.multipleCursors"));
+      return null;
+    }
+    const text = editor.getValue();
+    const doc = parseDocument(text);
+    const resolved = resolveMoveUnit(doc, editor.getCursor().line);
+    if (!resolved.unit) {
+      this.blockCopyReasonNotice(resolved.reason ?? "no-block");
+      return null;
+    }
+    const scan = scanComplexBlocks(doc);
+    const composites = matchCompositeBlocks(doc, scan, getEnabledCompositeBlockRules(this.settings.compositeBlocks));
+    const built = buildBlockCopySnapshot(doc, scan, composites, {
+      kind: resolved.unit.kind,
+      range: resolved.unit.range,
+    });
+    if (!built.ok) {
+      this.blockCopyReasonNotice(built.reason);
+      return null;
+    }
+    return { text, snapshot: built.value };
+  }
+
+  private copyBlockAtCursor(editor: Editor): void {
+    const resolved = this.blockCopySnapshotAtCursor(editor);
+    if (!resolved) return;
+    this.setPendingBlockCopy({
+      filePath: this.app.workspace.getActiveFile()?.path ?? "",
+      snapshot: resolved.snapshot,
+      label: blockCopyLabel(resolved.snapshot.lines),
+    });
+  }
+
+  private duplicateBlockAtCursor(editor: Editor): void {
+    const resolved = this.blockCopySnapshotAtCursor(editor);
+    if (!resolved) return;
+    const rules = getEnabledCompositeBlockRules(this.settings.compositeBlocks);
+    const outcome = duplicateBlockBelow(resolved.text, resolved.snapshot, rules);
+    this.applyBlockCopyOutcome(editor, resolved.text, outcome, { consumesPending: false });
+  }
+
+  private pasteBlockAtCursor(editor: Editor): void {
+    const pending = this.pendingBlockCopy;
+    if (!pending) {
+      new Notice(this.t("notice.noBlockCopyPending"));
+      return;
+    }
+    const filePath = this.app.workspace.getActiveFile()?.path ?? "";
+    if (filePath !== pending.filePath) {
+      new Notice(this.t("notice.blockCopyOtherNote", { file: pending.filePath }));
+      return;
+    }
+    if (editor.listSelections().length > 1) {
+      this.notice(this.t("notice.multipleCursors"));
+      return;
+    }
+    const text = editor.getValue();
+    const doc = parseDocument(text);
+    const resolved = resolveMoveUnit(doc, editor.getCursor().line);
+    if (!resolved.unit) {
+      this.blockCopyReasonNotice(resolved.reason ?? "no-block");
+      return;
+    }
+    const unit = resolved.unit;
+    const target: BlockCopyTargetHint = {
+      kind:
+        unit.kind === "section" || unit.kind === "list"
+          ? unit.kind
+          : unit.kind === "paragraph"
+            ? "paragraph"
+            : "complex",
+      range: unit.range,
+      parentId: unit.parentId,
+    };
+    const rules = getEnabledCompositeBlockRules(this.settings.compositeBlocks);
+    const outcome = pasteBlockCopy(text, { snapshot: pending.snapshot, target, position: "after" }, rules);
+    this.applyBlockCopyOutcome(editor, text, outcome, { consumesPending: true });
+  }
+
+  private cancelBlockCopy(): void {
+    if (!this.pendingBlockCopy) {
+      new Notice(this.t("notice.noBlockCopyPending"));
+      return;
+    }
+    this.clearPendingBlockCopy({ notify: true });
   }
 
   private notice(message: string | undefined): void {

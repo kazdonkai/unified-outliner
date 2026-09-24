@@ -147,8 +147,9 @@ export function canDropListOn(
   return true;
 }
 
+// Exported (Phase 5E-Copy) for reuse, unchanged, by edit/copyBlock.ts's list-copy placement.
 /** Column count a NEW direct child of `parent` should use — mirrors indentBlock.ts's buildIndentPrefix target-column logic (match the existing first child's column if any, else step by TAB_WIDTH). */
-function childIndentColumnsOf(doc: ParsedDocument, parent: ListBlockNode): number {
+export function childIndentColumnsOf(doc: ParsedDocument, parent: ListBlockNode): number {
   if (parent.childIds.length > 0) {
     const firstChild = doc.nodes.get(parent.childIds[0]);
     if (firstChild && isListNode(firstChild)) return firstChild.indentColumns;
@@ -156,6 +157,7 @@ function childIndentColumnsOf(doc: ParsedDocument, parent: ListBlockNode): numbe
   return parent.indentColumns + TAB_WIDTH;
 }
 
+// Exported (Phase 5E-Copy) for reuse, unchanged, by edit/copyBlock.ts's list-copy placement.
 /**
  * The line at which `section`'s OWN root content ends — i.e. the correct
  * insertion point for "append as the last root item belonging to this
@@ -165,7 +167,7 @@ function childIndentColumnsOf(doc: ParsedDocument, parent: ListBlockNode): numbe
  * section, if it has one; otherwise section.range.endLine + 1 is safe
  * (nothing deeper is open there).
  */
-function ownContentInsertionLine(doc: ParsedDocument, section: SectionBlockNode): number {
+export function ownContentInsertionLine(doc: ParsedDocument, section: SectionBlockNode): number {
   let min: number | null = null;
   for (const id of section.childIds) {
     const child = doc.nodes.get(id);
@@ -176,7 +178,8 @@ function ownContentInsertionLine(doc: ParsedDocument, section: SectionBlockNode)
   return min ?? section.range.endLine + 1;
 }
 
-function reindent(
+// Exported (Phase 5E-Copy) for reuse, unchanged, by edit/copyBlock.ts's list-copy placement.
+export function reindent(
   lines: string[],
   startLine: number,
   endLine: number,
