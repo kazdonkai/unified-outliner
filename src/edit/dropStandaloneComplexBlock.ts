@@ -56,6 +56,29 @@
  * already establish) rather than an import, since this module has always
  * deliberately avoided a dependency on the paragraph-move family.
  *
+ * [2026-09-25 追記, fix/standalone-dnd-blank-separation-always] The
+ * paragraph directly above ("but ONLY on a drop that actually crosses a
+ * section boundary...") described the ORIGINAL, now-corrected behavior
+ * and is kept for history, but is no longer accurate: ensureBlankSeparation
+ * is now applied UNCONDITIONALLY, on every drop, same-section included.
+ * That same-section gate rested on an unverified assumption — that
+ * move/findStandaloneComplexBlockDropTarget.ts's own resolver
+ * (resolveStandaloneComplexBlockDropTarget) only ever offers same-section
+ * candidate positions that are already blank-line-separated from their
+ * neighbor. That assumption was wrong: the resolver only ever checks
+ * self-drop and composite-internal-boundary safety — it has never checked
+ * blank-line separation at all, for either same-section or cross-section
+ * candidates. A real-device (iPad) report showed exactly this: a
+ * blockquote dragged and dropped immediately above an unrelated paragraph
+ * in the SAME section, with no blank line between them, silently merged
+ * the paragraph into the blockquote's own body on re-parse. This defect
+ * predates the cross-section ticket entirely — it goes back to Phase
+ * 5D-3C, the original callout/blockquote D&D implementation — and the
+ * cross-section ticket's own same-section gate merely left it
+ * unprotected rather than introducing it. See this file's own call site
+ * of `ensureBlankSeparation`, below, for the corrected, unconditional
+ * call.
+ *
  * No Markdown reformatting/renormalization of any other kind, no
  * content/text-hash comparison of the SOURCE (matching Move's own "a
  * move/drop relocates whatever content currently sits at the re-verified
@@ -97,6 +120,15 @@ import { isBlankLine } from "../parser/parseDocument";
 // SAME-SECTION drops keep their pre-existing behavior (no blank-line
 // insertion at all) — see dropStandaloneComplexBlock's own call site
 // below for why this is applied conditionally, not unconditionally.
+//
+// [2026-09-25 追記, fix/standalone-dnd-blank-separation-always] The
+// "SAME-SECTION drops keep their pre-existing behavior (no blank-line
+// insertion at all)" sentence directly above is now WRONG — see
+// dropStandaloneComplexBlock's own call site below, and this file's top
+// doc comment's own dated addendum, for the full correction. This helper
+// (ensureBlankSeparation) itself is unchanged; only the CALLER's
+// condition for invoking it changed, from "cross-section only" to
+// "always, regardless of section".
 const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
 const LIST_RE = /^([ \t]*)([-*+]|\d+[.)])(?:[ \t]+.*)?$/;
 
@@ -250,22 +282,32 @@ export function dropStandaloneComplexBlock(
 
   const { lines: outLines, newStart } = insertBlockAt(lines, resolvedSource.range, resolution.insertBeforeLine);
 
-  // [2026-09-24 追記, feat/standalone-complex-dnd-cross-section]
-  // ensureBlankSeparation is applied ONLY when this drop actually crossed
-  // a section boundary (`target.parentId !== resolvedSource.parentId`) —
-  // a same-section drop keeps its exact pre-existing byte-for-byte output
-  // (see tests/dropStandaloneComplexBlock.test.ts's own same-section
-  // fixtures, which assert precise `lines[]` with no inserted blank
-  // lines). A cross-section drop can land the moved block directly next
-  // to destination-section content it was never previously validated
-  // against, so it gets the same blank-line safety net
-  // moveParagraphNonAdjacent already applies unconditionally to every one
-  // of its own (always same-parent) moves.
-  if (target.parentId !== resolvedSource.parentId) {
-    const blockLength = resolvedSource.range.endLine - resolvedSource.range.startLine + 1;
-    const separated = ensureBlankSeparation(outLines, newStart, blockLength);
-    return { changed: true, lines: separated.lines, newStartLine: separated.newStart };
-  }
-
-  return { changed: true, lines: outLines, newStartLine: newStart };
+  // [2026-09-25 追記, fix/standalone-dnd-blank-separation-always]
+  // ensureBlankSeparation is now applied UNCONDITIONALLY, on every drop —
+  // same-section and cross-section alike. It used to be gated behind
+  // `target.parentId !== resolvedSource.parentId` (cross-section only);
+  // see this file's own top doc comment addendum, dated 2026-09-24, for
+  // why that gate existed and why it turned out to be wrong. In short:
+  // the gate's premise was "a same-section drop target is always already
+  // a safe, blank-line-separated position" — but
+  // move/findStandaloneComplexBlockDropTarget.ts's own resolver
+  // (resolveStandaloneComplexBlockDropTarget) never actually guaranteed
+  // that. It only ever checked self-drop and composite-internal-boundary
+  // safety, never blank-line separation from its neighbor. A real-device
+  // report (iPad) showed a blockquote dropped immediately above an
+  // unrelated paragraph, with no blank line between them, causing the
+  // paragraph to be swallowed into the blockquote's own body on re-parse
+  // — a same-section drop, so the old gate left it completely
+  // unprotected. This is the same failure mode
+  // moveParagraphNonAdjacent's own unconditional ensureBlankSeparation
+  // call already guards against for paragraph moves; this executor now
+  // matches that same unconditional posture. ensureBlankSeparation
+  // itself is a no-op when the neighbor is already blank, a heading, or
+  // a list item (see needsSeparatingBlankLine above), so an
+  // already-separated drop position still gets byte-identical output —
+  // see tests/dropStandaloneComplexBlock.test.ts's own coverage of both
+  // cases.
+  const blockLength = resolvedSource.range.endLine - resolvedSource.range.startLine + 1;
+  const separated = ensureBlankSeparation(outLines, newStart, blockLength);
+  return { changed: true, lines: separated.lines, newStartLine: separated.newStart };
 }
