@@ -100,8 +100,13 @@ describe("resolveStandaloneComplexBlockDropTarget: self-drop", () => {
   });
 });
 
-describe("resolveStandaloneComplexBlockDropTarget: cross-section rejection", () => {
-  it("rejects (not-same-section) when source and target sit under different headings", () => {
+describe("resolveStandaloneComplexBlockDropTarget: cross-section D&D (feat/standalone-complex-dnd-cross-section, 2026-09-24)", () => {
+  // Historically this exact fixture was rejected as "not-same-section" —
+  // see git history / model/complexBlock.ts's own dated addendum on that
+  // reason value for the retired v1 behavior. The section-boundary gate
+  // has been lifted: a standalone callout may now be dropped relative to
+  // a target under a DIFFERENT heading.
+  it("allows dropping AFTER a target under a different heading (cross-section)", () => {
     const text = ["# A", "> [!note] a", "> body", "", "# B", "> [!tip] b", "> body"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const a = blockOf(complexScan, "a", doc);
@@ -113,7 +118,49 @@ describe("resolveStandaloneComplexBlockDropTarget: cross-section rejection", () 
       { range: b.range, parentId: b.parentId },
       "after"
     );
-    expect(resolution).toEqual({ allowed: false, reason: "not-same-section" });
+    expect(resolution).toEqual({ allowed: true, insertBeforeLine: b.range.endLine + 1 });
+  });
+
+  it("allows dropping BEFORE a target under a different heading (cross-section)", () => {
+    const text = ["# A", "> [!note] a", "> body", "", "# B", "> [!tip] b", "> body"].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    const a = blockOf(complexScan, "a", doc);
+    const b = blockOf(complexScan, "b", doc);
+    const resolution = resolveStandaloneComplexBlockDropTarget(
+      doc,
+      a,
+      composites,
+      { range: b.range, parentId: b.parentId },
+      "before"
+    );
+    expect(resolution).toEqual({ allowed: true, insertBeforeLine: b.range.startLine });
+  });
+
+  it("still rejects (composite-internal-boundary) a cross-section drop that would land inside a THIRD-PARTY composite in the destination section", () => {
+    const text = [
+      "# A",
+      "> [!tip] standalone",
+      "",
+      "# B",
+      "- ![[scan.png]]",
+      "> [!ocr]",
+      "> body",
+    ].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    expect(composites).toHaveLength(1);
+    const standalone = blockOf(complexScan, "standalone", doc);
+    const anchorNode = doc.nodes.get(composites[0].members[0].id)!;
+    // Dropping "standalone" (section A) "after" the anchor list item
+    // (section B) would land it strictly inside the section-B composite's
+    // own [anchor, member] range.
+    const resolution = resolveStandaloneComplexBlockDropTarget(
+      doc,
+      standalone,
+      composites,
+      { range: anchorNode.range, parentId: anchorNode.parentId },
+      "after"
+    );
+    expect(resolution).toEqual({ allowed: false, reason: "composite-internal-boundary" });
   });
 });
 

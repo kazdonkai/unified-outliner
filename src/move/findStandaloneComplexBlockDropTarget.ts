@@ -34,10 +34,35 @@
  *     is a separate future ticket; dropping relative to a section heading
  *     raises its own "which section does this land in" questions this
  *     ticket does not need to answer to satisfy its approved scope).
- *   - Drop source and drop target must resolve to the SAME `parentId`
- *     (both null — top-of-document — also counts as equal) — D&D v1 never
- *     crosses a section boundary, exactly like Move's own
- *     "different-section" rejection.
+ *   - [2026-09-24 追記, feat/standalone-complex-dnd-cross-section] The
+ *     bullet directly below this addendum described v1's own original
+ *     restriction and is kept verbatim for history — it NO LONGER
+ *     reflects this module's current behavior. That restriction has been
+ *     lifted: resolveStandaloneComplexBlockDropTarget no longer requires
+ *     `target.parentId === source.parentId` at all. Cross-section drops
+ *     (dropping a standalone callout/blockquote/fenced-code/table
+ *     relative to a target that lives under a DIFFERENT heading, or at a
+ *     different top-level-vs-under-a-heading scope) are now allowed,
+ *     following the exact same "cut the source's own line range, then
+ *     insertBlockAt at the target-derived insertBeforeLine, let re-parsing
+ *     resolve the new parentId naturally" approach
+ *     move/findMoveTarget.ts's own `{ kind: "insert" }` cross-section list
+ *     move already established — no parentId is ever written or read back
+ *     out of this function; it is purely a derived, re-parsed fact. The
+ *     ONLY remaining structural guard against an unsafe cross-section
+ *     drop is condition 4 below (composite-internal-boundary), which
+ *     already iterates ALL of `allComposites` regardless of which section
+ *     each one belongs to, so it protects a THIRD PARTY CompositeBlock in
+ *     the destination section exactly as it always protected one in the
+ *     source's own section. Move up/down's own cross-section support
+ *     (Move only ever resolves ONE adjacent candidate per direction) is a
+ *     SEPARATE, not-yet-addressed follow-up ticket — this addendum, and
+ *     this whole module, cover D&D only.
+ *   - [ORIGINAL v1 SCOPE — SUPERSEDED, see addendum above] Drop source and
+ *     drop target must resolve to the SAME `parentId` (both null —
+ *     top-of-document — also counts as equal) — D&D v1 never crosses a
+ *     section boundary, exactly like Move's own "different-section"
+ *     rejection.
  *   - A drop that would land STRICTLY INSIDE any existing CompositeBlock's
  *     own aggregate range (i.e. strictly after that composite's own first
  *     line, at or before its own last line) is rejected as
@@ -127,10 +152,15 @@ export type StandaloneComplexBlockDropResolution =
  *      degenerate self-drop; checked BEFORE the composite-boundary check
  *      below so it never competes with it for the same position — see
  *      this module's own top doc comment).
- *   3. `target.parentId` must equal `source.parentId` (both null counts as
- *      equal) — otherwise "not-same-section".
+ *   3. [SUPERSEDED 2026-09-24, see this module's own top doc comment
+ *      addendum] `target.parentId` no longer needs to equal
+ *      `source.parentId` — cross-section drops are allowed, so this step
+ *      is skipped entirely and numbering below keeps its original slot 4
+ *      to minimize churn in cross-references to it.
  *   4. `insertBeforeLine` must not fall strictly inside any
  *      `allComposites[i].range` — otherwise "composite-internal-boundary".
+ *      This is now the SOLE remaining structural safety check for a
+ *      cross-section drop too (see the addendum above).
  */
 export function resolveStandaloneComplexBlockDropTarget(
   doc: ParsedDocument,
@@ -183,9 +213,12 @@ export function resolveStandaloneComplexBlockDropTarget(
     return { allowed: false, reason: "self-drop" };
   }
 
-  if (target.parentId !== source.parentId) {
-    return { allowed: false, reason: "not-same-section" };
-  }
+  // [2026-09-24, feat/standalone-complex-dnd-cross-section] The
+  // `target.parentId !== source.parentId` -> "not-same-section" rejection
+  // that used to live here has been REMOVED — see this module's own top
+  // doc comment addendum for the full rationale. Cross-section drops now
+  // fall straight through to the composite-internal-boundary check below,
+  // which is the only remaining safety gate they need.
 
   for (const composite of allComposites) {
     if (insertBeforeLine > composite.range.startLine && insertBeforeLine <= composite.range.endLine) {

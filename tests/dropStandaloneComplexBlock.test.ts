@@ -9,12 +9,23 @@
  * move/moveBlock.ts's existing insertBlockAt primitive.
  *
  * tests/findStandaloneComplexBlockDropTarget.test.ts already covers the
- * resolver's own decision logic (self-drop / not-same-section /
- * composite-internal-boundary / source shape eligibility) against an
+ * resolver's own decision logic (self-drop / composite-internal-boundary /
+ * source shape eligibility / cross-section allowance) against an
  * already-resolved (source, target, zone) triple. This file does NOT
  * re-duplicate that matrix — it instead focuses on the executor's own
  * concerns: re-resolution against fresh text, snapshot/target staleness,
  * and the actual insertBlockAt output (byte-exact `lines`).
+ *
+ * [2026-09-24 追記, feat/standalone-complex-dnd-cross-section] This file
+ * used to also assert a "not-same-section: rejects a drop whose source
+ * and target sit under different headings" case here — that behavior was
+ * retired (see model/complexBlock.ts's own dated addendum on the
+ * "not-same-section" reason value, and
+ * move/findStandaloneComplexBlockDropTarget.ts's own top doc comment
+ * addendum). Its replacement, executor-level cross-section coverage lives
+ * in the "dropStandaloneComplexBlock: cross-section drops" describe block
+ * below, which also asserts this executor's own `ensureBlankSeparation`
+ * post-step fires only for a cross-section drop.
  */
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "../src/parser/parseDocument";
@@ -208,24 +219,6 @@ describe("dropStandaloneComplexBlock: rejections leave text byte-identical", () 
     expect(outcome.lines).toEqual(text.split("\n"));
   });
 
-  it("not-same-section: rejects a drop whose source and target sit under different headings", () => {
-    const text = ["# A", "> [!note] a", "> body", "", "# B", "> [!tip] b", "> body"].join("\n");
-    const { doc, complexScan } = pipeline(text);
-    const a = blockOf(complexScan, "a", doc);
-    const b = blockOf(complexScan, "b", doc);
-    const snapshot = buildStandaloneComplexBlockSnapshot(a)!;
-
-    const outcome = dropStandaloneComplexBlock(
-      text,
-      { snapshot, target: targetHintOf(b.range, b.parentId), zone: "after" },
-      DEFAULT_COMPOSITE_BLOCK_RULES
-    );
-
-    expect(outcome.changed).toBe(false);
-    expect(outcome.reason).toBe("not-same-section");
-    expect(outcome.lines).toEqual(text.split("\n"));
-  });
-
   it("self-drop: rejects dropping a block relative to its own current position", () => {
     const text = ["# H", "> [!note] one", "> body a", "", "> [!tip] two", "> body b"].join("\n");
     const { doc, complexScan } = pipeline(text);
@@ -314,5 +307,154 @@ describe("dropStandaloneComplexBlock: rejections leave text byte-identical", () 
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("range-invalid");
     expect(outcome.lines).toEqual(text.split("\n"));
+  });
+});
+
+describe("dropStandaloneComplexBlock: cross-section drops (feat/standalone-complex-dnd-cross-section, 2026-09-24)", () => {
+  it("moves a callout across a section boundary, dropped BEFORE a paragraph in the destination section, and inserts blank-line separation on both sides", () => {
+    const text = [
+      "# A",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Untouched paragraph in A.",
+      "",
+      "# B",
+      "Destination paragraph.",
+    ].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const callout = blockOf(complexScan, "callout", doc);
+    const destParagraph = blockOf(complexScan, "Destination paragraph.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# A",
+      "",
+      "Untouched paragraph in A.",
+      "",
+      "# B",
+      "> [!note] callout",
+      "> body",
+      "",
+      "Destination paragraph.",
+    ]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("> [!note] callout");
+
+    // Re-parsing confirms the moved callout's own parentId is now
+    // section B's — never manually rewritten by this executor, purely a
+    // consequence of re-parsing the new text (per this ticket's own
+    // approved design: "parentId は書き戻し後の再パースで自然に解決させ、
+    // 書き戻し時に手動で parentId を書き換えない").
+    const { doc: afterDoc, complexScan: afterScan } = pipeline(outcome.lines.join("\n"));
+    const movedCallout = blockOf(afterScan, "callout", afterDoc);
+    const sectionB = [...afterDoc.nodes.values()].find(
+      (n) => n.type === "section" && afterDoc.lines[n.range.startLine] === "# B"
+    )!;
+    expect(movedCallout.parentId).toBe(sectionB.id);
+  });
+
+  it("moves a blockquote across a section boundary, dropped at the very end (AFTER the destination section's last block)", () => {
+    const text = ["# A", "> quoted", "", "# B", "Only paragraph in B."].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const quoted = blockOf(complexScan, "quoted", doc);
+    const destParagraph = blockOf(complexScan, "Only paragraph in B.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(quoted)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# A", "", "# B", "Only paragraph in B.", "", "> quoted"]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("> quoted");
+  });
+
+  it("moves a fenced-code block across a section boundary, dropped BEFORE the destination section's first block (at the very start of that section)", () => {
+    const text = ["# A", "```", "code", "```", "", "# B", "First paragraph in B."].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const fenced = complexScan.blocks.find((b) => b.kind === "fenced-code")!;
+    const destParagraph = blockOf(complexScan, "First paragraph in B.", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(fenced)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(destParagraph.range, destParagraph.parentId), zone: "before" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# A",
+      "",
+      "# B",
+      "```",
+      "code",
+      "```",
+      "",
+      "First paragraph in B.",
+    ]);
+    expect(outcome.lines[outcome.newStartLine]).toBe("```");
+  });
+
+  it("composite-internal-boundary: still rejects a cross-section drop that would land inside a THIRD-PARTY composite in the destination section", () => {
+    const text = [
+      "# A",
+      "> [!tip] standalone",
+      "",
+      "# B",
+      "- ![[scan.png]]",
+      "> [!ocr]",
+      "> body",
+    ].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    expect(composites).toHaveLength(1);
+    const standalone = blockOf(complexScan, "standalone", doc);
+    const anchorNode = doc.nodes.get(composites[0].members[0].id)!;
+    const snapshot = buildStandaloneComplexBlockSnapshot(standalone)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(anchorNode.range, anchorNode.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    expect(outcome.changed).toBe(false);
+    expect(outcome.reason).toBe("composite-internal-boundary");
+    expect(outcome.lines).toEqual(text.split("\n"));
+  });
+
+  it("does NOT insert blank-line separation for a SAME-section drop (regression guard: ensureBlankSeparation must fire only cross-section)", () => {
+    const text = ["# H", "> [!note] one", "> body a", "", "> [!tip] two", "> body b"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const one = blockOf(complexScan, "one", doc);
+    const two = blockOf(complexScan, "two", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(one)!;
+
+    const outcome = dropStandaloneComplexBlock(
+      text,
+      { snapshot, target: targetHintOf(two.range, two.parentId), zone: "after" },
+      DEFAULT_COMPOSITE_BLOCK_RULES
+    );
+
+    // Byte-identical to the existing pre-cross-section-ticket same-section
+    // assertion — no extra blank lines introduced.
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "",
+      "> [!tip] two",
+      "> body b",
+      "> [!note] one",
+      "> body a",
+    ]);
   });
 });
