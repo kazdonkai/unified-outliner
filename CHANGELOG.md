@@ -2,7 +2,7 @@
 
 This project follows [Semantic Versioning](https://semver.org/). The entries below begin with the first Git baseline created after Phase 4F.
 
-## [Unreleased]
+## [0.7.8] - 2026-09-24
 
 ### Added
 
