@@ -101,6 +101,11 @@ function nodeLabel(node: OutlineTreeNode): string {
       // to keep this switch exhaustive over OutlineTreeNode["kind"]; it is
       // never actually reached at runtime.
       return node.label;
+    case "mirror":
+      // Phase 5M-0: same as paragraph — a mirror row never gets a fold
+      // identity (see buildNodeIdentityMap's "mirror" case below); this
+      // branch only keeps the switch exhaustive.
+      return node.label;
   }
 }
 
@@ -206,6 +211,13 @@ export function buildNodeIdentityMap(tree: OutlineTreeNode[]): Map<string, strin
           // showParagraphsInOutline on/off cannot perturb any other node's
           // identity or occurrence count, since paragraph never
           // participates in any pool.
+          break;
+        }
+        case "mirror": {
+          // Phase 5M-0: a mirror row is a read-only leaf exactly like a
+          // paragraph row — no fold identity, no occurrence-pool entry, so
+          // toggling showMirrorEmbedsInOutline cannot perturb any other
+          // node's identity.
           break;
         }
       }

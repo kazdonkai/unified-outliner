@@ -2624,3 +2624,17 @@ settings:
   outline: 1px dashed var(--uo-current-color);
   outline-offset: -1px;
 }
+
+/* Phase 5M-0: read-only single-note mirror embed rows ("⧉ Mirror: …").
+ * Muted and italic so a mirror (a reference, not content of its own) reads
+ * differently from the real heading/block it points at; a dangling or
+ * circular embed is flagged with the theme's error color. */
+.unified-outliner-mirror-text {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.unified-outliner-outline-view .tree-item-self[data-mirror-status="unresolved"] .unified-outliner-mirror-text,
+.unified-outliner-outline-view .tree-item-self[data-mirror-status="cycle"] .unified-outliner-mirror-text {
+  color: var(--text-error);
+}

@@ -89,6 +89,11 @@ export function resolveCurrentPositionNodeId(
   nodeById: ReadonlyMap<string, OutlineTreeNode>,
   options: ResolveCurrentPositionOptions
 ): string | null {
+  // Phase 5M-0: a cursor on a mirror embed line highlights that line's own
+  // read-only "Mirror:" row (present only while the display setting is on).
+  for (const node of nodeById.values()) {
+    if (node.kind === "mirror" && node.line === cursorLine) return node.id;
+  }
   const complexCandidate = resolveComplexBlockCandidate(cursorLine, complexScan, nodeById);
   if (complexCandidate) return complexCandidate;
   return resolveHighlightedNodeId(doc, cursorLine, { includeLists: options.includeLists });

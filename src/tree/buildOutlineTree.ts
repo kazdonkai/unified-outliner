@@ -33,6 +33,8 @@ import {
 } from "../model/block";
 import { ComplexBlockInfo, ComplexBlockKind } from "../model/complexBlock";
 import { complexBlockDepth } from "../parser/complexBlocks";
+import { MirrorNode } from "../mirror/mirrorTypes";
+import { mirrorTargetLabel, MirrorProjection, scanMirrorEmbeds } from "../mirror/scanMirrorEmbeds";
 import {
   compositeBlockDisplayLabel,
   CompositeBlockInfo,
@@ -258,12 +260,49 @@ export interface OutlineTreeParagraphNode {
   children: OutlineTreeNode[];
 }
 
+/**
+ * Phase 5M-0 ("ミラーの基盤型定義と読み取り専用 Outline Tree 投影"): a
+ * read-only, navigation-only row for a single-note mirror embed line
+ * (`![[#Heading]]` / `![[#^block-id]]` on a line of its own — see
+ * mirror/scanMirrorEmbeds.ts), projected ONLY when
+ * `BuildOutlineTreeOptions.mirrors` is passed (settings.
+ * showMirrorEmbedsInOutline, off by default).
+ *
+ * A NEW, independent node kind — never "paragraph" or "complex-member" —
+ * for the same reason OutlineTreeParagraphNode is its own kind: no
+ * existing kind-based branch in view/OutlineTreeView.ts (context menus,
+ * rename, drag and drop, Partial Edit, Phase 5E-Copy's copy/paste items)
+ * matches "mirror", so the row cannot acquire any write capability by
+ * accident. It is also in collectReadOnlyOutlineNodeIds's allowlist.
+ *
+ * `line` is the embed line itself (the row's position/order in the Tree
+ * and its cursor-follow highlight); `targetLine` is where a click jumps to
+ * — the referenced heading/block's first line — or null when the embed
+ * is unresolved or circular (a click then jumps to the embed line). `id`
+ * is a render-pass-scoped view identity (`tree-mirror:N`), never persisted
+ * and never given a fold identity.
+ */
+export interface OutlineTreeMirrorNode {
+  kind: "mirror";
+  id: string;
+  mirror: MirrorNode;
+  status: "resolved" | "unresolved" | "cycle";
+  label: string;
+  parentId: string | null;
+  isReadOnly: true;
+  isLeaf: true;
+  line: number;
+  targetLine: number | null;
+  children: OutlineTreeNode[];
+}
+
 export type OutlineTreeNode =
   | OutlineTreeSectionNode
   | OutlineTreeListNode
   | OutlineTreeCompositeNode
   | OutlineTreeComplexMemberNode
-  | OutlineTreeParagraphNode;
+  | OutlineTreeParagraphNode
+  | OutlineTreeMirrorNode;
 
 export interface BuildOutlineTreeOptions {
   /**
@@ -389,7 +428,24 @@ export interface BuildOutlineTreeOptions {
   paragraphs?: {
     blocks: ComplexBlockInfo[];
   };
+  /**
+   * Phase 5M-0: single-note mirror embed projection (see
+   * OutlineTreeMirrorNode). Presence is the gate, exactly like
+   * `paragraphs`/`standaloneComplexBlocks`; absent (the default, and
+   * whenever settings.showMirrorEmbedsInOutline is off) means embed lines
+   * are handled exactly as before this phase (as ordinary paragraphs).
+   * When present, an embed line recognized as a mirror is shown ONLY as a
+   * mirror row — it is removed from the paragraph projection so the same
+   * line is never listed twice.
+   */
+  mirrors?: {
+    blocks: ComplexBlockInfo[];
+    notePath: string;
+  };
 }
+
+/** Phase 5M-0: mirror rows grouped by their enclosing section (or null at the top level). */
+type MirrorByParentId = Map<string | null, OutlineTreeMirrorNode[]>;
 
 /**
  * Phase 5P-3: shorthand for groupParagraphBlocks' return type, threaded
@@ -434,6 +490,11 @@ export function isOutlineComplexMemberNode(
   node: OutlineTreeNode
 ): node is OutlineTreeComplexMemberNode {
   return node.kind === "complex-member";
+}
+
+/** Phase 5M-0: see OutlineTreeMirrorNode's own doc comment. */
+export function isOutlineMirrorNode(node: OutlineTreeNode): node is OutlineTreeMirrorNode {
+  return node.kind === "mirror";
 }
 
 /** Phase 5P-3: see OutlineTreeParagraphNode's own doc comment. */
@@ -1231,11 +1292,14 @@ function groupParagraphBlocks(
   doc: ParsedDocument,
   blocks: ComplexBlockInfo[],
   paragraphOrdinalById: Map<string, number>,
-  t: Translator
+  t: Translator,
+  excludedIds: ReadonlySet<string> = new Set()
 ): Map<string | null, { info: ComplexBlockInfo; label: string; viewId: string }[]> {
   const byParentKey = new Map<string | null, ComplexBlockInfo[]>();
   for (const info of blocks) {
     if (info.kind !== "paragraph" || info.editability !== "supported") continue;
+    // Phase 5M-0: a paragraph already projected as a mirror row.
+    if (excludedIds.has(info.id)) continue;
     const groupKey = resolveStandaloneGroupKey(doc, info.parentId);
     const list = byParentKey.get(groupKey) ?? [];
     list.push(info);
@@ -1482,7 +1546,8 @@ function buildSectionNode(
   ctx?: CompositeProjectionContext,
   standaloneByParentId?: Map<string | null, { info: ComplexBlockInfo; label: string }[]>,
   listPrefixStyle: ListPrefixStyle = "none",
-  paragraphByParentId?: ParagraphByParentId
+  paragraphByParentId?: ParagraphByParentId,
+  mirrorByParentId?: MirrorByParentId
 ): OutlineTreeSectionNode {
   return {
     kind: "section",
@@ -1498,7 +1563,8 @@ function buildSectionNode(
       ctx,
       standaloneByParentId,
       listPrefixStyle,
-      paragraphByParentId
+      paragraphByParentId,
+      mirrorByParentId
     ),
   };
 }
@@ -1544,7 +1610,8 @@ function buildChildren(
   ctx?: CompositeProjectionContext,
   standaloneByParentId?: Map<string | null, { info: ComplexBlockInfo; label: string }[]>,
   listPrefixStyle: ListPrefixStyle = "none",
-  paragraphByParentId?: ParagraphByParentId
+  paragraphByParentId?: ParagraphByParentId,
+  mirrorByParentId?: MirrorByParentId
 ): OutlineTreeNode[] {
   const withLine: Array<{ node: OutlineTreeNode; line: number }> = [];
   for (const id of ids) {
@@ -1559,7 +1626,8 @@ function buildChildren(
           ctx,
           standaloneByParentId,
           listPrefixStyle,
-          paragraphByParentId
+          paragraphByParentId,
+          mirrorByParentId
         ),
         line: child.range.startLine,
       });
@@ -1591,6 +1659,10 @@ function buildChildren(
       node: buildParagraphTreeNode(doc, info, label, viewId),
       line: info.range.startLine,
     });
+  }
+  // Phase 5M-0: mirror embed rows keyed by this section (or null).
+  for (const mirrorNode of mirrorByParentId?.get(sectionId) ?? []) {
+    withLine.push({ node: mirrorNode, line: mirrorNode.line });
   }
   withLine.sort((a, b) => a.line - b.line);
   return withLine.map((x) => x.node);
@@ -1739,12 +1811,18 @@ export function buildOutlineTree(
   // merges in nothing — i.e. paragraph is never even considered, not
   // "considered and filtered out" — matching design doc §2-3's "don't
   // project when off" decision exactly.
+  // Phase 5M-0: mirror embeds (see BuildOutlineTreeOptions.mirrors).
+  const mirrorProjections = options?.mirrors
+    ? scanMirrorEmbeds(doc, options.mirrors.blocks, options.mirrors.notePath)
+    : [];
+  const mirrorByParentId = options?.mirrors ? groupMirrorNodes(doc, mirrorProjections, t) : undefined;
   const paragraphByParentId = options?.paragraphs
     ? groupParagraphBlocks(
         doc,
         options.paragraphs.blocks,
         buildParagraphOrdinals(options.paragraphs.blocks),
-        t
+        t,
+        new Set(mirrorProjections.map((p) => p.paragraphBlockId))
       )
     : undefined;
   return buildChildren(
@@ -1755,8 +1833,42 @@ export function buildOutlineTree(
     ctx,
     standaloneByParentId,
     listPrefixStyle,
-    paragraphByParentId
+    paragraphByParentId,
+    mirrorByParentId
   );
+}
+
+/** Phase 5M-0: "Mirror: <target>" plus a status suffix for an unresolved / circular embed. */
+export function mirrorTreeLabel(projection: MirrorProjection, t: Translator): string {
+  const base = t("tree.mirrorLabel", { target: mirrorTargetLabel(projection.node.source) });
+  if (projection.resolution.status === "unresolved") return base + t("tree.mirrorNotFoundSuffix");
+  if (projection.resolution.status === "cycle") return base + t("tree.mirrorCycleSuffix");
+  return base;
+}
+
+/** Phase 5M-0: projects mirror embeds into OutlineTreeMirrorNode rows grouped by enclosing section. */
+function groupMirrorNodes(doc: ParsedDocument, projections: MirrorProjection[], t: Translator): MirrorByParentId {
+  const result: MirrorByParentId = new Map();
+  projections.forEach((p, i) => {
+    const key = resolveStandaloneGroupKey(doc, p.parentId);
+    const node: OutlineTreeMirrorNode = {
+      kind: "mirror",
+      id: `tree-mirror:${i + 1}`,
+      mirror: p.node,
+      status: p.resolution.status,
+      label: mirrorTreeLabel(p, t),
+      parentId: p.parentId,
+      isReadOnly: true,
+      isLeaf: true,
+      line: p.node.embedLine,
+      targetLine: p.resolution.status === "resolved" ? p.resolution.source.lineRange.startLine : null,
+      children: [],
+    };
+    const list = result.get(key) ?? [];
+    list.push(node);
+    result.set(key, list);
+  });
+  return result;
 }
 
 /** Flatten a tree back into a list, depth-first, document order. */
@@ -1801,7 +1913,8 @@ export function collectReadOnlyOutlineNodeIds(tree: OutlineTreeNode[]): Set<stri
         inheritedReadOnly ||
         node.kind === "composite" ||
         node.kind === "complex-member" ||
-        node.kind === "paragraph";
+        node.kind === "paragraph" ||
+        node.kind === "mirror";
       if (readOnly) readOnlyIds.add(node.id);
       walk(node.children, readOnly);
     }
