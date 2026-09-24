@@ -232,8 +232,12 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     const end = viewTs.indexOf("// Inline rename trigger", start);
     expect(end).toBeGreaterThan(start);
     const generationBody = viewTs.slice(start, end);
+    // A separate, later 2026-09-24 mobile follow-up fix (paragraph rows —
+    // see paragraphOutlineTreeUiWiring.test.ts's own dedicated coverage)
+    // widened this condition once more, to also admit `isParagraph`; the
+    // condition text checked here is updated to match.
     expect(generationBody).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {"
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
 
     const constStart = viewTs.lastIndexOf(

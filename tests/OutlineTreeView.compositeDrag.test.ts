@@ -168,13 +168,15 @@ describe("Phase 5D-4C: CompositeBlock parent-row drag & drop wiring (narrow, des
     expect(between.trim().startsWith("if (Platform.isMobile) {")).toBe(true);
   });
 
-  it("Phase 5D-4D: dragHandleEl's own generation condition widens from `!readOnly` to `!readOnly || isComposite` (further widened by the 2026-09-24 mobile follow-up fix to also admit isEligibleStandaloneComplexMember) — CompositeBlock parent rows now get the handle even though they stay readOnly; a plain composite-member/paragraph row (readOnly, not isComposite, not an eligible standalone complex-member kind) still gets none", () => {
+  it("Phase 5D-4D: dragHandleEl's own generation condition widens from `!readOnly` to `!readOnly || isComposite` (further widened by two 2026-09-24 mobile follow-up fixes to also admit isEligibleStandaloneComplexMember and isParagraph) — CompositeBlock parent rows now get the handle even though they stay readOnly; a plain composite-member row that is neither an eligible standalone complex-member kind nor a paragraph still gets none", () => {
     const start = viewTs.indexOf("let dragHandleEl: HTMLElement | null = null;");
     expect(start).toBeGreaterThan(-1);
     const end = viewTs.indexOf("// Inline rename trigger", start);
     expect(end).toBeGreaterThan(start);
     const body = viewTs.slice(start, end);
-    expect(body).toContain("if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {");
+    expect(body).toContain(
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+    );
     expect(body).not.toContain("if (!readOnly) {\n      dragHandleEl = selfEl.createDiv");
   });
 

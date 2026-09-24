@@ -162,30 +162,39 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
    * landmark update. dragHandleEl's own generation condition changed from
    * `if (!readOnly) {` to `if (!readOnly || isComposite) {` (widened so a
    * CompositeBlock parent row — always readOnly, per Phase 5D-0.3 §1 —
-   * still gets a drag handle on mobile). The 2026-09-24 mobile follow-up
-   * fix ("モバイルではD&Dができない") widened it once more, to
+   * still gets a drag handle on mobile). A 2026-09-24 mobile follow-up fix
+   * ("モバイルではD&Dができない") widened it once more, to
    * `if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {`
-   * — an eligible standalone callout/blockquote/table row (also always
-   * readOnly, per the same §1) now gets a handle too, so it can finally be
-   * lifted by touch on mobile (see
-   * tests/standaloneComplexBlockDropUiWiring.test.ts and
-   * tests/OutlineTreeView.mobileCompositeDragHandle.test.ts for that
-   * widening's own dedicated coverage). The OLD fixed-200-character
-   * proximity check for the literal text "if (!readOnly) {" therefore no
-   * longer matches at all. The safety contract being verified is
-   * UNCHANGED: dragHandleEl is created for a NON-readOnly row, a
-   * CompositeBlock parent row, or an eligible standalone complex-member
-   * row, and a paragraph row is NONE of those — so a paragraph row still
-   * never has a drag handle element for isEligibleRowBodyPointerDown's own
-   * dragHandleEl check to exclude in the first place. Replaced with a
-   * structural check (unique landmark, explicit widening terms, paragraph
-   * exclusion) rather than a fixed-distance substring probe, which would
-   * either fail outright on the new text or, on some future unrelated
-   * edit, pass by coincidence against nearby text it was never meant to
-   * match.
+   * — an eligible standalone callout/blockquote/table/fenced-code row (also
+   * always readOnly, per the same §1) now gets a handle too, so it can
+   * finally be lifted by touch on mobile.
+   *
+   * A SECOND 2026-09-24 mobile follow-up fix ("Outline Tree の paragraph
+   * 行に mobile 用のドラッグハンドルを追加する" — a real-device iPad report
+   * that a standalone PARAGRAPH row's D&D could not be triggered at all on
+   * mobile, filed and fixed separately from the callout/blockquote/table
+   * fix above) widened the condition a THIRD time, to
+   * `if (!readOnly || isComposite || isEligibleStandaloneComplexMember ||
+   * isParagraph) {` — a paragraph row (also always readOnly, per Phase
+   * 5T-2 design §2) now gets a handle too (see
+   * tests/paragraphOutlineTreeUiWiring.test.ts for that widening's own
+   * dedicated coverage, mirroring
+   * tests/standaloneComplexBlockDropUiWiring.test.ts's own coverage of the
+   * first fix). This test's own former claim — "a paragraph row still
+   * never has a drag handle element" — is therefore now FALSE and is
+   * updated below to assert the new, correct contract instead: `isComposite`,
+   * `isEligibleStandaloneComplexMember`, AND `isParagraph` are all now
+   * legitimate widening terms; only a bare complex-member row that is
+   * NEITHER standalone-eligible NOR a paragraph (e.g. a composite-member
+   * callout/blockquote list row) still gets no handle. Replaced with a
+   * structural check (unique landmark, explicit widening terms) rather
+   * than a fixed-distance substring probe, which would either fail
+   * outright on the new text or, on some future unrelated edit, pass by
+   * coincidence against nearby text it was never meant to match.
    */
-  it("(Phase 5D-4D / mobile follow-up landmark update) dragHandleEl's generation condition is found uniquely and is explicitly widened ONLY for CompositeBlock (isComposite) and eligible standalone complex-member rows (isEligibleStandaloneComplexMember) — never for paragraph — so a paragraph row still never receives a drag handle element for isEligibleRowBodyPointerDown's own dragHandleEl check to exclude in the first place", () => {
-    const conditionLandmark = "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {";
+  it("(Phase 5D-4D / mobile follow-up landmark update, twice) dragHandleEl's generation condition is found uniquely and is explicitly widened for CompositeBlock (isComposite), eligible standalone complex-member rows (isEligibleStandaloneComplexMember), AND paragraph rows (isParagraph) — as of the 2026-09-24 paragraph mobile-drag-handle fix, a paragraph row DOES now receive a drag handle element (isEligibleRowBodyPointerDown's own dragHandleEl check correctly starts excluding a handle-origin touch for it too — see paragraphOutlineTreeUiWiring.test.ts's own dedicated coverage)", () => {
+    const conditionLandmark =
+      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {";
     const creationLandmark =
       'dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });';
 
@@ -213,28 +222,16 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
     const guardToCreation = viewTs.slice(conditionIdx, creationIdx);
     expect(guardToCreation.trim().replace(/\s+/g, " ")).toBe(conditionLandmark.trim());
 
-    // The widening is explicitly, structurally scoped to CompositeBlock and
-    // eligible standalone complex-member rows — never to paragraph.
-    // isComposite/isParagraph are each derived from their own distinct
-    // node-kind predicate (isOutlineCompositeNode / isOutlineParagraphNode)
-    // on the same discriminated OutlineTreeNode — a node can only ever
-    // satisfy one kind (enforced at the type level and exercised with real
-    // fixtures in tests/buildOutlineTree.test.ts), so `isComposite` can
-    // never be true when the row is a paragraph row.
-    // isEligibleStandaloneComplexMember is likewise derived from
-    // isComplexMember (isOutlineComplexMemberNode) plus node.isStandalone/
-    // node.complexKind — also mutually exclusive with a paragraph row for
-    // the same reason. This static check only confirms this file's OWN
-    // condition text names isComposite/isEligibleStandaloneComplexMember,
-    // never isParagraph, as the widening terms.
+    // The widening now explicitly, structurally names all three terms.
     expect(conditionLandmark).toContain("isComposite");
     expect(conditionLandmark).toContain("isEligibleStandaloneComplexMember");
-    expect(conditionLandmark).not.toContain("isParagraph");
+    expect(conditionLandmark).toContain("isParagraph");
     expect(viewTs).toContain("const isComposite = isOutlineCompositeNode(node);");
     expect(viewTs).toContain("const isParagraph = isOutlineParagraphNode(node);");
 
     // Sanity: paragraph rows are always read-only (existing 5T-1/5T-2/5T-4A
-    // contract, re-confirmed here as a precondition for the claim above).
+    // contract, unaffected by this fix — dragHandleEl's widening does not
+    // relax readOnly itself, only whether a handle element exists).
     const readOnlyDeclIdx = viewTs.indexOf("const readOnly = this.readOnlyNodeIds.has(node.id);");
     expect(readOnlyDeclIdx).toBeGreaterThan(-1);
   });
@@ -253,14 +250,26 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
    * references dragHandleEl in its own code.
    */
   function paragraphDragBranchBody(): string {
-    const startLandmark = "} else if (isOutlineParagraphNode(node) && !Platform.isMobile) {";
-    const start = viewTs.indexOf(startLandmark);
+    // 2026-09-24 paragraph mobile-drag-handle fix addendum: removing this
+    // branch's own former `&& !Platform.isMobile` guard term made its
+    // opening condition text identical to the unrelated render/context-menu
+    // chain's own earlier `else if (isOutlineParagraphNode(node))` branch —
+    // see tests/paragraphOutlineTreeUiWiring.test.ts's own updated
+    // `paragraphDragBranch()` helper for the identical fix, applied there
+    // first. Disambiguated the same way: search only from the drag-wiring
+    // section's own preceding landmark onward.
+    const dragSectionStart = viewTs.indexOf(
+      "Phase 3A (section) / Phase 4A (list): drag & drop."
+    );
+    expect(dragSectionStart).toBeGreaterThan(-1);
+    const startLandmark = "} else if (isOutlineParagraphNode(node)) {";
+    const start = viewTs.indexOf(startLandmark, dragSectionStart);
     if (start === -1) {
       throw new Error(
         `paragraph drag branch start landmark ${JSON.stringify(startLandmark)} not found — has it been renamed, removed, or reordered? Update this test's bounding logic.`
       );
     }
-    expect(viewTs.split(startLandmark).length - 1).toBe(1);
+    expect(viewTs.slice(dragSectionStart).split(startLandmark).length - 1).toBe(1);
 
     const endLandmark = "} else if (\n      isComplexMember &&\n      node.isStandalone &&";
     const end = viewTs.indexOf(endLandmark, start);
@@ -283,14 +292,14 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
     return branch;
   }
 
-  it("(Phase 5D-4D) the paragraph drag branch (handleParagraphDragStart's own call site) still contains no dragHandleEl reference, and no CompositeBlock-specific drag wiring (handleCompositeDragStart/handleCompositeDragOverNode/handleCompositeDropNode/compositeDragSession) leaked into it — the new mobile CompositeBlock drag handle work is confined to its own, separate branch", () => {
+  it("(Phase 5D-4D; REVISED by the 2026-09-24 paragraph mobile-drag-handle fix) the paragraph drag branch (handleParagraphDragStart's own call site) now DOES reference dragHandleEl — via its own mobile-vs-desktop draggable split, see tests/paragraphOutlineTreeUiWiring.test.ts's dedicated coverage — but still no CompositeBlock-specific drag wiring (handleCompositeDragStart/handleCompositeDragOverNode/handleCompositeDropNode/compositeDragSession) leaked into it — the CompositeBlock drag handle work stays confined to its own, separate branch", () => {
     const branch = paragraphDragBranchBody();
     const codeOnly = branch
       .split("\n")
       .filter((line) => !line.trim().startsWith("//"))
       .join("\n");
     expect(codeOnly).toContain("this.handleParagraphDragStart(evt, node, itemEl)");
-    expect(codeOnly).not.toContain("dragHandleEl");
+    expect(codeOnly).toContain("dragHandleEl");
     expect(codeOnly).not.toContain("handleCompositeDragStart");
     expect(codeOnly).not.toContain("handleCompositeDragOverNode");
     expect(codeOnly).not.toContain("handleCompositeDropNode");
