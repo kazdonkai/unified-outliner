@@ -10,7 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "../src/parser/parseDocument";
 import { scanComplexBlocks } from "../src/parser/complexBlocks";
-import { matchCompositeBlocks } from "../src/parser/compositeBlocks";
+import { evaluateStandaloneComplexBlockMovability, matchCompositeBlocks } from "../src/parser/compositeBlocks";
 import { CompositeBlockRule, DEFAULT_COMPOSITE_BLOCK_RULES } from "../src/model/compositeBlock";
 import { ComplexBlockInfo, ComplexBlockScanResult } from "../src/model/complexBlock";
 import {
@@ -54,16 +54,19 @@ describe("buildStandaloneComplexBlockSnapshot", () => {
     });
   });
 
-  it("returns null for a non-callout/blockquote/fenced-code kind (defense-in-depth)", () => {
+  it("returns null for a non-callout/blockquote/fenced-code/table kind (defense-in-depth)", () => {
     // Phase 5E-1 widened buildStandaloneComplexBlockSnapshot to also
     // accept kind "fenced-code" (see this file's own new "accepts a
-    // standalone fenced-code block" test below) — this defense-in-depth
-    // case is re-pointed at "table", which remains genuinely unsupported
-    // (table stays read-only; see docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3).
-    const text = ["| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
+    // standalone fenced-code block" test below), and Phase 5E-3d widened
+    // it again to also accept "table" (see this file's own new "accepts a
+    // standalone table block" test below) — this defense-in-depth case is
+    // re-pointed at "thematic-break", which remains genuinely unsupported
+    // (paragraph/thematic-break stay out of scope; see
+    // docs/phase5e3d_table-move-delete-dnd-design-memo.md).
+    const text = ["Some paragraph.", "", "***"].join("\n");
     const { complexScan } = pipeline(text);
-    const table = complexScan.blocks.find((b) => b.kind === "table")!;
-    expect(buildStandaloneComplexBlockSnapshot(table)).toBeNull();
+    const thematicBreak = complexScan.blocks.find((b) => b.kind === "thematic-break")!;
+    expect(buildStandaloneComplexBlockSnapshot(thematicBreak)).toBeNull();
   });
 
   it("Phase 5E-1: accepts a standalone fenced-code block, projecting the same kind/range/parentId shape as callout/blockquote", () => {
@@ -76,6 +79,19 @@ describe("buildStandaloneComplexBlockSnapshot", () => {
       kind: "fenced-code",
       range: { startLine: fenced.range.startLine, endLine: fenced.range.endLine },
       parentId: fenced.parentId,
+    });
+  });
+
+  it("Phase 5E-3d: accepts a standalone table block, projecting the same kind/range/parentId shape as callout/blockquote/fenced-code", () => {
+    const text = ["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
+    const { complexScan } = pipeline(text);
+    const table = complexScan.blocks.find((b) => b.kind === "table")!;
+    const snapshot = buildStandaloneComplexBlockSnapshot(table);
+    expect(snapshot).toEqual({
+      id: table.id,
+      kind: "table",
+      range: { startLine: table.range.startLine, endLine: table.range.endLine },
+      parentId: table.parentId,
     });
   });
 });
@@ -322,6 +338,63 @@ describe("moveStandaloneComplexBlock: allowComposedMember opt-in (Phase 5D-3B)",
       { snapshot, direction: "up", allowComposedMember: true },
       DEFAULT_COMPOSITE_BLOCK_RULES
     );
+    expect(outcome.changed).toBe(false);
+    expect(outcome.reason).toBe("no-adjacent-compatible-unit");
+    expect(outcome.lines).toEqual(text.split("\n"));
+  });
+});
+
+describe("moveStandaloneComplexBlock: ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity) — adjacent parity with paragraph/list-item", () => {
+  it("1. swaps a callout up with the preceding standalone paragraph, preserving the one-blank-line gap policy exactly (matches a manual cut/paste result)", () => {
+    const text = ["# H", "a paragraph line", "", "> [!note] callout", "> body"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const callout = calloutOrBlockquoteOf(complexScan, "callout", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = moveStandaloneComplexBlock(text, { snapshot, direction: "up" }, DEFAULT_COMPOSITE_BLOCK_RULES);
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# H", "> [!note] callout", "> body", "", "a paragraph line"]);
+  });
+
+  it("2. swaps a callout down with the following standalone list item, keeping the list item's own continuation line glued to its marker line", () => {
+    const text = ["# H", "> [!note] callout", "> body", "", "- item line1", "  continuation line2"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const callout = calloutOrBlockquoteOf(complexScan, "callout", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(callout)!;
+
+    const outcome = moveStandaloneComplexBlock(text, { snapshot, direction: "down" }, DEFAULT_COMPOSITE_BLOCK_RULES);
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# H",
+      "- item line1",
+      "  continuation line2",
+      "",
+      "> [!note] callout",
+      "> body",
+    ]);
+  });
+
+  it("3. swaps a blockquote up with the preceding standalone list item", () => {
+    const text = ["# H", "- item", "", "> quote body"].join("\n");
+    const { doc, complexScan } = pipeline(text);
+    const quote = calloutOrBlockquoteOf(complexScan, "quote body", doc);
+    const snapshot = buildStandaloneComplexBlockSnapshot(quote)!;
+
+    const outcome = moveStandaloneComplexBlock(text, { snapshot, direction: "up" }, DEFAULT_COMPOSITE_BLOCK_RULES);
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual(["# H", "> quote body", "", "- item"]);
+  });
+
+  it("4. a section-boundary-crossing move is still refused (no-op) even though the far side is a paragraph/list item — the heading itself is never a candidate, so this stays 'no-adjacent-compatible-unit'", () => {
+    const text = ["# A", "> [!note] one", "> body", "# B", "a paragraph"].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    const one = calloutOrBlockquoteOf(complexScan, "one", doc);
+
+    const movability = evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites);
+    expect(movability).toEqual({ eligible: false, reason: "no-adjacent-compatible-unit" });
+
+    const snapshot = buildStandaloneComplexBlockSnapshot(one)!;
+    const outcome = moveStandaloneComplexBlock(text, { snapshot, direction: "down" }, DEFAULT_COMPOSITE_BLOCK_RULES);
     expect(outcome.changed).toBe(false);
     expect(outcome.reason).toBe("no-adjacent-compatible-unit");
     expect(outcome.lines).toEqual(text.split("\n"));

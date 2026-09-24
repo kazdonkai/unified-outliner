@@ -74,15 +74,22 @@ import { TranslationKey } from "../i18n";
 /**
  * The ComplexBlockKind values a standalone complex-block move ever targets.
  * Phase 5C-3 originally scoped this to callout/blockquote only ("A案").
- * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") widens it
+ * Phase 5E-1 ("fenced code block の raw Partial Edit・移動・削除") widened it
  * to also include "fenced-code" — reusing this exact same move pipeline
  * (findRangeInvalidReason/snapshotMatches/moveStandaloneComplexBlock below,
  * and isStandaloneComplexBlockShapeEligible/evaluateStandaloneComplexBlockMovability
  * in parser/compositeBlocks.ts) rather than writing a parallel fenced-code-
- * specific move engine. paragraph/table/thematic-break remain out of scope
- * — table in particular stays read-only, unchanged from Phase 5E-0.
+ * specific move engine. Phase 5E-3d ("Table Move/Delete/DnD Parity") widens
+ * it again to also include "table" — table already has Tree projection and
+ * a working Partial Edit session (Phase 5E-2A/5E-2B), and its
+ * ComplexBlockInfo.range from parser/complexBlocks.ts's scanner is reused
+ * completely unchanged here, exactly as fenced-code's was before it.
+ * paragraph/thematic-break remain out of scope.
  */
-export type StandaloneComplexBlockMoveKind = Extract<ComplexBlockKind, "callout" | "blockquote" | "fenced-code">;
+export type StandaloneComplexBlockMoveKind = Extract<
+  ComplexBlockKind,
+  "callout" | "blockquote" | "fenced-code" | "table"
+>;
 
 /**
  * A point-in-time capture of a standalone ComplexBlockInfo, taken by the
@@ -122,9 +129,16 @@ export interface StandaloneComplexBlockSnapshot {
  * policy for an input shape this function cannot itself verify further.
  */
 export function buildStandaloneComplexBlockSnapshot(info: ComplexBlockInfo): StandaloneComplexBlockSnapshot | null {
-  // Phase 5E-1: widened to also accept "fenced-code" — see
-  // StandaloneComplexBlockMoveKind's own updated doc comment above.
-  if (info.kind !== "callout" && info.kind !== "blockquote" && info.kind !== "fenced-code") return null;
+  // Phase 5E-1: widened to also accept "fenced-code"; Phase 5E-3d widened
+  // again to also accept "table" — see StandaloneComplexBlockMoveKind's own
+  // updated doc comment above.
+  if (
+    info.kind !== "callout" &&
+    info.kind !== "blockquote" &&
+    info.kind !== "fenced-code" &&
+    info.kind !== "table"
+  )
+    return null;
   return {
     id: info.id,
     kind: info.kind,
@@ -210,9 +224,15 @@ export function findRangeInvalidReason(
   snapshot: StandaloneComplexBlockSnapshot,
   lineCount: number
 ): "range-invalid" | null {
-  // Phase 5E-1: widened to also accept "fenced-code" — see
-  // StandaloneComplexBlockMoveKind's own updated doc comment above.
-  if (snapshot.kind !== "callout" && snapshot.kind !== "blockquote" && snapshot.kind !== "fenced-code") {
+  // Phase 5E-1: widened to also accept "fenced-code"; Phase 5E-3d widened
+  // again to also accept "table" — see StandaloneComplexBlockMoveKind's own
+  // updated doc comment above.
+  if (
+    snapshot.kind !== "callout" &&
+    snapshot.kind !== "blockquote" &&
+    snapshot.kind !== "fenced-code" &&
+    snapshot.kind !== "table"
+  ) {
     return "range-invalid";
   }
   const { startLine, endLine } = snapshot.range;

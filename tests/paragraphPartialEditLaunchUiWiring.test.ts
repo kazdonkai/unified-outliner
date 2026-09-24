@@ -162,21 +162,30 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
    * landmark update. dragHandleEl's own generation condition changed from
    * `if (!readOnly) {` to `if (!readOnly || isComposite) {` (widened so a
    * CompositeBlock parent row — always readOnly, per Phase 5D-0.3 §1 —
-   * still gets a drag handle on mobile). The OLD fixed-200-character
+   * still gets a drag handle on mobile). The 2026-09-24 mobile follow-up
+   * fix ("モバイルではD&Dができない") widened it once more, to
+   * `if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {`
+   * — an eligible standalone callout/blockquote/table row (also always
+   * readOnly, per the same §1) now gets a handle too, so it can finally be
+   * lifted by touch on mobile (see
+   * tests/standaloneComplexBlockDropUiWiring.test.ts and
+   * tests/OutlineTreeView.mobileCompositeDragHandle.test.ts for that
+   * widening's own dedicated coverage). The OLD fixed-200-character
    * proximity check for the literal text "if (!readOnly) {" therefore no
    * longer matches at all. The safety contract being verified is
-   * UNCHANGED: dragHandleEl is created for a NON-readOnly row OR a
-   * CompositeBlock parent row, and a paragraph row is NEITHER — so a
-   * paragraph row still never has a drag handle element for
-   * isEligibleRowBodyPointerDown's own dragHandleEl check to exclude in
-   * the first place. Replaced with a structural check (unique landmark,
-   * explicit CompositeBlock-only widening, paragraph exclusion) rather
-   * than a fixed-distance substring probe, which would either fail
-   * outright on the new text or, on some future unrelated edit, pass by
-   * coincidence against nearby text it was never meant to match.
+   * UNCHANGED: dragHandleEl is created for a NON-readOnly row, a
+   * CompositeBlock parent row, or an eligible standalone complex-member
+   * row, and a paragraph row is NONE of those — so a paragraph row still
+   * never has a drag handle element for isEligibleRowBodyPointerDown's own
+   * dragHandleEl check to exclude in the first place. Replaced with a
+   * structural check (unique landmark, explicit widening terms, paragraph
+   * exclusion) rather than a fixed-distance substring probe, which would
+   * either fail outright on the new text or, on some future unrelated
+   * edit, pass by coincidence against nearby text it was never meant to
+   * match.
    */
-  it("(Phase 5D-4D landmark update) dragHandleEl's generation condition is found uniquely and is explicitly widened ONLY for CompositeBlock (isComposite) — never for paragraph — so a paragraph row still never receives a drag handle element for isEligibleRowBodyPointerDown's own dragHandleEl check to exclude in the first place", () => {
-    const conditionLandmark = "if (!readOnly || isComposite) {";
+  it("(Phase 5D-4D / mobile follow-up landmark update) dragHandleEl's generation condition is found uniquely and is explicitly widened ONLY for CompositeBlock (isComposite) and eligible standalone complex-member rows (isEligibleStandaloneComplexMember) — never for paragraph — so a paragraph row still never receives a drag handle element for isEligibleRowBodyPointerDown's own dragHandleEl check to exclude in the first place", () => {
+    const conditionLandmark = "if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {";
     const creationLandmark =
       'dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });';
 
@@ -204,16 +213,22 @@ describe("OutlineTreeView.ts paragraph dblclick/F2 launch wiring (Phase 5T-7A, p
     const guardToCreation = viewTs.slice(conditionIdx, creationIdx);
     expect(guardToCreation.trim().replace(/\s+/g, " ")).toBe(conditionLandmark.trim());
 
-    // The widening is explicitly, structurally scoped to CompositeBlock —
-    // never to paragraph. isComposite/isParagraph are each derived from
-    // their own distinct node-kind predicate (isOutlineCompositeNode /
-    // isOutlineParagraphNode) on the same discriminated OutlineTreeNode —
-    // a node can only ever satisfy one kind (enforced at the type level
-    // and exercised with real fixtures in tests/buildOutlineTree.test.ts),
-    // so `isComposite` can never be true when the row is a paragraph row.
-    // This static check only confirms this file's OWN condition text names
-    // isComposite, never isParagraph, as the widening term.
+    // The widening is explicitly, structurally scoped to CompositeBlock and
+    // eligible standalone complex-member rows — never to paragraph.
+    // isComposite/isParagraph are each derived from their own distinct
+    // node-kind predicate (isOutlineCompositeNode / isOutlineParagraphNode)
+    // on the same discriminated OutlineTreeNode — a node can only ever
+    // satisfy one kind (enforced at the type level and exercised with real
+    // fixtures in tests/buildOutlineTree.test.ts), so `isComposite` can
+    // never be true when the row is a paragraph row.
+    // isEligibleStandaloneComplexMember is likewise derived from
+    // isComplexMember (isOutlineComplexMemberNode) plus node.isStandalone/
+    // node.complexKind — also mutually exclusive with a paragraph row for
+    // the same reason. This static check only confirms this file's OWN
+    // condition text names isComposite/isEligibleStandaloneComplexMember,
+    // never isParagraph, as the widening terms.
     expect(conditionLandmark).toContain("isComposite");
+    expect(conditionLandmark).toContain("isEligibleStandaloneComplexMember");
     expect(conditionLandmark).not.toContain("isParagraph");
     expect(viewTs).toContain("const isComposite = isOutlineCompositeNode(node);");
     expect(viewTs).toContain("const isParagraph = isOutlineParagraphNode(node);");

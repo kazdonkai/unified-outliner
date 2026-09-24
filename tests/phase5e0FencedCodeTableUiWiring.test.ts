@@ -116,11 +116,11 @@ describe("renderNode's standalone-menu attachment condition (as of Phase 5E-2A: 
 });
 
 describe("Phase 5E-0 read-only defense, layer TWO: handler/dispatch-level rejection (pre-existing, zero new code)", () => {
-  it("buildStandaloneComplexBlockSnapshot (Move) still returns null for table (Phase 5E-1: table remains excluded; fenced-code is now accepted — see moveStandaloneComplexBlock.test.ts's own new coverage)", () => {
+  it("buildStandaloneComplexBlockSnapshot (Move) now returns a real snapshot for table too (Phase 5E-1 accepted fenced-code; Phase 5E-3d — 'Table Move/Delete/DnD Parity' — widens this same allow-list once more to also accept table, deliberately reversing this test's own former 'table remains excluded' pin — see moveStandaloneComplexBlock.test.ts's own new coverage)", () => {
     const doc2 = parseDocument(["# H", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n"));
     const tableInfo = scanComplexBlocks(doc2).blocks.find((b) => b.kind === "table")!;
     expect(tableInfo).toBeDefined();
-    expect(buildStandaloneComplexBlockSnapshot(tableInfo)).toBeNull();
+    expect(buildStandaloneComplexBlockSnapshot(tableInfo)).not.toBeNull();
   });
 
   it("Phase 5E-1: buildStandaloneComplexBlockSnapshot (Move) now returns a real snapshot for fenced-code — Move is genuinely enabled", () => {

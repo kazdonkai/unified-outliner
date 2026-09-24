@@ -254,12 +254,27 @@ export type ComplexBlockRejection =
  *     case.
  *   - "no-adjacent-compatible-unit": no eligible standalone callout/
  *     blockquote exists immediately in the requested direction (the
- *     document's own edge, a section heading, a list item, a composite's
- *     own boundary, a composite MEMBER's own boundary, or any other
- *     ComplexBlockKind — paragraph/fenced-code/table/thematic-break, all
- *     explicitly out of scope per Phase 5C-3 approval's "A案のみ" decision
- *     — all collapse to this one reason, mirroring
+ *     document's own edge, a section heading, a composite's own boundary,
+ *     a composite MEMBER's own boundary, or any other ComplexBlockKind —
+ *     table/thematic-break — all collapse to this one reason, mirroring
  *     CompositeBlockMoveRejectionReason's own equivalent value).
+ *
+ *     ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity):
+ *     Phase 5C-3's original "A案のみ" decision above excluded a plain list
+ *     item and a paragraph from ever being an eligible adjacent partner —
+ *     this made Move strictly narrower than D&D's own
+ *     move/findStandaloneComplexBlockDropTarget.ts, which already accepts
+ *     a standalone paragraph or a top-level/section-level list item as a
+ *     drop target. That asymmetry was user-visible (drag handle present,
+ *     Move menu item hidden) and is now closed: a standalone paragraph
+ *     (ComplexBlockKind "paragraph", editability "supported") and a
+ *     standalone list item (a ListBlockNode whose own `parentId` is NOT
+ *     list-typed, i.e. top-level-of-document or directly under a section)
+ *     are now ALSO valid adjacent partners — see
+ *     parser/compositeBlocks.ts#findAdjacentStandaloneMoveNeighbor. A list
+ *     item OR paragraph that is itself a composite member is still
+ *     excluded, exactly like a composite-member callout/blockquote always
+ *     was. table remains out of scope (still read-only, unchanged).
  *   - "different-section": an eligible adjacent standalone callout/
  *     blockquote WAS found, but its own `parentId` differs from the
  *     target's — i.e. the two sit in different sections (or one is

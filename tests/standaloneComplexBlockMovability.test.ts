@@ -16,6 +16,16 @@
  * OTHER standalone callout/blockquote blocks only — never a list item,
  * section, composite, composite member, or any other ComplexBlockKind.
  *
+ * ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity): the
+ * "A案" restriction above is widened — a standalone paragraph and a
+ * standalone (non-nested, non-composite-member) list item are now ALSO
+ * eligible adjacent partners, matching
+ * move/findStandaloneComplexBlockDropTarget.ts's own broader notion of a
+ * valid adjacent unit. Section/composite/composite-member exclusions are
+ * unchanged. See the two repointed fixtures below ("adjacent content is a
+ * plain list item" / "adjacent content is a paragraph") and the new
+ * "adjacent parity" describe block at the bottom of this file.
+ *
  * IMPORTANT fixture note (verified via a real parseDocument/scanComplexBlocks
  * run before writing these assertions): parser/complexBlocks.ts's quote-run
  * scanner groups ANY run of contiguous (zero-gap) `>`-prefixed lines into
@@ -135,13 +145,12 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a plain list item, not a callout/blockquote (list is explicitly out of scope — 'A案のみ')", () => {
+  it("ADDENDUM (2026-09-24): eligible: true when the adjacent content is a standalone (top-level) plain list item — Move now matches D&D's own broader adjacency", () => {
     const text = ["# H", "> [!note] one", "> body", "", "- a list item"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
-      eligible: false,
-      reason: "no-adjacent-compatible-unit",
+      eligible: true,
     });
   });
 
@@ -155,8 +164,24 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a paragraph (always editability read-only, never a move candidate)", () => {
+  it("ADDENDUM (2026-09-24): eligible: true when the adjacent content is a standalone, editability-supported paragraph — Move now matches D&D's own broader adjacency", () => {
     const text = ["# H", "> [!note] one", "> body", "", "a plain paragraph line"].join("\n");
+    const { doc, complexScan, composites } = pipeline(text);
+    const one = calloutOrBlockquoteOf(complexScan, "one", doc);
+    expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
+      eligible: true,
+    });
+  });
+
+  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a thematic-break (remains out of scope)", () => {
+    // Phase 5E-1 widened fenced-code into the standalone-move-eligible set
+    // (see the new "eligible: true ... fenced-code" test just below), and
+    // Phase 5E-3d ("Table Move/Delete/DnD Parity") widened table into it
+    // too (see tests/phase5e3dTableMoveDeleteDnd.test.ts's own coverage),
+    // so this out-of-scope fixture is re-pointed at "thematic-break",
+    // which remains genuinely out of scope — see
+    // docs/phase5e3d_table-move-delete-dnd-design-memo.md.
+    const text = ["# H", "> [!note] one", "> body", "", "***"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
@@ -165,18 +190,12 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a table block (out of scope — table stays read-only)", () => {
-    // Phase 5E-1 widened fenced-code into the standalone-move-eligible set
-    // (see the new "eligible: true ... fenced-code" test just below), so
-    // this out-of-scope fixture is re-pointed at "table", which remains
-    // genuinely out of scope — see
-    // docs/phase5e1_fenced-code-partial-edit-move-delete-design-memo.md §3.
+  it("Phase 5E-3d: eligible: true, direction 'down', when a standalone callout sits adjacent to a standalone table block (one blank line)", () => {
     const text = ["# H", "> [!note] one", "> body", "", "| a | b |", "|---|---|", "| 1 | 2 |"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
-      eligible: false,
-      reason: "no-adjacent-compatible-unit",
+      eligible: true,
     });
   });
 

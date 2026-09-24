@@ -121,7 +121,13 @@ describe("OutlineTreeView.ts CompositeBlock group indicator wiring (static sourc
     // The read-only contract (Phase 5D-0.3 approval §1) is untouched: still
     // gates rename/drag-drop/context-menu exactly as before.
     expect(body).toContain("const readOnly = this.readOnlyNodeIds.has(node.id);");
-    expect(body).toContain("if (!readOnly || isComposite) {");
+    // 2026-09-24 mobile follow-up fix widened this condition once more (to
+    // also admit an eligible standalone callout/blockquote/table row) —
+    // see OutlineTreeView.mobileCompositeDragHandle.test.ts and
+    // standaloneComplexBlockDropUiWiring.test.ts for that widening's own
+    // dedicated coverage; this test only re-confirms the indicator itself
+    // did not touch this condition further.
+    expect(body).toContain("if (!readOnly || isComposite || isEligibleStandaloneComplexMember) {");
     expect(body).toContain('dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });');
   });
 

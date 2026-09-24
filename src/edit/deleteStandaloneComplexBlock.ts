@@ -21,16 +21,37 @@
  * #isComposedMember UNCHANGED (both already widened/already generic) for
  * its own eligibility gate, rather than writing any new eligibility logic.
  *
- * Scoped to kind "fenced-code" ONLY — deliberately NOT callout/blockquote.
- * Widening this delete pipeline to callout/blockquote too was NOT part of
- * this ticket's brief (which only asks for fenced-code move/delete/Partial
- * Edit), and doing so silently would hand callout/blockquote a new
- * capability nobody asked for in this phase and that has never been
- * reviewed for that kind's own edge cases (e.g. a callout's fold marker,
- * a blockquote's own nested-quote handling). Keeping this module's own
- * `kind` field a literal `"fenced-code"` (not the wider
- * StandaloneComplexBlockMoveKind used by move) makes that scope a type-
- * level guarantee, not just a runtime check.
+ * Originally scoped to kind "fenced-code" ONLY — deliberately NOT
+ * callout/blockquote. Widening this delete pipeline to callout/blockquote
+ * too was NOT part of Phase 5E-1's brief (which only asked for
+ * fenced-code move/delete/Partial Edit), and doing so silently would hand
+ * callout/blockquote a new capability nobody asked for in that phase and
+ * that has never been reviewed for that kind's own edge cases (e.g. a
+ * callout's fold marker, a blockquote's own nested-quote handling).
+ *
+ * Phase 5E-3d ("Table Move/Delete/DnD Parity") widens this module's own
+ * `kind` field to also accept "table" — table already has Tree projection
+ * and a working Partial Edit session (Phase 5E-2A/5E-2B), and its own
+ * ComplexBlockInfo.range/editability are reused completely unchanged here,
+ * exactly as fenced-code's were before it. callout/blockquote remained
+ * excluded at that time, for the identical reason given above.
+ *
+ * > **2026-09-24 追記（follow-up ticket, discovered during the user's own
+ * > real-device acceptance testing of the phase5e3d-table-move-delete-dnd
+ * > branch）**: the standalone callout/blockquote context menu was found
+ * > to still offer no Delete item at all — the exclusion above was never
+ * > about a technical limitation of this module (its own delete/re-verify
+ * > logic — `snapshotMatches`, the deletion itself,
+ * > `normalizeBlankRunAtBoundary` — has always been kind-generic, gated
+ * > only by this file's own narrow `kind` allow-list; nothing about a
+ * > callout's fold marker or a blockquote's own nested-quote handling
+ * > ever required special-casing here, since this module deletes the
+ * > block's already-resolved `ComplexBlockInfo.range` as opaque lines,
+ * > never re-parsing or re-interpreting its content). It was simply never
+ * > requested for those two kinds until now. This module's own `kind`
+ * > field is widened one more time to admit "callout" and "blockquote" —
+ * > reusing this exact same pipeline unchanged, mirroring the table
+ * > widening above byte-for-byte (allow-list only, no new logic).
  *
  * ---- Blank-line normalization on delete ----
  *
@@ -59,8 +80,8 @@ import { isComposedMember, isStandaloneComplexBlockShapeEligible, matchComposite
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
 import { TranslationKey } from "../i18n";
 
-/** The one ComplexBlockKind value this module ever deletes — see this file's own top doc comment for why this is deliberately narrower than moveStandaloneComplexBlock.ts's own StandaloneComplexBlockMoveKind. */
-export type StandaloneComplexBlockDeleteKind = "fenced-code";
+/** The ComplexBlockKind values this module ever deletes — see this file's own top doc comment for this allow-list's history (originally "fenced-code" only, widened to "table" by Phase 5E-3d, and to "callout"/"blockquote" by this same branch's 2026-09-24 follow-up — now matching moveStandaloneComplexBlock.ts's own StandaloneComplexBlockMoveKind exactly). */
+export type StandaloneComplexBlockDeleteKind = "fenced-code" | "table" | "callout" | "blockquote";
 
 /**
  * A point-in-time capture of a standalone fenced-code ComplexBlockInfo,
@@ -89,11 +110,18 @@ export interface StandaloneComplexBlockDeleteSnapshot {
 export function buildStandaloneComplexBlockDeleteSnapshot(
   info: ComplexBlockInfo
 ): StandaloneComplexBlockDeleteSnapshot | null {
-  if (info.kind !== "fenced-code") return null;
+  if (
+    info.kind !== "fenced-code" &&
+    info.kind !== "table" &&
+    info.kind !== "callout" &&
+    info.kind !== "blockquote"
+  ) {
+    return null;
+  }
   if (info.editability !== "supported") return null;
   return {
     id: info.id,
-    kind: "fenced-code",
+    kind: info.kind,
     range: { startLine: info.range.startLine, endLine: info.range.endLine },
     parentId: info.parentId,
   };
@@ -138,7 +166,14 @@ function findRangeInvalidReason(
   snapshot: StandaloneComplexBlockDeleteSnapshot,
   lineCount: number
 ): "range-invalid" | null {
-  if (snapshot.kind !== "fenced-code") return "range-invalid";
+  if (
+    snapshot.kind !== "fenced-code" &&
+    snapshot.kind !== "table" &&
+    snapshot.kind !== "callout" &&
+    snapshot.kind !== "blockquote"
+  ) {
+    return "range-invalid";
+  }
   const { startLine, endLine } = snapshot.range;
   if (startLine < 0 || endLine < startLine || endLine >= lineCount) return "range-invalid";
   return null;
