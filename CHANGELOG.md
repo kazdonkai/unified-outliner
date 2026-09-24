@@ -4,6 +4,10 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Fixed
+
+- Standalone callout/blockquote Move up/down was hidden whenever the adjacent content was a paragraph or a plain list item, even though the same block's drag-and-drop already accepted those as valid drop targets — a real-device-reported asymmetry between a working drag handle and a hidden Move menu item. `parser/compositeBlocks.ts#evaluateStandaloneComplexBlockMovability`'s adjacency check now resolves through a new `findAdjacentStandaloneMoveNeighbor` (alongside `move/findStandaloneComplexBlockMoveTarget.ts`'s own resolver), which accepts a standalone paragraph or a standalone (non-nested, non-composite-member) list item as a valid Move partner, matching `move/findStandaloneComplexBlockDropTarget.ts`'s own broader notion of adjacency. Section-boundary crossing remains refused, and a CompositeBlock's own members are still never absorbed into a swap. `findAdjacentStandaloneComplexBlock` itself, and every other Move/Delete condition, is unchanged. See `docs/fix_standalone-complex-move-adjacent-parity-design-memo.md` for the full investigation and design.
+
 ## [0.7.7] - 2026-09-24
 
 ### Added

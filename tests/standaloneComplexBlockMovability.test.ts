@@ -16,6 +16,16 @@
  * OTHER standalone callout/blockquote blocks only — never a list item,
  * section, composite, composite member, or any other ComplexBlockKind.
  *
+ * ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity): the
+ * "A案" restriction above is widened — a standalone paragraph and a
+ * standalone (non-nested, non-composite-member) list item are now ALSO
+ * eligible adjacent partners, matching
+ * move/findStandaloneComplexBlockDropTarget.ts's own broader notion of a
+ * valid adjacent unit. Section/composite/composite-member exclusions are
+ * unchanged. See the two repointed fixtures below ("adjacent content is a
+ * plain list item" / "adjacent content is a paragraph") and the new
+ * "adjacent parity" describe block at the bottom of this file.
+ *
  * IMPORTANT fixture note (verified via a real parseDocument/scanComplexBlocks
  * run before writing these assertions): parser/complexBlocks.ts's quote-run
  * scanner groups ANY run of contiguous (zero-gap) `>`-prefixed lines into
@@ -135,13 +145,12 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a plain list item, not a callout/blockquote (list is explicitly out of scope — 'A案のみ')", () => {
+  it("ADDENDUM (2026-09-24): eligible: true when the adjacent content is a standalone (top-level) plain list item — Move now matches D&D's own broader adjacency", () => {
     const text = ["# H", "> [!note] one", "> body", "", "- a list item"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
-      eligible: false,
-      reason: "no-adjacent-compatible-unit",
+      eligible: true,
     });
   });
 
@@ -155,13 +164,12 @@ describe("evaluateStandaloneComplexBlockMovability: negative cases reachable via
     });
   });
 
-  it("rejects (no-adjacent-compatible-unit) when the adjacent content is a paragraph (always editability read-only, never a move candidate)", () => {
+  it("ADDENDUM (2026-09-24): eligible: true when the adjacent content is a standalone, editability-supported paragraph — Move now matches D&D's own broader adjacency", () => {
     const text = ["# H", "> [!note] one", "> body", "", "a plain paragraph line"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
     expect(evaluateStandaloneComplexBlockMovability(doc, complexScan, one, "down", composites)).toEqual({
-      eligible: false,
-      reason: "no-adjacent-compatible-unit",
+      eligible: true,
     });
   });
 

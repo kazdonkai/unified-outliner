@@ -112,11 +112,16 @@ describe("findStandaloneComplexBlockMoveTarget: propagates judge rejection as nu
     expect(findStandaloneComplexBlockMoveTarget(doc, complexScan, memberInfo, "down", composites)).toBeNull();
   });
 
-  it("returns null when the adjacent content is a plain list item (out of scope)", () => {
+  it("ADDENDUM (2026-09-24): resolves to a standalone list item's own range now that Move's adjacency matches D&D's", () => {
     const text = ["# H", "> [!note] one", "> body", "", "- a list item"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
-    expect(findStandaloneComplexBlockMoveTarget(doc, complexScan, one, "down", composites)).toBeNull();
+    const listNode = [...doc.nodes.values()].find((n) => n.type === "list")!;
+    const target = findStandaloneComplexBlockMoveTarget(doc, complexScan, one, "down", composites);
+    expect(target).toEqual({
+      range: { startLine: listNode.range.startLine, endLine: listNode.range.endLine },
+      targetId: listNode.id,
+    });
   });
 
   it("returns null when the adjacent content is across a section boundary", () => {

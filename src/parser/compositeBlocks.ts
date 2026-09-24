@@ -898,6 +898,159 @@ export function findAdjacentStandaloneComplexBlock(
   return null;
 }
 
+// ---- ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity)
+// ------------------------------------------------------------------------
+//
+// Real-device feedback: a standalone callout/blockquote's drag handle
+// works (move/findStandaloneComplexBlockDropTarget.ts already accepts a
+// standalone paragraph or a top-level/section-level list item as a drop
+// target), but the Move up/down context-menu items stayed hidden next to
+// the exact same paragraph/list item, because
+// evaluateStandaloneComplexBlockMovability (below) resolved its own
+// adjacency exclusively through findAdjacentStandaloneComplexBlock, above
+// — Phase 5C-3's original "A案のみ" scope. This asymmetry is user-visible
+// and confusing (a drag handle that can't be matched by a menu command),
+// so Move's own adjacency candidate set is widened here to match D&D's:
+// a standalone paragraph, or a standalone (non-nested) list item, is now
+// ALSO a valid adjacent partner, alongside the pre-existing callout/
+// blockquote/fenced-code set. `findAdjacentStandaloneComplexBlock` itself
+// is left completely unchanged, above (own signature/behavior/callers all
+// preserved) — this is a NEW, separate resolver
+// (`findAdjacentStandaloneMoveNeighbor`) that
+// evaluateStandaloneComplexBlockMovability and
+// move/findStandaloneComplexBlockMoveTarget.ts now call INSTEAD, so the
+// widened behavior is centralized in exactly one place.
+//
+// Deliberately still excludes "table": Phase 5E-1 left table read-only,
+// unchanged, and this ticket does not touch that (see
+// docs/fix_standalone-complex-move-adjacent-parity-design-memo.md).
+
+/**
+ * A single, uniform shape for "whatever real, standalone unit sits exactly
+ * at this adjacency boundary" — either a ComplexBlockInfo (paragraph/
+ * callout/blockquote/fenced-code) or a ListBlockNode (a standalone list
+ * item), normalized down to the three fields
+ * findAdjacentStandaloneMoveNeighbor's own callers actually need: an `id`
+ * (diagnostic/logging only — never a stable cross-reparse key, exactly
+ * like StandaloneComplexBlockSnapshot.id's own doc comment explains for
+ * the analogous callout/blockquote case), the unit's own full `range`
+ * (never widened here — the caller decides what, if anything, to further
+ * expand for a multi-line list item's own continuation), and its own
+ * `parentId` (for the same-section equality check
+ * evaluateStandaloneComplexBlockMovability already performs).
+ */
+export interface StandaloneComplexBlockAdjacentNeighbor {
+  id: string;
+  range: LineRange;
+  parentId: string | null;
+}
+
+/**
+ * `isStandaloneComplexBlockMoveCandidate`'s own kind check
+ * (callout/blockquote/fenced-code), widened to ALSO accept "paragraph" —
+ * every other condition (editability "supported", not nested inside a
+ * list item's continuation, not currently a composite member) is
+ * identical. Kept as its own function, deliberately NOT folded into
+ * `isStandaloneComplexBlockShapeEligible` (which
+ * edit/deleteStandaloneComplexBlock.ts also reuses for an unrelated
+ * feature, Delete) — widening that shared function would have silently
+ * changed Delete's own adjacent-sibling-kind matching too, which this
+ * ticket's approved scope never asked for.
+ */
+function isStandaloneMoveAdjacentComplexCandidate(
+  doc: ParsedDocument,
+  allComposites: CompositeBlockInfo[],
+  info: ComplexBlockInfo
+): boolean {
+  if (
+    info.kind !== "callout" &&
+    info.kind !== "blockquote" &&
+    info.kind !== "fenced-code" &&
+    info.kind !== "paragraph"
+  ) {
+    return false;
+  }
+  if (info.editability !== "supported") return false;
+  if (info.parentId) {
+    const owner = doc.nodes.get(info.parentId);
+    if (owner && owner.type === "list") return false;
+  }
+  return !isComposedMember(allComposites, info.id);
+}
+
+/**
+ * True when `node` (a ListBlockNode already confirmed to sit exactly at
+ * the adjacency boundary by its caller) is a valid Move adjacency
+ * candidate: NOT nested inside another list item's continuation (mirrors
+ * `isNestedInList` — a "最上位の list item または section 直下の list
+ * item", per this ticket's own approved instruction), and NOT currently
+ * some CompositeBlock's own member (mirrors the complex-block candidate
+ * check just above — a list item that is itself a composite's anchor
+ * member must never be "swapped out from under" its own composite).
+ */
+function isStandaloneMoveAdjacentListItemCandidate(
+  doc: ParsedDocument,
+  allComposites: CompositeBlockInfo[],
+  node: ListBlockNode
+): boolean {
+  if (isNestedInList(doc, node)) return false;
+  return !isComposedMember(allComposites, node.id);
+}
+
+/**
+ * The WIDENED counterpart to `findAdjacentStandaloneComplexBlock`, above:
+ * scans BOTH candidate pools — `complexScan.blocks` (now including
+ * "paragraph", via `isStandaloneMoveAdjacentComplexCandidate`) AND
+ * `doc.nodes`'s ListBlockNode entries (via
+ * `isStandaloneMoveAdjacentListItemCandidate`) — for whichever real unit's
+ * own range boundary sits exactly at `line`, in `direction`. Returns
+ * `null` on the same set of "nothing real boundary-matches here" cases
+ * `findAdjacentStandaloneComplexBlock` already returns `null` for, MINUS
+ * the two cases this ticket intentionally re-admits (a standalone
+ * paragraph, a standalone list item).
+ *
+ * Complex-block candidates are checked first, list items second — pure
+ * scan-order convenience (a line can never simultaneously be both a
+ * ComplexBlockInfo's own boundary AND a ListBlockNode's own boundary, so
+ * this ordering never hides a real ambiguity).
+ *
+ * Exported (mirrors `findAdjacentStandaloneComplexBlock`'s own export
+ * rationale) so move/findStandaloneComplexBlockMoveTarget.ts can perform
+ * the exact same widened adjacency scan
+ * evaluateStandaloneComplexBlockMovability (below) already performs, with
+ * zero risk of the two drifting apart.
+ */
+export function findAdjacentStandaloneMoveNeighbor(
+  doc: ParsedDocument,
+  complexScan: ComplexBlockScanResult,
+  allComposites: CompositeBlockInfo[],
+  line: number,
+  direction: "up" | "down"
+): StandaloneComplexBlockAdjacentNeighbor | null {
+  for (const info of complexScan.blocks) {
+    const boundary = direction === "down" ? info.range.startLine : info.range.endLine;
+    if (boundary !== line) continue;
+    if (!isStandaloneMoveAdjacentComplexCandidate(doc, allComposites, info)) continue;
+    return {
+      id: info.id,
+      range: { startLine: info.range.startLine, endLine: info.range.endLine },
+      parentId: info.parentId,
+    };
+  }
+  for (const node of doc.nodes.values()) {
+    if (!isListNode(node)) continue;
+    const boundary = direction === "down" ? node.range.startLine : node.range.endLine;
+    if (boundary !== line) continue;
+    if (!isStandaloneMoveAdjacentListItemCandidate(doc, allComposites, node)) continue;
+    return {
+      id: node.id,
+      range: { startLine: node.range.startLine, endLine: node.range.endLine },
+      parentId: node.parentId,
+    };
+  }
+  return null;
+}
+
 /**
  * Evaluates whether `target` (a standalone, non-composite-member
  * ComplexBlockInfo) may be safely swapped with whatever adjacent standalone
@@ -990,7 +1143,16 @@ export function evaluateStandaloneComplexBlockMovability(
     return { eligible: false, reason: "no-adjacent-compatible-unit" };
   }
 
-  const adjacent = findAdjacentStandaloneComplexBlock(doc, complexScan, allComposites, k, direction);
+  // ADDENDUM (2026-09-24, fix/standalone-complex-move-adjacent-parity):
+  // widened from findAdjacentStandaloneComplexBlock (the original,
+  // callout/blockquote/fenced-code-only "A案" scan) to
+  // findAdjacentStandaloneMoveNeighbor, which ALSO accepts a standalone
+  // paragraph or a standalone (non-nested, non-composite-member) list item
+  // — matching move/findStandaloneComplexBlockDropTarget.ts's own broader
+  // notion of a valid adjacent unit. See this function's own top doc
+  // comment and findAdjacentStandaloneMoveNeighbor's own doc comment,
+  // above, for the full rationale.
+  const adjacent = findAdjacentStandaloneMoveNeighbor(doc, complexScan, allComposites, k, direction);
   if (!adjacent) {
     return { eligible: false, reason: "no-adjacent-compatible-unit" };
   }

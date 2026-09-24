@@ -96,11 +96,11 @@ describe("showStandaloneComplexBlockMenu's move-item gate: absent when ineligibl
     expect(wouldShowStandaloneMoveMenuItem(doc, complexScan, memberInfo, "down", composites)).toBe(false);
   });
 
-  it("adjacent content is a plain list item (out of scope, 'A案のみ'): gates false", () => {
+  it("ADDENDUM (2026-09-24): adjacent content is a plain (top-level) list item: gates true — Move now matches D&D's own broader adjacency", () => {
     const text = ["# H", "> [!note] one", "> body", "", "- a list item"].join("\n");
     const { doc, complexScan, composites } = pipeline(text);
     const one = calloutOrBlockquoteOf(complexScan, "one", doc);
-    expect(wouldShowStandaloneMoveMenuItem(doc, complexScan, one, "down", composites)).toBe(false);
+    expect(wouldShowStandaloneMoveMenuItem(doc, complexScan, one, "down", composites)).toBe(true);
   });
 
   it("section boundary crossing: gates false", () => {
