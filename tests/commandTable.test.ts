@@ -99,6 +99,11 @@ describe("main.ts command table (static source check)", () => {
       "open-outline-tree-view",
       "open-partial-edit-pane",
       "edit-paragraph-at-cursor",
+      // Phase 5E-Copy: block copy / duplicate / paste / cancel.
+      "copy-block",
+      "duplicate-block-below",
+      "paste-block",
+      "cancel-block-copy",
     ]);
   });
 

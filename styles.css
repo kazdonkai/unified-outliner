@@ -2579,3 +2579,48 @@ settings:
   font-size: var(--font-ui-small);
   min-height: 1.2em;
 }
+
+/* Phase 5E-Copy: copy-pending (コピー待機状態) banner above the Outline Tree,
+ * and a dashed outline on the row being copied. The banner element always
+ * exists; it is emptied (and so hidden by `:empty`) whenever no copy is
+ * pending. Colors reuse theme variables and --uo-current-color only. */
+.unified-outliner-copy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  margin: var(--size-4-1) var(--size-4-2) var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-2) var(--size-4-2) var(--size-4-3);
+  border: 1px dashed var(--uo-current-color);
+  border-radius: var(--radius-s);
+  background-color: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.unified-outliner-copy-banner:empty {
+  display: none;
+}
+
+.unified-outliner-copy-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.unified-outliner-copy-banner-title {
+  font-weight: var(--font-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-outliner-copy-banner-hint {
+  color: var(--text-muted);
+}
+
+.unified-outliner-copy-banner-cancel {
+  flex: 0 0 auto;
+}
+
+.unified-outliner-outline-view .tree-item-self.unified-outliner-copy-source {
+  outline: 1px dashed var(--uo-current-color);
+  outline-offset: -1px;
+}

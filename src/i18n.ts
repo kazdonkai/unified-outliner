@@ -226,6 +226,11 @@ const en = {
   // openParagraphPartialEditForCursor and view/PartialEditView.ts's
   // requestLoadParagraphAtCursor.
   "command.editParagraphAtCursor": "Edit paragraph at cursor",
+  // Phase 5E-Copy: block copy / duplicate / paste (Outline Tree + Command Palette).
+  "command.copyBlock": "Copy block",
+  "command.duplicateBlockBelow": "Duplicate below",
+  "command.pasteBlock": "Paste block",
+  "command.cancelBlockCopy": "Cancel block copy",
   "command.ribbonTooltip": "Open Unified Outliner outline",
 
   // ---- Notices (main.ts, non-reason) ------------------------------------
@@ -290,6 +295,21 @@ const en = {
   "tree.menu.insertSectionAfter": "Insert section after",
   "tree.menu.deleteSectionSubtree": "Delete section subtree",
   "tree.menu.rename": "Rename",
+  "tree.menu.copyBlock": "Copy block",
+  "tree.menu.duplicateBelow": "Duplicate below",
+  "tree.menu.pasteBlock": "Paste block",
+  "tree.menu.pasteBlockAbove": "Paste block above",
+  "tree.menu.pasteBlockAsChild": "Paste block as child",
+  "tree.menu.cancelBlockCopy": "Cancel block copy",
+  "tree.copyBanner.copying": "Copying: {label}",
+  "tree.copyBanner.hint": "Right-click (long-press) a row and choose “Paste block”. Esc cancels.",
+  "tree.copyBanner.otherNote": "Copied from another note ({file}) — paste is only available in that note.",
+  "tree.copyBanner.cancel": "Cancel block copy",
+  "notice.blockCopied": "Unified Outliner: copied “{label}”. Choose “Paste block” on a row in the Outline Tree (Esc to cancel).",
+  "notice.blockCopyCancelled": "Unified Outliner: block copy cancelled.",
+  "notice.blockPasted": "Unified Outliner: pasted a copy of “{label}”.",
+  "notice.noBlockCopyPending": "Unified Outliner: nothing is waiting to be pasted — use “Copy block” first.",
+  "notice.blockCopyOtherNote": "Unified Outliner: the copied block belongs to another note ({file}) — paste it in that note.",
   "tree.menu.editListSubtreeInPane": "Edit list subtree in pane",
   "tree.menu.editListSubtreeInNewWindow": "Edit list subtree in new window",
   "tree.menu.insertListItemAfter": "Insert list item after",
@@ -971,6 +991,32 @@ const en = {
     "Unified Outliner: can't drop a node inside one of its own descendants.",
   "reason.target-resolve-failed":
     "Unified Outliner: could not resolve the drop target (the note may have changed).",
+  "reason.copy-unsupported-kind":
+    "Unified Outliner: this block can't be copied (its boundary or content isn't fully recognized).",
+  "reason.copy-composite-member":
+    "Unified Outliner: a member of a combined (composite) block can't be copied on its own.",
+  "reason.copy-nested-in-list":
+    "Unified Outliner: a block nested inside a list item can't be copied on its own — copy the list item instead.",
+  "reason.copy-unsafe-indent":
+    "Unified Outliner: mixed tab/space indentation detected — copy skipped for safety.",
+  "reason.copy-source-changed":
+    "Unified Outliner: the copied block has changed or no longer exists — copy it again.",
+  "reason.copy-source-ambiguous":
+    "Unified Outliner: the copied block can no longer be told apart from an identical block — copy it again.",
+  "reason.copy-target-changed":
+    "Unified Outliner: the paste target changed (the note may have been edited) — nothing was pasted.",
+  "reason.copy-invalid-target":
+    "Unified Outliner: this kind of block can't be pasted at that position.",
+  "reason.copy-inside-source":
+    "Unified Outliner: can't paste a block inside itself.",
+  "reason.copy-composite-internal-boundary":
+    "Unified Outliner: can't paste inside a combined (composite) block.",
+  "reason.copy-unsafe-position":
+    "Unified Outliner: that position is inside frontmatter, a code block, a callout or another block — nothing was pasted.",
+  "reason.copy-max-heading-level":
+    "Unified Outliner: pasting as a child would push a heading beyond level 6.",
+  "reason.copy-structure-changed":
+    "Unified Outliner: pasting there would merge with or re-structure neighboring content — nothing was pasted.",
   "reason.resolve-failed":
     "Unified Outliner: could not resolve that block (the note may have changed).",
   "reason.not-a-list-item": "Unified Outliner: this operation only applies to a list item.",
@@ -1507,6 +1553,10 @@ const ja: Record<TranslationKey, string> = {
   "command.openOutlineTreeView": "アウトラインツリービューを開く",
   "command.openPartialEditPane": "現在のセクションの部分編集ペインを開く",
   "command.editParagraphAtCursor": "カーソル位置の段落を編集",
+  "command.copyBlock": "ブロックをコピー",
+  "command.duplicateBlockBelow": "下に複製",
+  "command.pasteBlock": "ブロックを貼り付け",
+  "command.cancelBlockCopy": "ブロックのコピーを解除",
   "command.ribbonTooltip": "Unified Outliner のアウトラインを開く",
 
   // ---- 通知（main.ts、reason に基づかないもの） -------------------------
@@ -1565,6 +1615,21 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.insertSectionAfter": "後にセクションを挿入",
   "tree.menu.deleteSectionSubtree": "セクションサブツリーを削除",
   "tree.menu.rename": "名前を変更",
+  "tree.menu.copyBlock": "ブロックをコピー",
+  "tree.menu.duplicateBelow": "下に複製",
+  "tree.menu.pasteBlock": "ブロックを貼り付け",
+  "tree.menu.pasteBlockAbove": "ブロックを上に貼り付け",
+  "tree.menu.pasteBlockAsChild": "ブロックを子として貼り付け",
+  "tree.menu.cancelBlockCopy": "ブロックのコピーを解除",
+  "tree.copyBanner.copying": "コピー中: {label}",
+  "tree.copyBanner.hint": "行を右クリック（長押し）して「ブロックを貼り付け」を選ぶ。Esc で解除する。",
+  "tree.copyBanner.otherNote": "別のノート（{file}）からのコピーである。貼り付けはそのノートでのみ行える。",
+  "tree.copyBanner.cancel": "ブロックのコピーを解除",
+  "notice.blockCopied": "Unified Outliner: 「{label}」をコピーした。Outline Tree の行で「ブロックを貼り付け」を選ぶ（Esc で解除）。",
+  "notice.blockCopyCancelled": "Unified Outliner: ブロックのコピーを解除した。",
+  "notice.blockPasted": "Unified Outliner: 「{label}」の複製を貼り付けた。",
+  "notice.noBlockCopyPending": "Unified Outliner: 貼り付け待ちのブロックがない。先に「ブロックをコピー」を実行してほしい。",
+  "notice.blockCopyOtherNote": "Unified Outliner: コピーしたブロックは別のノート（{file}）のものである。そのノートで貼り付けてほしい。",
   "tree.menu.editListSubtreeInPane": "リストサブツリーをペインで編集",
   "tree.menu.editListSubtreeInNewWindow": "リストサブツリーを新しいウィンドウで編集",
   "tree.menu.insertListItemAfter": "後にリスト項目を挿入",
@@ -1932,6 +1997,32 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: ノードを自分の子孫の中にドロップすることはできない。",
   "reason.target-resolve-failed":
     "Unified Outliner: ドロップ先を解決できなかった（ノートが変更された可能性がある）。",
+  "reason.copy-unsupported-kind":
+    "Unified Outliner: このブロックはコピーできない（境界または内容を完全には認識できない）。",
+  "reason.copy-composite-member":
+    "Unified Outliner: 複合ブロック（CompositeBlock）のメンバーは単独でコピーできない。",
+  "reason.copy-nested-in-list":
+    "Unified Outliner: リスト項目の中にあるブロックは単独でコピーできない。リスト項目ごとコピーしてほしい。",
+  "reason.copy-unsafe-indent":
+    "Unified Outliner: タブとスペースが混在したインデントを検出したため、安全のためコピーを中止した。",
+  "reason.copy-source-changed":
+    "Unified Outliner: コピー元のブロックが変更されたか存在しない。もう一度コピーしてほしい。",
+  "reason.copy-source-ambiguous":
+    "Unified Outliner: コピー元のブロックを同一内容の別ブロックと区別できない。もう一度コピーしてほしい。",
+  "reason.copy-target-changed":
+    "Unified Outliner: 貼り付け先が変化した（ノートが編集された可能性がある）ため、何も貼り付けていない。",
+  "reason.copy-invalid-target":
+    "Unified Outliner: この種類のブロックはその位置に貼り付けられない。",
+  "reason.copy-inside-source":
+    "Unified Outliner: ブロックをそれ自身の内部に貼り付けることはできない。",
+  "reason.copy-composite-internal-boundary":
+    "Unified Outliner: 複合ブロック（CompositeBlock）の内部には貼り付けられない。",
+  "reason.copy-unsafe-position":
+    "Unified Outliner: その位置は frontmatter・コードブロック・callout などの内部であるため、何も貼り付けていない。",
+  "reason.copy-max-heading-level":
+    "Unified Outliner: 子として貼り付けると見出しレベルが 6 を超える。",
+  "reason.copy-structure-changed":
+    "Unified Outliner: その位置に貼り付けると前後の内容と結合するか構造が変わるため、何も貼り付けていない。",
   "reason.resolve-failed":
     "Unified Outliner: そのブロックを解決できなかった（ノートが変更された可能性がある）。",
   "reason.not-a-list-item": "Unified Outliner: この操作はリスト項目にのみ適用できる。",

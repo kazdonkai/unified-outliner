@@ -331,6 +331,17 @@ import { applyLineEditOutcome, LineEditOutcome } from "../commands/applyLineEdit
 import { applyParagraphEdit, paragraphEditTextContainsBlankLine } from "../edit/paragraphPartialEdit";
 import { evaluateRenameNoteIdentity } from "../edit/renameNoteIdentityGuard";
 import { TranslationKey } from "../i18n";
+import {
+  BlockCopySourceRef,
+  BlockCopyTargetHint,
+  BlockPastePosition,
+  blockCopyLabel,
+  buildBlockCopySnapshot,
+  duplicateBlockBelow,
+  isBlockCopyFlatKind,
+  locateBlockCopySource,
+  pasteBlockCopy,
+} from "../edit/copyBlock";
 
 export const OUTLINE_TREE_VIEW_TYPE = "unified-outliner-outline-tree";
 
@@ -450,6 +461,20 @@ interface CompositeDragSession {
 
 export class OutlineTreeView extends ItemView {
   private treeRootEl!: HTMLElement;
+  /**
+   * Phase 5E-Copy: the "Copying: <label> [×]" banner shown above the tree
+   * while plugin.pendingBlockCopy is set (re-rendered by
+   * renderCopyBanner() on every refresh()). Empty — and hidden by
+   * styles.css's `:empty` rule — otherwise.
+   */
+  private copyBannerEl: HTMLElement | null = null;
+  /**
+   * Phase 5E-Copy: the Tree row (if any) currently showing the pending
+   * copy's source, recomputed once per refresh(). Display-only (the
+   * `unified-outliner-copy-source` row class) — never consulted by any
+   * edit path, and independent of selectedId/highlightedId/drag state.
+   */
+  private pendingCopySourceNodeId: string | null = null;
   // Keyed by the CURRENT parse's node.id, exactly as every prior phase —
   // every existing consumer (renderNode, flattenVisibleOutlineTree, the
   // structure/list context menus' contextual-mode check) keeps working
@@ -764,6 +789,7 @@ export class OutlineTreeView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.empty();
     this.contentEl.addClass("unified-outliner-outline-view");
+    this.copyBannerEl = this.contentEl.createDiv({ cls: "unified-outliner-copy-banner" });
     this.treeRootEl = this.contentEl.createDiv({
       cls: "unified-outliner-tree-root",
     });
@@ -925,6 +951,8 @@ export class OutlineTreeView extends ItemView {
       this.collapsedIds = new Set();
       this.currentComposites = [];
       this.currentComplexScan = null;
+      this.pendingCopySourceNodeId = null;
+      this.renderCopyBanner();
       this.renderEmptyState(this.plugin.t("tree.emptyNoActiveNote"));
       return;
     }
@@ -1073,6 +1101,10 @@ export class OutlineTreeView extends ItemView {
     // "keep an already-valid keyboard selection exactly where it is"
     // behavior is completely unchanged for those cases.
     this.resolveSelectionAfterRefresh(doc, complexScan, includeLists);
+
+    // Phase 5E-Copy: display-only copy-pending marker + banner.
+    this.pendingCopySourceNodeId = this.resolvePendingCopySourceNodeId(doc, complexScan);
+    this.renderCopyBanner();
 
     this.applyTreeKindHighlightSettings();
     this.renderTree();
@@ -1435,7 +1467,8 @@ export class OutlineTreeView extends ItemView {
         "tree-item-self is-clickable" +
         (isSection ? "" : " unified-outliner-list-row") +
         (isHighlighted ? " is-active unified-outliner-current" : "") +
-        (isSelected ? " is-selected unified-outliner-selected" : ""),
+        (isSelected ? " is-selected unified-outliner-selected" : "") +
+        (node.id === this.pendingCopySourceNodeId ? " unified-outliner-copy-source" : ""),
     });
     // DOM id + role/aria-* wiring so this row is addressable via
     // aria-activedescendant from the focus-holding treeRootEl (a roving
@@ -3189,6 +3222,8 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(sectionId))
     );
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, sectionId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -3362,6 +3397,8 @@ export class OutlineTreeView extends ItemView {
         .onClick(() => this.beginRenameForNode(listId))
     );
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, listId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -3477,6 +3514,8 @@ export class OutlineTreeView extends ItemView {
       );
     }
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, compositeId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -3703,6 +3742,8 @@ export class OutlineTreeView extends ItemView {
       }
     }
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, nodeId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -3817,6 +3858,8 @@ export class OutlineTreeView extends ItemView {
       }
     }
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, nodeId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -4227,6 +4270,8 @@ export class OutlineTreeView extends ItemView {
       );
     }
 
+    // Phase 5E-Copy: Copy block / Duplicate below / Paste block (see addBlockCopyMenuItems).
+    this.addBlockCopyMenuItems(menu, nodeId);
     this.showTrackedMenu(menu, evt);
   }
 
@@ -4990,6 +5035,269 @@ export class OutlineTreeView extends ItemView {
       this.refresh();
     }
     return changed;
+  }
+
+  // ---- Phase 5E-Copy: block copy / duplicate / paste ----------------------
+  //
+  // All decision and write logic lives in the pure edit/copyBlock.ts; the
+  // view only (a) maps a Tree row to a copy source / paste target, (b)
+  // builds the menu items, re-checking feasibility against this refresh's
+  // own text purely to label unavailable items, and (c) hands the editor's
+  // CURRENT text to the pure function at click time, applying the outcome
+  // through plugin.applyBlockCopyOutcome -> applyLineEditOutcome (one
+  // replaceRange = one Undo step). The copy-pending state itself is the
+  // plugin's own `pendingBlockCopy` field — never this view's selection,
+  // highlight, drag or rename state.
+
+  /** A Tree row as a copy SOURCE: section/list (not composite-internal), standalone callout/blockquote/fenced-code/table, or paragraph. */
+  private blockCopySourceRefForNode(nodeId: string): BlockCopySourceRef | null {
+    const node = this.nodeById.get(nodeId);
+    const doc = this.currentDoc;
+    const scan = this.currentComplexScan;
+    if (!node || !doc || !scan) return null;
+    if (isOutlineSectionNode(node) || isOutlineListNode(node)) {
+      if (this.readOnlyNodeIds.has(nodeId)) return null;
+      const blockNode = doc.nodes.get(node.id);
+      return blockNode ? { kind: blockNode.type, range: blockNode.range } : null;
+    }
+    if (isOutlineComplexMemberNode(node)) {
+      if (!node.isStandalone) return null;
+      const block = scan.blocks.find((b) => b.id === node.id);
+      return block && isBlockCopyFlatKind(block.kind) ? { kind: block.kind, range: block.range } : null;
+    }
+    if (isOutlineParagraphNode(node)) {
+      return { kind: "paragraph", range: { startLine: node.rangeStart, endLine: node.rangeEnd } };
+    }
+    return null;
+  }
+
+  /** A Tree row as a paste TARGET: any section/list/composite/complex-member/paragraph row. */
+  private blockCopyTargetHintForNode(nodeId: string): BlockCopyTargetHint | null {
+    const node = this.nodeById.get(nodeId);
+    const doc = this.currentDoc;
+    const scan = this.currentComplexScan;
+    if (!node || !doc || !scan) return null;
+    if (isOutlineSectionNode(node) || isOutlineListNode(node)) {
+      const blockNode = doc.nodes.get(node.id);
+      return blockNode ? { kind: blockNode.type, range: blockNode.range, parentId: blockNode.parentId } : null;
+    }
+    if (isOutlineCompositeNode(node)) {
+      const composite = this.currentComposites.find((c) => c.id === node.id);
+      return composite ? { kind: "composite", range: composite.range, parentId: null } : null;
+    }
+    if (isOutlineComplexMemberNode(node)) {
+      const block = scan.blocks.find((b) => b.id === node.id);
+      if (!block) return null;
+      return { kind: block.kind === "paragraph" ? "paragraph" : "complex", range: block.range, parentId: block.parentId };
+    }
+    if (isOutlineParagraphNode(node)) {
+      return {
+        kind: "paragraph",
+        range: { startLine: node.rangeStart, endLine: node.rangeEnd },
+        parentId: node.parentId,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Appends the copy/paste items to a row's context menu: "Copy block" and
+   * "Duplicate below" for a copyable row, plus — while a copy is pending
+   * for THIS note — "Paste block" (after), "Paste block above" (before),
+   * "Paste block as child" (section->section / list->list only) and
+   * "Cancel block copy". An item that would be refused right now is
+   * labeled unavailable but stays clickable, and clicking it explains why
+   * via a Notice (the same pattern addStructuredInsertMenuItems uses) —
+   * e.g. "can't paste a block inside itself".
+   */
+  private addBlockCopyMenuItems(menu: Menu, nodeId: string): void {
+    const doc = this.currentDoc;
+    const scan = this.currentComplexScan;
+    if (!doc || !scan) return;
+    const ref = this.blockCopySourceRefForNode(nodeId);
+    const hint = this.blockCopyTargetHintForNode(nodeId);
+    const pending = this.plugin.pendingBlockCopy;
+    if (!ref && !(pending && hint)) return;
+
+    const text = doc.lines.join("\n");
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const addItem = (titleKey: TranslationKey, icon: string, reason: string | undefined, run: () => void) => {
+      const title = this.plugin.t(titleKey);
+      menu.addItem((item) =>
+        item
+          .setTitle(reason ? `${title}${this.plugin.t("tree.menu.unavailableSuffix")}` : title)
+          .setIcon(reason ? OutlineTreeView.UNAVAILABLE_ICON : icon)
+          .setWarning(!!reason)
+          .onClick(() => {
+            if (reason) {
+              this.plugin.blockCopyReasonNotice(reason);
+              return;
+            }
+            run();
+          })
+      );
+    };
+
+    menu.addSeparator();
+    if (ref) {
+      const snapshot = buildBlockCopySnapshot(doc, scan, this.currentComposites, ref);
+      const copyReason = snapshot.ok ? undefined : snapshot.reason;
+      addItem("tree.menu.copyBlock", "copy", copyReason, () => this.runCopyBlockCommand(ref));
+      const dupReason = snapshot.ok ? duplicateBlockBelow(text, snapshot.value, rules).reason : copyReason;
+      addItem("tree.menu.duplicateBelow", "copy-plus", dupReason, () => this.runDuplicateBlockCommand(ref));
+    }
+    if (pending && hint) {
+      if (pending.filePath !== this.currentFilePath) {
+        menu.addItem((item) =>
+          item
+            .setTitle(`${this.plugin.t("tree.menu.pasteBlock")}${this.plugin.t("tree.menu.unavailableSuffix")}`)
+            .setIcon(OutlineTreeView.UNAVAILABLE_ICON)
+            .setWarning(true)
+            .onClick(() => new Notice(this.plugin.t("notice.blockCopyOtherNote", { file: pending.filePath })))
+        );
+      } else {
+        const positions: [TranslationKey, string, BlockPastePosition][] = [
+          ["tree.menu.pasteBlock", "clipboard-paste", "after"],
+          ["tree.menu.pasteBlockAbove", "arrow-up-to-line", "before"],
+        ];
+        if (
+          (hint.kind === "section" && pending.snapshot.kind === "section") ||
+          (hint.kind === "list" && pending.snapshot.kind === "list")
+        ) {
+          positions.push(["tree.menu.pasteBlockAsChild", "corner-down-right", "inside"]);
+        }
+        for (const [titleKey, icon, position] of positions) {
+          const reason = pasteBlockCopy(text, { snapshot: pending.snapshot, target: hint, position }, rules).reason;
+          addItem(titleKey, icon, reason, () => this.runPasteBlockCommand(hint, position));
+        }
+      }
+      menu.addItem((item) =>
+        item
+          .setTitle(this.plugin.t("tree.menu.cancelBlockCopy"))
+          .setIcon("x")
+          .onClick(() => this.plugin.clearPendingBlockCopy({ notify: true }))
+      );
+    }
+  }
+
+  /** Human label for a copy source row (banner / Notices), falling back to the block's own first line. */
+  private blockCopyLabelForNode(nodeId: string, lines: readonly string[]): string {
+    const node = this.nodeById.get(nodeId);
+    if (node && isOutlineSectionNode(node)) return node.headingText;
+    if (node && isOutlineListNode(node) && node.text.trim() !== "") return node.text;
+    return blockCopyLabel(lines);
+  }
+
+  /** Click-time "Copy block": re-resolves the row against the editor's CURRENT text before entering the copy-pending state. */
+  private runCopyBlockCommand(ref: BlockCopySourceRef): void {
+    const view = this.activeMarkdownView.get();
+    if (!view) return;
+    const doc = parseDocument(view.editor.getValue());
+    const scan = scanComplexBlocks(doc);
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const built = buildBlockCopySnapshot(doc, scan, matchCompositeBlocks(doc, scan, rules), ref);
+    if (!built.ok) {
+      this.plugin.blockCopyReasonNotice(built.reason);
+      return;
+    }
+    const nodeId = this.findNodeIdForCopyRange(built.value.kind, built.value.range);
+    this.plugin.setPendingBlockCopy({
+      filePath: view.file?.path ?? "",
+      snapshot: built.value,
+      label: nodeId ? this.blockCopyLabelForNode(nodeId, built.value.lines) : blockCopyLabel(built.value.lines),
+    });
+  }
+
+  /** Click-time "Duplicate below" against the editor's CURRENT text (never the menu-time snapshot). */
+  private runDuplicateBlockCommand(ref: BlockCopySourceRef): void {
+    const view = this.activeMarkdownView.get();
+    if (!view) return;
+    const editor: Editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return;
+    }
+    const text = editor.getValue();
+    const doc = parseDocument(text);
+    const scan = scanComplexBlocks(doc);
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const built = buildBlockCopySnapshot(doc, scan, matchCompositeBlocks(doc, scan, rules), ref);
+    if (!built.ok) {
+      this.plugin.blockCopyReasonNotice(built.reason);
+      return;
+    }
+    const outcome = duplicateBlockBelow(text, built.value, rules);
+    this.plugin.applyBlockCopyOutcome(editor, text, outcome, { consumesPending: false });
+  }
+
+  /** Click-time "Paste block": re-resolves both the pending source and the target against the editor's CURRENT text. */
+  private runPasteBlockCommand(target: BlockCopyTargetHint, position: BlockPastePosition): void {
+    const pending = this.plugin.pendingBlockCopy;
+    if (!pending) {
+      new Notice(this.plugin.t("notice.noBlockCopyPending"));
+      return;
+    }
+    const view = this.activeMarkdownView.get();
+    if (!view) return;
+    if ((view.file?.path ?? "") !== pending.filePath) {
+      new Notice(this.plugin.t("notice.blockCopyOtherNote", { file: pending.filePath }));
+      return;
+    }
+    const editor: Editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return;
+    }
+    const text = editor.getValue();
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const outcome = pasteBlockCopy(text, { snapshot: pending.snapshot, target, position }, rules);
+    this.plugin.applyBlockCopyOutcome(editor, text, outcome, { consumesPending: true });
+  }
+
+  /** The Tree row whose copy-source ref is exactly (`kind`, `range`), if any. */
+  private findNodeIdForCopyRange(kind: string, range: { startLine: number; endLine: number }): string | null {
+    for (const id of this.nodeById.keys()) {
+      const ref = this.blockCopySourceRefForNode(id);
+      if (ref && ref.kind === kind && ref.range.startLine === range.startLine && ref.range.endLine === range.endLine) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  /** Display-only: which row (if any) currently shows the pending copy's source. */
+  private resolvePendingCopySourceNodeId(doc: ParsedDocument, complexScan: ComplexBlockScanResult): string | null {
+    const pending = this.plugin.pendingBlockCopy;
+    if (!pending || pending.filePath !== this.currentFilePath) return null;
+    const range = locateBlockCopySource(doc, complexScan, this.currentComposites, pending.snapshot);
+    return range ? this.findNodeIdForCopyRange(pending.snapshot.kind, range) : null;
+  }
+
+  /** Renders (or clears) the copy-pending banner above the tree. */
+  private renderCopyBanner(): void {
+    const el = this.copyBannerEl;
+    if (!el) return;
+    el.empty();
+    const pending = this.plugin.pendingBlockCopy;
+    if (!pending) return;
+    const textEl = el.createDiv({ cls: "unified-outliner-copy-banner-text" });
+    textEl.createDiv({
+      cls: "unified-outliner-copy-banner-title",
+      text: this.plugin.t("tree.copyBanner.copying", { label: pending.label }),
+    });
+    textEl.createDiv({
+      cls: "unified-outliner-copy-banner-hint",
+      text:
+        pending.filePath === this.currentFilePath
+          ? this.plugin.t("tree.copyBanner.hint")
+          : this.plugin.t("tree.copyBanner.otherNote", { file: pending.filePath }),
+    });
+    const cancelEl = el.createEl("button", {
+      cls: "clickable-icon unified-outliner-copy-banner-cancel",
+      attr: { "aria-label": this.plugin.t("tree.copyBanner.cancel"), type: "button" },
+    });
+    setIcon(cancelEl, "x");
+    cancelEl.addEventListener("click", () => this.plugin.clearPendingBlockCopy({ notify: true }));
   }
 
   private notify(message: string | undefined): void {
