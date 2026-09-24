@@ -43,6 +43,7 @@ import { HeadingLevelModal } from "./view/HeadingLevelModal";
 import { ActiveMarkdownViewTracker } from "./view/activeMarkdownViewTracker";
 import { FoldStateManager } from "./persistence/foldStateManager";
 import { applyLineEditOutcome, LineEditOutcome } from "./commands/applyLineEditOutcome";
+import { createMirrorBelow, MirrorCreateOutcome } from "./mirror/createMirror";
 import {
   BlockCopyOutcome,
   BlockCopySnapshot,
@@ -433,6 +434,13 @@ export default class UnifiedOutlinerPlugin extends Plugin {
         id: "cancel-block-copy",
         translationKey: "command.cancelBlockCopy",
         callback: () => this.cancelBlockCopy(),
+      },
+      // Phase 5M-1: create a single-note mirror of the block at the cursor
+      // (resolveMoveUnit — the same resolution Move block uses).
+      {
+        id: "create-mirror-below",
+        translationKey: "command.createMirrorBelow",
+        editorCallback: (editor) => this.createMirrorAtCursor(editor),
       },
     ];
   }
@@ -1845,6 +1853,60 @@ export default class UnifiedOutlinerPlugin extends Plugin {
       return;
     }
     this.clearPendingBlockCopy({ notify: true });
+  }
+
+  // ---- Phase 5M-1: create mirror --------------------------------------------
+
+  /**
+   * Shared click-time tail for a create-mirror outcome from the Tree menu or
+   * the Command Palette: applies it through applyLineEditOutcome (one
+   * replaceRange — the optional block id AND the embed line together are
+   * one Undo step), then reports the result. A refusal (including a cycle)
+   * is always explained; a not-found / ambiguous reference is a warning —
+   * the insert is kept. Never touches pendingBlockCopy (Phase 5E-Copy).
+   */
+  applyMirrorCreateOutcome(editor: Editor, text: string, outcome: MirrorCreateOutcome): boolean {
+    const changed = applyLineEditOutcome(editor, { line: 0, ch: 0 }, 0, text.split("\n"), outcome, () => {});
+    if (!changed) {
+      this.blockCopyReasonNotice(outcome.reason);
+      return false;
+    }
+    const cur = editor.getCursor();
+    const lineLen = editor.getLine(cur.line)?.length ?? 0;
+    editor.scrollIntoView({ from: { line: cur.line, ch: 0 }, to: { line: cur.line, ch: lineLen } }, true);
+    const embedLine = outcome.embedLine ?? outcome.newStartLine;
+    this.queueOutlineTreeSelectionFollow(embedLine);
+    new Notice(
+      this.t(outcome.blockIdAdded ? "notice.mirrorCreatedWithId" : "notice.mirrorCreated", {
+        embed: outcome.embedText ?? "",
+        id: outcome.blockId ?? "",
+      })
+    );
+    for (const w of outcome.warnings ?? []) new Notice(this.t(("notice.mirrorWarning." + w) as TranslationKey));
+    this.refreshOutlineTreeViews();
+    return true;
+  }
+
+  private createMirrorAtCursor(editor: Editor): void {
+    if (editor.listSelections().length > 1) {
+      this.notice(this.t("notice.multipleCursors"));
+      return;
+    }
+    const text = editor.getValue();
+    const doc = parseDocument(text);
+    const resolved = resolveMoveUnit(doc, editor.getCursor().line);
+    if (!resolved.unit) {
+      this.blockCopyReasonNotice(resolved.reason ?? "no-block");
+      return;
+    }
+    const rules = getEnabledCompositeBlockRules(this.settings.compositeBlocks);
+    const outcome = createMirrorBelow(
+      text,
+      { kind: resolved.unit.kind, range: resolved.unit.range },
+      rules,
+      { notePath: this.app.workspace.getActiveFile()?.path ?? "" }
+    );
+    this.applyMirrorCreateOutcome(editor, text, outcome);
   }
 
   private notice(message: string | undefined): void {

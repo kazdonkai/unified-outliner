@@ -237,6 +237,7 @@ const en = {
   "command.duplicateBlockBelow": "Duplicate below",
   "command.pasteBlock": "Paste block",
   "command.cancelBlockCopy": "Cancel block copy",
+  "command.createMirrorBelow": "Create mirror: insert embed below cursor block",
   "command.ribbonTooltip": "Open Unified Outliner outline",
 
   // ---- Notices (main.ts, non-reason) ------------------------------------
@@ -307,6 +308,13 @@ const en = {
   "tree.menu.pasteBlockAbove": "Paste block above",
   "tree.menu.pasteBlockAsChild": "Paste block as child",
   "tree.menu.cancelBlockCopy": "Cancel block copy",
+  "tree.menu.createMirrorBelow": "Create mirror below",
+  "tree.menu.createMirrorAbove": "Create mirror above",
+  "notice.mirrorCreated": "Unified Outliner: inserted mirror {embed}.",
+  "notice.mirrorCreatedWithId": "Unified Outliner: added block id ^{id} and inserted mirror {embed}.",
+  "notice.mirrorWarning.not-found": "Unified Outliner: the new mirror's target could not be found — the embed was kept; check the heading or block id.",
+  "notice.mirrorWarning.duplicate-heading": "Unified Outliner: several headings have this text — the mirror shows the FIRST one.",
+  "notice.mirrorWarning.duplicate-block-id": "Unified Outliner: this block id occurs more than once — the mirror shows the FIRST block.",
   "tree.copyBanner.copying": "Copying: {label}",
   "tree.copyBanner.hint": "Right-click (long-press) a row and choose “Paste block”. Esc cancels.",
   "tree.copyBanner.otherNote": "Copied from another note ({file}) — paste is only available in that note.",
@@ -1023,6 +1031,26 @@ const en = {
     "Unified Outliner: pasting as a child would push a heading beyond level 6.",
   "reason.copy-structure-changed":
     "Unified Outliner: pasting there would merge with or re-structure neighboring content — nothing was pasted.",
+  "reason.mirror-unsupported-kind":
+    "Unified Outliner: a mirror can't be created for this block.",
+  "reason.mirror-target-changed":
+    "Unified Outliner: the block changed (the note may have been edited) — no mirror was created.",
+  "reason.mirror-nested-in-list":
+    "Unified Outliner: a block nested inside a list item can't be mirrored on its own — mirror the list item instead.",
+  "reason.mirror-composite-member":
+    "Unified Outliner: a member of a combined (composite) block can't be mirrored on its own.",
+  "reason.mirror-of-mirror":
+    "Unified Outliner: this line is already a mirror embed.",
+  "reason.mirror-empty-heading":
+    "Unified Outliner: this heading has no linkable text.",
+  "reason.mirror-unsafe-position":
+    "Unified Outliner: the block id or embed would land inside a code block or frontmatter — no mirror was created.",
+  "reason.mirror-id-collision":
+    "Unified Outliner: could not generate a unique block id — no mirror was created.",
+  "reason.mirror-cycle":
+    "Unified Outliner: this mirror would create a circular reference (a block embedding itself, directly or through other mirrors) — no mirror was created.",
+  "reason.mirror-structure-changed":
+    "Unified Outliner: inserting the mirror there would merge with or re-structure neighboring content — no mirror was created.",
   "reason.resolve-failed":
     "Unified Outliner: could not resolve that block (the note may have changed).",
   "reason.not-a-list-item": "Unified Outliner: this operation only applies to a list item.",
@@ -1569,6 +1597,7 @@ const ja: Record<TranslationKey, string> = {
   "command.duplicateBlockBelow": "下に複製",
   "command.pasteBlock": "ブロックを貼り付け",
   "command.cancelBlockCopy": "ブロックのコピーを解除",
+  "command.createMirrorBelow": "ミラーを作成: カーソル位置のブロックの下に埋め込みを挿入",
   "command.ribbonTooltip": "Unified Outliner のアウトラインを開く",
 
   // ---- 通知（main.ts、reason に基づかないもの） -------------------------
@@ -1633,6 +1662,13 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.pasteBlockAbove": "ブロックを上に貼り付け",
   "tree.menu.pasteBlockAsChild": "ブロックを子として貼り付け",
   "tree.menu.cancelBlockCopy": "ブロックのコピーを解除",
+  "tree.menu.createMirrorBelow": "下にミラーを作成",
+  "tree.menu.createMirrorAbove": "上にミラーを作成",
+  "notice.mirrorCreated": "Unified Outliner: ミラー {embed} を挿入した。",
+  "notice.mirrorCreatedWithId": "Unified Outliner: ブロック ID ^{id} を付与し、ミラー {embed} を挿入した。",
+  "notice.mirrorWarning.not-found": "Unified Outliner: 新しいミラーの参照先が見つからない。埋め込みはそのまま残したので、見出しまたはブロック ID を確認してほしい。",
+  "notice.mirrorWarning.duplicate-heading": "Unified Outliner: 同じテキストの見出しが複数あるため、ミラーは最初の見出しを表示する。",
+  "notice.mirrorWarning.duplicate-block-id": "Unified Outliner: このブロック ID は複数箇所にあるため、ミラーは最初のブロックを表示する。",
   "tree.copyBanner.copying": "コピー中: {label}",
   "tree.copyBanner.hint": "行を右クリック（長押し）して「ブロックを貼り付け」を選ぶ。Esc で解除する。",
   "tree.copyBanner.otherNote": "別のノート（{file}）からのコピーである。貼り付けはそのノートでのみ行える。",
@@ -2035,6 +2071,26 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 子として貼り付けると見出しレベルが 6 を超える。",
   "reason.copy-structure-changed":
     "Unified Outliner: その位置に貼り付けると前後の内容と結合するか構造が変わるため、何も貼り付けていない。",
+  "reason.mirror-unsupported-kind":
+    "Unified Outliner: このブロックにはミラーを作成できない。",
+  "reason.mirror-target-changed":
+    "Unified Outliner: ブロックが変化した（ノートが編集された可能性がある）ため、ミラーを作成していない。",
+  "reason.mirror-nested-in-list":
+    "Unified Outliner: リスト項目の中にあるブロックは単独でミラーにできない。リスト項目ごとミラーにしてほしい。",
+  "reason.mirror-composite-member":
+    "Unified Outliner: 複合ブロック（CompositeBlock）のメンバーは単独でミラーにできない。",
+  "reason.mirror-of-mirror":
+    "Unified Outliner: この行はすでにミラーの埋め込みである。",
+  "reason.mirror-empty-heading":
+    "Unified Outliner: この見出しにはリンクできるテキストがない。",
+  "reason.mirror-unsafe-position":
+    "Unified Outliner: ブロック ID または埋め込みがコードブロックや frontmatter の中に入るため、ミラーを作成していない。",
+  "reason.mirror-id-collision":
+    "Unified Outliner: 重複しないブロック ID を生成できなかったため、ミラーを作成していない。",
+  "reason.mirror-cycle":
+    "Unified Outliner: このミラーは循環参照（ブロックが直接または他のミラー経由で自分自身を埋め込む）になるため、作成していない。",
+  "reason.mirror-structure-changed":
+    "Unified Outliner: その位置に挿入すると前後の内容と結合するか構造が変わるため、ミラーを作成していない。",
   "reason.resolve-failed":
     "Unified Outliner: そのブロックを解決できなかった（ノートが変更された可能性がある）。",
   "reason.not-a-list-item": "Unified Outliner: この操作はリスト項目にのみ適用できる。",
