@@ -53,6 +53,7 @@
 import { ParsedDocument } from "../model/block";
 import { ComplexBlockInfo } from "../model/complexBlock";
 import { complexBlockDepth, scanComplexBlocks } from "../parser/complexBlocks";
+import { blockBodyText, detectBlockIdLayout } from "../edit/partialEdit";
 
 export type NoParagraphResolutionReason = "out-of-range" | "no-paragraph" | "boundary-ambiguous";
 
@@ -78,6 +79,15 @@ export interface ResolvedParagraphAtCursor {
    * step compares against.
    */
   text: string;
+  /**
+   * Block ID field: the paragraph's block id, separated from `text` —
+   * `text` is the BODY only (an inline " ^id" suffix, or a paragraph's own
+   * trailing lone "^id" line, is removed). See edit/partialEdit.ts's
+   * detectBlockIdLayout for the recognized shapes.
+   */
+  blockId: string | null;
+  /** True for a lone "^id" line; false for an inline suffix or no id. */
+  blockIdIsStandaloneLine: boolean;
   /**
    * Short, single-line preview for a pane title / command feedback — the
    * paragraph's own first line, trimmed and capped. Purely cosmetic: never
@@ -153,7 +163,8 @@ export function resolveParagraphAtCursor(
     return { paragraph: null, reason: "boundary-ambiguous" };
   }
 
-  const text = doc.lines.slice(block.range.startLine, block.range.endLine + 1).join("\n");
+  const layout = detectBlockIdLayout(doc.lines, block.range.startLine, block.range.endLine, { inline: true });
+  const text = blockBodyText(doc.lines, block.range.startLine, layout);
   return {
     paragraph: {
       kind: "paragraph",
@@ -163,6 +174,8 @@ export function resolveParagraphAtCursor(
       parentId: block.parentId,
       depth: complexBlockDepth(doc, block.parentId),
       text,
+      blockId: layout.blockId,
+      blockIdIsStandaloneLine: layout.standalone,
       preview: buildPreview(text),
     },
   };

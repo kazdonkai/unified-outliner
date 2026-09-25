@@ -64,8 +64,12 @@ export class ConfirmFencedCodeDeleteModal extends Modal {
   }
 
   onOpen(): void {
+    // Phase 5M-2: "paragraph" is only ever a mirror embed line (see
+    // edit/deleteStandaloneComplexBlock.ts#buildMirrorEmbedDeleteSnapshot).
     const titleKey =
-      this.kind === "table"
+      this.kind === "paragraph"
+        ? "modal.deleteMirrorTitle"
+        : this.kind === "table"
         ? "modal.deleteTableTitle"
         : this.kind === "callout"
           ? "modal.deleteCalloutTitle"
@@ -85,6 +89,9 @@ export class ConfirmFencedCodeDeleteModal extends Modal {
         endLine: this.range.endLine + 1,
       }),
     });
+    if (this.kind === "paragraph") {
+      this.contentEl.createEl("p", { text: this.plugin.t("modal.deleteMirrorNote") });
+    }
     this.contentEl.createEl("p", {
       text: this.plugin.t("modal.deleteFencedCodeUndoNote"),
       cls: "unified-outliner-fenced-code-delete-modal-undo-note",

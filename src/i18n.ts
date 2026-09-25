@@ -100,7 +100,7 @@ const en = {
     "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
   "settings.showMirrorEmbedsInOutline.name": "Show mirror embeds in Outline Tree",
   "settings.showMirrorEmbedsInOutline.desc":
-    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row jumps to the referenced heading or block. Off by default; when off, embed lines are shown as ordinary paragraphs.",
+    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row moves to the embed line itself; double-click it or choose “Go to mirror source” to move to the referenced heading or block. On mobile, tapping the selected row again switches between the referenced block and the embed line. Off by default; when off, embed lines are shown as ordinary paragraphs.",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": " (not found)",
   "tree.mirrorCycleSuffix": " (circular)",
@@ -308,6 +308,30 @@ const en = {
   "tree.menu.pasteBlockAbove": "Paste block above",
   "tree.menu.pasteBlockAsChild": "Paste block as child",
   "tree.menu.cancelBlockCopy": "Cancel block copy",
+  "tree.menu.moveMirrorUp": "Move mirror up",
+  "tree.menu.moveMirrorDown": "Move mirror down",
+  "tree.menu.deleteMirror": "Delete mirror",
+  "tree.menu.goToMirrorSource": "Go to mirror source",
+  "notice.mirrorSourceUnavailable.unresolved":
+    "Unified Outliner: this mirror's target heading or block was not found — there is nothing to go to.",
+  "notice.mirrorSourceUnavailable.cycle":
+    "Unified Outliner: this mirror is part of a circular reference — there is no source to go to.",
+  "notice.mirrorDeleted": "Unified Outliner: deleted the mirror embed line (the referenced block was not changed).",
+  "notice.mirrorDeleteRefused": "Unified Outliner: the mirror could not be deleted safely (the note may have changed) — nothing was changed.",
+  "modal.deleteMirrorTitle": "Unified Outliner: delete mirror",
+  "modal.deleteMirrorNote": "Only this embed line is removed. The referenced heading or block — and its block id — are not changed.",
+  "partialEdit.mirrorReferences": "Mirrors referencing this block: {count}",
+  "partialEdit.blockIdLabel": "Block ID:",
+  "partialEdit.blockIdPlaceholder": "none",
+  "partialEdit.blockIdCrossFileWarning":
+    "Unified Outliner: this block ID is referenced from other files. Those references may now be broken.",
+  "partialEdit.blockIdSameFileRenamed":
+    "Unified Outliner: updated {count} mirror reference(s) in the same file automatically.",
+  "partialEdit.blockIdDeletedCrossFileWarning":
+    "Unified Outliner: this block ID is referenced from other files. Those references may now be broken after ID deletion.",
+  "partialEdit.blockIdDeletedSameFileWarning":
+    "Unified Outliner: this block ID is referenced within the same file. Those references are now broken after ID deletion.",
+  "partialEdit.mirrorReferencesJump": "Click to jump to mirror {n} of {count}",
   "tree.menu.createMirrorBelow": "Create mirror below",
   "tree.menu.createMirrorAbove": "Create mirror above",
   "notice.mirrorCreated": "Unified Outliner: inserted mirror {embed}.",
@@ -1224,6 +1248,8 @@ const en = {
     "Unified Outliner: the second line must be a valid delimiter row (each column made of one or more hyphens, with optional leading/trailing colons, and nothing else).",
   "reason.table-column-mismatch":
     "Unified Outliner: every row must have the same number of columns.",
+  "reason.invalid-block-id":
+    "Unified Outliner: a block ID may contain only letters, digits and hyphens — nothing was changed.",
 
   // ---- Fenced code language selector (Phase 5E-3,
   // view/PartialEditView.ts). Label for the kind/info-string selector row
@@ -1472,7 +1498,7 @@ const ja: Record<TranslationKey, string> = {
     "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
   "settings.showMirrorEmbedsInOutline.name": "アウトラインツリーにミラー（埋め込み）を表示",
   "settings.showMirrorEmbedsInOutline.desc":
-    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると参照先の見出しまたはブロックへ移動する。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
+    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると埋め込み行そのものへ移動する。参照先の見出しまたはブロックへ移動するには、行をダブルクリックするか、「参照先へ移動」を選ぶ。モバイルでは、選択済みの行をもう一度タップするたびに、参照先と埋め込み行が切り替わる。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": "（参照先なし）",
   "tree.mirrorCycleSuffix": "（循環参照）",
@@ -1662,6 +1688,29 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.pasteBlockAbove": "ブロックを上に貼り付け",
   "tree.menu.pasteBlockAsChild": "ブロックを子として貼り付け",
   "tree.menu.cancelBlockCopy": "ブロックのコピーを解除",
+  "tree.menu.moveMirrorUp": "ミラーを上へ移動",
+  "tree.menu.moveMirrorDown": "ミラーを下へ移動",
+  "tree.menu.deleteMirror": "ミラーを削除",
+  "tree.menu.goToMirrorSource": "参照先へ移動",
+  "notice.mirrorSourceUnavailable.unresolved":
+    "Unified Outliner: このミラーの参照先の見出しまたはブロックが見つからないため、移動できない。",
+  "notice.mirrorSourceUnavailable.cycle":
+    "Unified Outliner: このミラーは循環参照になっているため、参照先へ移動できない。",
+  "notice.mirrorDeleted": "Unified Outliner: ミラーの埋め込み行を削除した（参照先のブロックは変更していない）。",
+  "notice.mirrorDeleteRefused": "Unified Outliner: ミラーを安全に削除できなかった（ノートが変更された可能性がある）。何も変更していない。",
+  "modal.deleteMirrorTitle": "Unified Outliner: ミラーを削除",
+  "modal.deleteMirrorNote": "削除するのはこの埋め込み行だけである。参照先の見出し・ブロックとそのブロック ID は変更しない。",
+  "partialEdit.mirrorReferences": "このブロックを参照しているミラー: {count} 件",
+  "partialEdit.blockIdLabel": "Block ID:",
+  "partialEdit.blockIdPlaceholder": "なし",
+  "partialEdit.blockIdCrossFileWarning":
+    "Unified Outliner: このブロック ID は他のファイルから参照されています。Block ID を変更したため、それらの参照が壊れている可能性があります。",
+  "partialEdit.blockIdSameFileRenamed": "Unified Outliner: 同一ファイル内の {count} 件のミラー参照を自動更新しました。",
+  "partialEdit.blockIdDeletedCrossFileWarning":
+    "Unified Outliner: このブロック ID は他のファイルから参照されています。Block ID を削除したため、それらの参照が壊れている可能性があります。",
+  "partialEdit.blockIdDeletedSameFileWarning":
+    "Unified Outliner: このブロック ID は同じファイル内から参照されています。Block ID を削除したため、それらの参照が壊れています。",
+  "partialEdit.mirrorReferencesJump": "クリックでミラー {n} / {count} へ移動",
   "tree.menu.createMirrorBelow": "下にミラーを作成",
   "tree.menu.createMirrorAbove": "上にミラーを作成",
   "notice.mirrorCreated": "Unified Outliner: ミラー {embed} を挿入した。",
@@ -2244,6 +2293,8 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 2行目は有効な区切り行（各列がハイフン1文字以上、前後に任意のコロンを許可し、他に何もないこと）である必要がある。",
   "reason.table-column-mismatch":
     "Unified Outliner: すべての行の列数が一致している必要がある。",
+  "reason.invalid-block-id":
+    "Unified Outliner: ブロック ID に使えるのは英数字とハイフンだけである。何も変更していない。",
 
   // ---- fenced code の種別選択 UI（Phase 5E-3、view/PartialEditView.ts）。
   // フェンス行を含まなくなったテキストエリアの上に表示する種別・info

@@ -91,6 +91,7 @@ import {
   CompositeBlockRule,
   CompositeMemberKind,
 } from "../model/compositeBlock";
+import { isMirrorEmbedBlock } from "../mirror/isMirrorEmbedBlock";
 
 interface Candidate {
   kind: CompositeMemberKind;
@@ -1145,11 +1146,17 @@ export function evaluateStandaloneComplexBlockMovability(
   // above to also accept "fenced-code"; Phase 5E-3d widened again to also
   // accept "table" — see that function's own updated doc comment for the
   // full rationale.
+  // Phase 5M-2: ALSO admits a same-note mirror embed line (a one-line
+  // paragraph `![[#...]]` — see mirror/isMirrorEmbedBlock.ts), so a mirror
+  // row reuses this exact Move judge (adjacency, section boundary,
+  // composite exclusion) with no mirror-specific move logic. Ordinary
+  // paragraphs are still rejected here exactly as before.
   if (
     target.kind !== "callout" &&
     target.kind !== "blockquote" &&
     target.kind !== "fenced-code" &&
-    target.kind !== "table"
+    target.kind !== "table" &&
+    !isMirrorEmbedBlock(doc, target)
   ) {
     return { eligible: false, reason: "not-supported" };
   }

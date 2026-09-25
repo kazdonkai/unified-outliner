@@ -383,14 +383,15 @@ describe("view wiring (static source checks)", () => {
     expect(viewTs).toContain("mirrors: this.plugin.settings.showMirrorEmbedsInOutline");
   });
 
-  it("click and Enter jump to the referenced block via mirrorJumpLine", () => {
-    expect(viewTs).toContain("this.jumpToLine(node.id, mirrorJumpLine(node), { focusEditor: false });");
-    expect(viewTs).toContain("this.jumpToLine(node.id, mirrorJumpLine(node));");
+  it("click and Enter go to the mirror's own embed line (Phase 5M-2 follow-up; was the referenced block in 5M-0)", () => {
+    expect(viewTs).toContain("isOutlineMirrorNode(node) ? mirrorRowClickLine(node) : node.line, {");
+    expect(viewTs).toContain("this.jumpToLine(node.id, isOutlineMirrorNode(node) ? mirrorRowClickLine(node) : node.line);");
+    expect(viewTs).not.toContain("mirrorJumpLine");
   });
 
-  it("no context-menu / drag / rename / Partial Edit branch is attached to a mirror row", () => {
-    expect(viewTs).not.toMatch(/isOutlineMirrorNode\(node\)\)\s*\{\s*selfEl\.addEventListener\("contextmenu"/);
-    expect(viewTs).not.toMatch(/kind === "mirror"[^\n]*(dragstart|contextmenu|beginRename|activatePartialEditView)/);
+  it("no drag / rename / Partial Edit branch is attached to a mirror row (Phase 5M-2 later added ONLY a Move/Delete menu — see tests/phase5m2MirrorOps.test.ts)", () => {
+    expect(viewTs).not.toMatch(/kind === "mirror"[^\n]*(dragstart|beginRename|activatePartialEditView)/);
+    expect(viewTs).not.toMatch(/isOutlineMirrorNode\(node\)[^\n]*(dragstart|draggable|beginRename)/);
   });
 
   it("the settings tab exposes the toggle", () => {

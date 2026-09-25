@@ -70,6 +70,7 @@ import {
 import { swapBlocks } from "../move/moveBlock";
 import { LineEditOutcome } from "../commands/applyLineEditOutcome";
 import { TranslationKey } from "../i18n";
+import { isMirrorEmbedBlock } from "../mirror/isMirrorEmbedBlock";
 
 /**
  * The ComplexBlockKind values a standalone complex-block move ever targets.
@@ -88,8 +89,13 @@ import { TranslationKey } from "../i18n";
  */
 export type StandaloneComplexBlockMoveKind = Extract<
   ComplexBlockKind,
-  "callout" | "blockquote" | "fenced-code" | "table"
+  "callout" | "blockquote" | "fenced-code" | "table" | "paragraph"
 >;
+// Phase 5M-2: "paragraph" was added to this union ONLY for a same-note
+// mirror embed line (mirror/isMirrorEmbedBlock.ts). buildStandaloneComplexBlockSnapshot
+// below still never produces a "paragraph" snapshot — only
+// buildMirrorEmbedMoveSnapshot does, and only for such a line — so every
+// pre-existing caller (Tree Move menus, D&D sessions) is unaffected.
 
 /**
  * A point-in-time capture of a standalone ComplexBlockInfo, taken by the
@@ -142,6 +148,25 @@ export function buildStandaloneComplexBlockSnapshot(info: ComplexBlockInfo): Sta
   return {
     id: info.id,
     kind: info.kind,
+    range: { startLine: info.range.startLine, endLine: info.range.endLine },
+    parentId: info.parentId,
+  };
+}
+
+/**
+ * Phase 5M-2: the Move snapshot for a mirror row — a same-note mirror embed
+ * line (mirror/isMirrorEmbedBlock.ts), or null for anything else. Fed to the
+ * UNCHANGED moveStandaloneComplexBlock below, whose judge
+ * (evaluateStandaloneComplexBlockMovability) admits exactly this shape.
+ */
+export function buildMirrorEmbedMoveSnapshot(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo
+): StandaloneComplexBlockSnapshot | null {
+  if (!isMirrorEmbedBlock(doc, info)) return null;
+  return {
+    id: info.id,
+    kind: "paragraph",
     range: { startLine: info.range.startLine, endLine: info.range.endLine },
     parentId: info.parentId,
   };
@@ -231,7 +256,8 @@ export function findRangeInvalidReason(
     snapshot.kind !== "callout" &&
     snapshot.kind !== "blockquote" &&
     snapshot.kind !== "fenced-code" &&
-    snapshot.kind !== "table"
+    snapshot.kind !== "table" &&
+    snapshot.kind !== "paragraph" // Phase 5M-2: mirror embed snapshots only (see buildMirrorEmbedMoveSnapshot)
   ) {
     return "range-invalid";
   }

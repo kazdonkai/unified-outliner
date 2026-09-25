@@ -333,6 +333,15 @@ import { applyParagraphEdit, paragraphEditTextContainsBlankLine } from "../edit/
 import { evaluateRenameNoteIdentity } from "../edit/renameNoteIdentityGuard";
 import { TranslationKey } from "../i18n";
 import { createMirrorBelow, MirrorCreateRef } from "../mirror/createMirror";
+import { buildMirrorOpSnapshots, deleteMirror, evaluateMirrorMove } from "../mirror/mirrorOps";
+import {
+  MirrorSourceJumpRecord,
+  isCursorAtMirrorSource,
+  mirrorRowClickAction,
+  mirrorRowClickLine,
+  mirrorSourceJumpTarget,
+  shouldSuppressMirrorRowClick,
+} from "./mirrorRowNavigation";
 import {
   BlockCopySourceRef,
   BlockCopyTargetHint,
@@ -435,15 +444,6 @@ interface StandaloneComplexBlockDragSession {
   sourceTreeNodeId: string;
 }
 
-
-/**
- * Phase 5M-0: where activating a Tree row moves the cursor — a mirror row's
- * referenced heading/block (its `targetLine`), or, for an unresolved /
- * circular mirror and every other row kind, the row's own `line`.
- */
-export function mirrorJumpLine(node: OutlineTreeNode): number {
-  return isOutlineMirrorNode(node) && node.targetLine !== null ? node.targetLine : node.line;
-}
 
 /**
  * Phase 5D-4C ("CompositeBlock Atomic Drag-and-Drop 最小実装", Phase 5D-4B
@@ -604,6 +604,18 @@ export class OutlineTreeView extends ItemView {
   // is recognized, so a third rapid press starts a fresh pair rather than
   // re-pairing with an already-consumed press.
   private lastRowPointerDown: RowPointerDownRecord | null = null;
+
+  // Phase 5M-2 follow-up (mirror row click target): set when a desktop
+  // double click on a mirror row jumped to the referenced block, so that
+  // double click's own trailing `click` does not move the cursor straight
+  // back to the embed line (see mirrorRowNavigation.ts's
+  // shouldSuppressMirrorRowClick). Consumed by that one click.
+  private lastMirrorSourceJump: MirrorSourceJumpRecord | null = null;
+
+  // Phase 5M-2 follow-up, mobile only: the most recent press on a mirror
+  // row, so the click handler can require a short tap (not a long press)
+  // before "tap the selected mirror row again" jumps to the source.
+  private lastMirrorPointerDown: MirrorSourceJumpRecord | null = null;
 
   // Phase 3A drag & drop state. All UI-only — the pure decision of where
   // a drop is even legal lives in move/relocateSection.ts's canDropOn, not
@@ -1733,6 +1745,30 @@ export class OutlineTreeView extends ItemView {
           this.beginParagraphRenameForNode(node.id)
         );
       });
+    } else if (isOutlineMirrorNode(node) && Platform.isMobile) {
+      // Phase 5M-2 follow-up (mirror row click target), mobile: "tap the
+      // already-selected row again" jumps to the referenced block (see the
+      // click handler below). Record when this row's press started so that
+      // handler can tell a TAP from the release of a long press (which
+      // opens this row's context menu and must not also jump).
+      selfEl.addEventListener("pointerdown", (evt) => {
+        if (!evt.isPrimary) return;
+        this.lastMirrorPointerDown = { nodeId: node.id, time: evt.timeStamp };
+      });
+    } else if (isOutlineMirrorNode(node)) {
+      // Phase 5M-2 follow-up (mirror row click target), desktop: a double
+      // click on a mirror row jumps to the referenced heading/block, via
+      // the same pointerdown-based detector as the rename branches above.
+      // The row stays read-only: this is navigation only, never rename.
+      selfEl.addEventListener("pointerdown", (evt) => {
+        const pressTime = evt.timeStamp;
+        // A press after the recognizing one starts a new gesture: its own
+        // click must never be swallowed, even if the double click's
+        // trailing click never arrived (e.g. the row was re-rendered).
+        if (this.lastMirrorSourceJump && pressTime > this.lastMirrorSourceJump.time) this.lastMirrorSourceJump = null;
+        const onDoubleClick = (): void => this.jumpToMirrorSource(node.id, pressTime);
+        this.handleRowPointerDownForDoubleClick(evt, node.id, collapseEl, dragHandleEl, onDoubleClick);
+      });
     }
 
     if (isOutlineSectionNode(node)) {
@@ -1884,7 +1920,7 @@ export class OutlineTreeView extends ItemView {
     // mobile-long-press attachment point below without needing its own
     // exclusion at each site.
 
-    selfEl.addEventListener("click", () => {
+    selfEl.addEventListener("click", (evt) => {
       // Mobile gesture layer, tier 1/3 of 3 (see the "Mobile gesture" block
       // below for tiers 2 and 3): swallow the one click a long press's own
       // touch-release synthesizes — see suppressNextTapClick's own doc
@@ -1893,6 +1929,34 @@ export class OutlineTreeView extends ItemView {
       if (this.suppressNextTapClick) {
         this.suppressNextTapClick = false;
         return;
+      }
+      // Phase 5M-2 follow-up (mirror row click target): a click on a mirror
+      // row goes to its OWN embed line like every other row (see the
+      // jumpToLine call at the end of this handler); the referenced block
+      // is reached by "Go to mirror source", a desktop double click, or —
+      // on mobile — tapping the already-selected mirror row again, which
+      // toggles between the source and the embed line (the gesture that
+      // starts rename on an editable row; a mirror row has none). See
+      // view/mirrorRowNavigation.ts.
+      if (isOutlineMirrorNode(node)) {
+        if (shouldSuppressMirrorRowClick(this.lastMirrorSourceJump, node.id, evt.timeStamp)) {
+          this.lastMirrorSourceJump = null;
+          return;
+        }
+        const press = this.lastMirrorPointerDown;
+        this.lastMirrorPointerDown = null;
+        const action = mirrorRowClickAction({
+          isMobile: Platform.isMobile,
+          treeHasFocus: this.hasFocus,
+          alreadySelected: node.id === this.selectedId,
+          pressDurationMs: press && press.nodeId === node.id ? evt.timeStamp - press.time : null,
+          longPressMs: LONG_PRESS_DURATION_MS,
+          cursorAtSource: isCursorAtMirrorSource(node, this.activeMarkdownView.get()?.editor.getCursor().line ?? null),
+        });
+        if (action === "jump-to-source") {
+          this.jumpToMirrorSource(node.id);
+          return;
+        }
       }
       // Mobile gesture layer, tier 3 of 3: a tap landing on the row that's
       // ALREADY selected AND focused starts inline rename instead of
@@ -1928,9 +1992,12 @@ export class OutlineTreeView extends ItemView {
       // scrolls it into view, but keeps DOM focus in the tree panel so an
       // immediately-following arrow key still navigates the tree instead
       // of silently being swallowed by the now-focused editor.
-      // Phase 5M-0: a mirror row jumps to the referenced heading/block
-      // (mirrorJumpLine), not to its own embed line.
-      this.jumpToLine(node.id, mirrorJumpLine(node), { focusEditor: false });
+      // A mirror row goes to its own embed line (Phase 5M-2 follow-up; it
+      // went to the referenced block in Phase 5M-0 — see
+      // view/mirrorRowNavigation.ts for why that changed).
+      this.jumpToLine(node.id, isOutlineMirrorNode(node) ? mirrorRowClickLine(node) : node.line, {
+        focusEditor: false,
+      });
     });
 
     // Right-click structure menu: the full move/indent/outdent/contextual
@@ -2113,6 +2180,17 @@ export class OutlineTreeView extends ItemView {
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showParagraphMoveMenu(evt, node.id);
+      });
+    } else if (isOutlineMirrorNode(node)) {
+      // Phase 5M-2 ("ミラー行に対する操作"): a mirror row's own, narrow menu —
+      // Move mirror up / Move mirror down / Delete mirror ONLY (see
+      // showMirrorMenu). Same "explicit exception layered on top of the
+      // read-only contract" shape as the paragraph branch above: the row
+      // stays in readOnlyNodeIds, so rename, drag and drop, Partial Edit
+      // and Phase 5E-Copy's copy/paste are still never attached to it.
+      selfEl.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        this.showMirrorMenu(evt, node.id);
       });
     }
 
@@ -2927,8 +3005,9 @@ export class OutlineTreeView extends ItemView {
     if (!this.selectedId) return;
     const node = this.nodeById.get(this.selectedId);
     if (!node) return;
-    // Phase 5M-0: Enter on a mirror row jumps to the referenced block, like a click.
-    this.jumpToLine(node.id, mirrorJumpLine(node));
+    // Enter on a mirror row goes to its own embed line, like a click
+    // (Phase 5M-2 follow-up; see view/mirrorRowNavigation.ts).
+    this.jumpToLine(node.id, isOutlineMirrorNode(node) ? mirrorRowClickLine(node) : node.line);
   }
 
   /**
@@ -5223,6 +5302,140 @@ export class OutlineTreeView extends ItemView {
           .onClick(() => this.plugin.clearPendingBlockCopy({ notify: true }))
       );
     }
+  }
+
+  // ---- Phase 5M-2: mirror row operations ---------------------------------
+  //
+  // Move/Delete reuse the EXISTING standalone callout/blockquote pipelines
+  // (moveStandaloneComplexBlock / deleteStandaloneComplexBlock, widened in
+  // Phase 5M-2 to admit a mirror embed line) through the thin wrappers in
+  // mirror/mirrorOps.ts; the click-time dispatch reuses this view's own
+  // dispatchAndApplyStandaloneComplexBlockMove and the same Delete
+  // confirmation modal fenced-code/table/callout/blockquote already use.
+  // Deleting a mirror removes the embed line only — never the referenced
+  // block or its ^block-id (mirrorOps.deleteMirror enforces this).
+
+  private showMirrorMenu(evt: MouseEvent, nodeId: string): void {
+    const node = this.nodeById.get(nodeId);
+    const doc = this.currentDoc;
+    const scan = this.currentComplexScan;
+    if (!node || !isOutlineMirrorNode(node) || !doc || !scan) return;
+    const snapshots = buildMirrorOpSnapshots(doc, scan, node.line);
+    if (!snapshots) return;
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const menu = new Menu();
+
+    // Phase 5M-2 follow-up: "Go to mirror source" (a click goes to the
+    // embed line itself). Unavailable — with the reason as a Notice — for
+    // a mirror whose target is not found or which is circular.
+    const source = mirrorSourceJumpTarget(node);
+    const sourceTitle = this.plugin.t("tree.menu.goToMirrorSource");
+    menu.addItem((item) =>
+      item
+        .setTitle(source.ok ? sourceTitle : `${sourceTitle}${this.plugin.t("tree.menu.unavailableSuffix")}`)
+        .setIcon(source.ok ? "locate" : OutlineTreeView.UNAVAILABLE_ICON)
+        .setWarning(!source.ok)
+        .onClick(() => this.jumpToMirrorSource(nodeId))
+    );
+    menu.addSeparator();
+
+    const addMove = (titleKey: TranslationKey, icon: string, direction: StandaloneMoveDirection) => {
+      const judge = evaluateMirrorMove(doc, scan, this.currentComposites, node.line, direction);
+      const title = this.plugin.t(titleKey);
+      const reasonText = judge.eligible
+        ? undefined
+        : standaloneComplexBlockMoveReasonText((k) => this.plugin.t(k), judge.reason);
+      menu.addItem((item) =>
+        item
+          .setTitle(judge.eligible ? title : `${title}${this.plugin.t("tree.menu.unavailableSuffix")}`)
+          .setIcon(judge.eligible ? icon : OutlineTreeView.UNAVAILABLE_ICON)
+          .setWarning(!judge.eligible)
+          .onClick(() => {
+            if (!judge.eligible) {
+              if (reasonText) new Notice(reasonText);
+              return;
+            }
+            this.dispatchAndApplyMirrorMove(snapshots.move, direction, rules);
+          })
+      );
+    };
+    addMove("tree.menu.moveMirrorUp", "arrow-up", "up");
+    addMove("tree.menu.moveMirrorDown", "arrow-down", "down");
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(this.plugin.t("tree.menu.deleteMirror"))
+        .setIcon("trash-2")
+        .setWarning(true)
+        .onClick(() => {
+          new ConfirmFencedCodeDeleteModal(
+            this.app,
+            this.plugin,
+            snapshots.delete.kind,
+            node.label,
+            snapshots.delete.range,
+            (confirmed) => {
+              if (confirmed) this.dispatchAndApplyMirrorDelete(snapshots.delete, rules);
+            }
+          ).open();
+        })
+    );
+    this.showTrackedMenu(menu, evt);
+  }
+
+  /**
+   * Phase 5M-2 follow-up: move the body cursor to the mirror's REFERENCED
+   * heading/block (the row stays selected; the cursor-follow highlight
+   * moves to the target row). Not found / circular -> a Notice, nothing
+   * moves. `doubleClickTime` (the recognizing pointerdown's timeStamp) is
+   * passed only by the desktop double click, whose trailing click must
+   * then be swallowed — see lastMirrorSourceJump.
+   */
+  private jumpToMirrorSource(nodeId: string, doubleClickTime?: number): void {
+    const node = this.nodeById.get(nodeId);
+    if (!node || !isOutlineMirrorNode(node)) return;
+    const target = mirrorSourceJumpTarget(node);
+    if (!target.ok) {
+      new Notice(
+        this.plugin.t(
+          target.reason === "cycle" ? "notice.mirrorSourceUnavailable.cycle" : "notice.mirrorSourceUnavailable.unresolved"
+        )
+      );
+      return;
+    }
+    if (doubleClickTime !== undefined) this.lastMirrorSourceJump = { nodeId, time: doubleClickTime };
+    this.selectedId = node.id;
+    this.jumpToLine(node.id, target.line, { focusEditor: false });
+  }
+
+  /** Mirror Move: the existing standalone Move dispatch, unchanged (same multi-cursor guard, write path and follow/refresh tail). */
+  private dispatchAndApplyMirrorMove(
+    snapshot: StandaloneComplexBlockSnapshot,
+    direction: StandaloneMoveDirection,
+    rules: CompositeBlockRule[]
+  ): boolean {
+    return this.dispatchAndApplyStandaloneComplexBlockMove(snapshot, direction, rules);
+  }
+
+  /** Mirror Delete: mirrorOps.deleteMirror (existing standalone delete + "embed line only" invariant) via applyLineEditOutcome — one Undo step. */
+  private dispatchAndApplyMirrorDelete(snapshot: StandaloneComplexBlockDeleteSnapshot, rules: CompositeBlockRule[]): boolean {
+    const view = this.activeMarkdownView.get();
+    if (!view) return false;
+    const editor: Editor = view.editor;
+    if (editor.listSelections().length > 1) {
+      this.notify(this.plugin.t("notice.multipleCursors"));
+      return false;
+    }
+    const text = editor.getValue();
+    const outcome = deleteMirror(text, snapshot, rules);
+    const changed = applyLineEditOutcome(editor, { line: snapshot.range.startLine, ch: 0 }, snapshot.range.startLine, text.split("\n"), outcome, () => {});
+    if (!changed) {
+      new Notice(this.plugin.t("notice.mirrorDeleteRefused"));
+      return false;
+    }
+    new Notice(this.plugin.t("notice.mirrorDeleted"));
+    this.refresh();
+    return true;
   }
 
   // ---- Phase 5M-1: Create mirror -------------------------------------------

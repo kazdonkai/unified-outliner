@@ -171,13 +171,16 @@ describe("i18n coverage for every new Table Mode UI string", () => {
 });
 
 describe("isDirty considers the Table tab's own model", () => {
-  it("tableModeDirty compares serializeMarkdownTable(tableModeTable) against originalText", () => {
+  // 2026-09-25 fix: the comparison target changed from originalText
+  // verbatim to originalText's own CANONICAL serialization, so merely
+  // switching to the Table tab no longer reads as an edit.
+  it("tableModeDirty compares serializeMarkdownTable(tableModeTable) against the canonical serialization of originalText", () => {
     const idx = pane.indexOf("const tableModeDirty =");
     expect(idx).toBeGreaterThan(0);
     const body = pane.slice(idx, idx + 400);
     expect(body).toContain('this.nodeKind === "table"');
     expect(body).toContain('this.tableModeActiveTab === "table"');
-    expect(body).toContain("serializeMarkdownTable(this.tableModeTable).join(\"\\n\") !== this.originalText");
+    expect(body).toContain("serializeMarkdownTable(this.tableModeTable).join(\"\\n\") !== this.tableModeBaselineSerialized()");
     expect(pane).toMatch(/leafFirstChildDirty \|\|\s*fencedCodeInfoStringDirty \|\|\s*tableModeDirty\)/);
   });
 });

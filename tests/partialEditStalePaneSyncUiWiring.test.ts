@@ -324,7 +324,11 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
 
   it("applyEdit's own low-level fail-closed conflict checks (applySubtreeEdit/applyParagraphEdit/applyCompositeBlockEdit) are untouched by this ticket — no NEW gate on syncState, only an unconditional post-success reset", () => {
     const body = bodyOf(viewTs, "private applyEdit(): boolean {", "applyEdit");
-    expect(body).toContain("applyParagraphEdit(doc, this.paragraphAnchor, this.textareaEl.value)");
+    // Block ID field (2026-09-25): applyParagraphEdit gained the Block ID
+    // field's two trailing arguments; the conflict-checked call itself is unchanged.
+    expect(body).toContain(
+      "applyParagraphEdit(doc, this.paragraphAnchor, this.textareaEl.value, paragraphBlockId, paragraphIdStandalone)"
+    );
     expect(body).toContain("applyCompositeBlockEdit(");
     // Phase 5E-3: the call site reformatted to a multi-line call (a 5th,
     // conditional fencedCodeInfoString argument was added) — this still

@@ -81,6 +81,183 @@ import { isListNode, isSectionNode, ParsedDocument } from "../model/block";
 import { ComplexBlockInfo } from "../model/complexBlock";
 import { scanComplexBlocks } from "../parser/complexBlocks";
 
+// ---- Block ID field (Partial Edit: blockId separated from the body text) ----
+//
+// A block id takes one of two shapes in the note:
+//   - inline suffix: the block's last line ends with " ^id"
+//     ("Paragraph source text. ^src-para");
+//   - standalone line: a line holding only "^id" after the block
+//     ("^src-callout" after a callout — Create mirror writes a blank line
+//     before it, the Obsidian convention for quotes/tables/code).
+// The Partial Edit Pane shows only the BODY in its editor and the id in a
+// separate Block ID field; Apply re-attaches the (possibly edited or
+// cleared) id in the block's original shape. Detection matches
+// mirror/resolveMirrorSource.ts / mirror/createMirror.ts so the pane shows
+// exactly the id a mirror uses.
+
+/** A line holding only a block id: `^id` (optional surrounding whitespace). */
+export const LONE_BLOCK_ID_RE = /^\s*\^([A-Za-z0-9-]+)\s*$/;
+/** A line ending with a block id: `... ^id` (or the whole line `^id`). */
+export const BLOCK_ID_AT_END_RE = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/;
+/** A valid block id value (without the leading `^`). */
+export const BLOCK_ID_VALUE_RE = /^[A-Za-z0-9-]+$/;
+
+/**
+ * The block id on the line immediately after `endLine`, when that line is a
+ * lone `^id` line; otherwise null. (Blank lines are NOT skipped here — see
+ * detectBlockIdLayout for the blank-line-separated form.)
+ */
+export function extractBlockIdAfterRange(lines: readonly string[], endLine: number): string | null {
+  const line = lines[endLine + 1];
+  if (line === undefined) return null;
+  const m = LONE_BLOCK_ID_RE.exec(line);
+  return m ? m[1] : null;
+}
+
+/**
+ * Splits an inline ` ^id` suffix off the LAST line of `text`. The suffix and
+ * the whitespace before it are removed; every other line is unchanged.
+ */
+export function stripInlineBlockId(text: string): { body: string; blockId: string | null } {
+  const lines = text.split("\n");
+  const last = lines[lines.length - 1];
+  const m = BLOCK_ID_AT_END_RE.exec(last);
+  if (!m) return { body: text, blockId: null };
+  lines[lines.length - 1] = last.slice(0, m.index).replace(/[ \t]+$/, "");
+  return { body: lines.join("\n"), blockId: m[1] };
+}
+
+/** Appends ` ^id` to the LAST line of `body` (no-op for a null id). Inverse of stripInlineBlockId. */
+export function joinInlineBlockId(body: string, blockId: string | null): string {
+  if (blockId === null) return body;
+  return `${body} ^${blockId}`;
+}
+
+/** Normalizes a Block ID field value: trims, drops one leading `^`; "" -> null. Invalid -> ok:false. */
+export function normalizeBlockIdInput(raw: string | null): { ok: true; blockId: string | null } | { ok: false } {
+  if (raw === null) return { ok: true, blockId: null };
+  let v = raw.trim();
+  if (v.startsWith("^")) v = v.slice(1).trim();
+  if (v === "") return { ok: true, blockId: null };
+  return BLOCK_ID_VALUE_RE.test(v) ? { ok: true, blockId: v } : { ok: false };
+}
+
+/** Where a block's id lives, relative to the block's own line range. */
+export interface BlockIdLayout {
+  blockId: string | null;
+  /** True for a lone `^id` line (after the block, or a paragraph's own last line); false for an inline suffix or no id. */
+  standalone: boolean;
+  /** The last line of the block's BODY (the id line excluded). */
+  bodyEndLine: number;
+  /** The line holding the id (the body's last line for an inline suffix); -1 when there is no id. */
+  idLine: number;
+}
+
+function isBlank(line: string | undefined): boolean {
+  return line !== undefined && line.trim() === "";
+}
+
+/**
+ * Finds the block id of the block spanning `startLine..endLine`:
+ *   1. (`inline` only) the block's own last line is a lone `^id` line and the
+ *      block has other lines — a paragraph written "text\n^id";
+ *   2. (`inline` only) the last line ends with ` ^id` (and is not only the id);
+ *   3. the first non-blank line after the block is a lone `^id` line (any
+ *      number of blank lines in between, as mirror/createMirror.ts accepts).
+ * Fenced code passes `inline: false`: a " ^x" at the end of a code line is
+ * code, never a block id.
+ */
+export function detectBlockIdLayout(
+  lines: readonly string[],
+  startLine: number,
+  endLine: number,
+  opts: { inline: boolean }
+): BlockIdLayout {
+  if (opts.inline) {
+    const last = lines[endLine] ?? "";
+    const lone = LONE_BLOCK_ID_RE.exec(last);
+    if (lone) {
+      if (endLine > startLine) return { blockId: lone[1], standalone: true, bodyEndLine: endLine - 1, idLine: endLine };
+    } else {
+      const stripped = stripInlineBlockId(last);
+      if (stripped.blockId !== null && stripped.body.trim() !== "") {
+        return { blockId: stripped.blockId, standalone: false, bodyEndLine: endLine, idLine: endLine };
+      }
+    }
+  }
+  let k = endLine + 1;
+  while (k < lines.length && isBlank(lines[k])) k++;
+  if (k < lines.length) {
+    const m = LONE_BLOCK_ID_RE.exec(lines[k]);
+    if (m) return { blockId: m[1], standalone: true, bodyEndLine: endLine, idLine: k };
+  }
+  return { blockId: null, standalone: false, bodyEndLine: endLine, idLine: -1 };
+}
+
+/** The block's body text for `layout` (id line / inline suffix removed). */
+export function blockBodyText(lines: readonly string[], startLine: number, layout: BlockIdLayout): string {
+  const body = lines.slice(startLine, layout.bodyEndLine + 1).join("\n");
+  return layout.blockId !== null && !layout.standalone ? stripInlineBlockId(body).body : body;
+}
+
+/**
+ * Rebuilds the lines that replace `startLine..(regionEnd)` in `lines`: the
+ * new body plus the block id in the block's ORIGINAL shape.
+ *   - `newBlockId === undefined` keeps the current id unchanged;
+ *   - null removes it (a standalone id line goes together with the blank
+ *     lines before it; one blank line is kept if content follows directly);
+ *   - an id for a block that has none uses `preferStandalone` to choose the
+ *     shape — a new standalone line is written after one blank line, the
+ *     same layout mirror/createMirror.ts uses.
+ * An unchanged id next to an unchanged body line is written back byte-for-
+ * byte (original spacing kept).
+ */
+export function rebuildBlockWithId(params: {
+  lines: readonly string[];
+  bodyLines: string[];
+  layout: BlockIdLayout;
+  newBlockId: string | null | undefined;
+  preferStandalone: boolean;
+}): { replacement: string[]; regionEnd: number } {
+  const { lines, layout } = params;
+  const body = [...params.bodyLines];
+  const regionEnd = layout.blockId !== null ? Math.max(layout.bodyEndLine, layout.idLine) : layout.bodyEndLine;
+  const id = params.newBlockId === undefined ? layout.blockId : params.newBlockId;
+  const followsDirectly = !isBlank(lines[regionEnd + 1]) && lines[regionEnd + 1] !== undefined;
+
+  if (id === null) {
+    if (layout.blockId !== null && layout.standalone && layout.idLine > layout.bodyEndLine && followsDirectly) {
+      return { replacement: [...body, ""], regionEnd };
+    }
+    return { replacement: body, regionEnd };
+  }
+
+  if (layout.blockId !== null && layout.standalone) {
+    const gap = lines.slice(layout.bodyEndLine + 1, layout.idLine);
+    const idLineText = id === layout.blockId ? lines[layout.idLine] : `^${id}`;
+    return { replacement: [...body, ...gap, idLineText], regionEnd };
+  }
+
+  if (layout.blockId !== null) {
+    // Inline suffix: re-attach to the new body's last line.
+    const originalLast = lines[layout.bodyEndLine];
+    const lastIdx = body.length - 1;
+    if (id === layout.blockId && body[lastIdx] === stripInlineBlockId(originalLast).body) {
+      body[lastIdx] = originalLast;
+    } else {
+      body[lastIdx] = joinInlineBlockId(body[lastIdx], id);
+    }
+    return { replacement: body, regionEnd };
+  }
+
+  // The block had no id: add one.
+  if (params.preferStandalone) {
+    return { replacement: [...body, "", `^${id}`, ...(followsDirectly ? [""] : [])], regionEnd };
+  }
+  body[body.length - 1] = joinInlineBlockId(body[body.length - 1], id);
+  return { replacement: body, regionEnd };
+}
+
 export type NoExtractReason = "resolve-failed" | "not-a-heading";
 
 export interface ExtractSectionOutcome {
@@ -184,6 +361,15 @@ export interface ExtractSubtreeOutcome {
    * other kind.
    */
   fencedCode?: FencedCodeBodyExtraction;
+  /**
+   * Block ID field: the block's id, separated from `text` (callout,
+   * blockquote, fenced-code and table only; always null for section/list).
+   */
+  blockId: string | null;
+  /** True when that id is a lone `^id` line (after the block); false for an inline suffix or no id. */
+  blockIdIsStandaloneLine: boolean;
+  /** Where the id lives (callout/blockquote/fenced-code/table only) — used by applySubtreeEdit to re-attach it. */
+  blockIdLayout?: BlockIdLayout;
 }
 
 /**
@@ -241,10 +427,20 @@ export function extractSubtreeText(doc: ParsedDocument, nodeId: string): Extract
         startLine: -1,
         endLine: -1,
         reason: "unsafe-indent",
+        blockId: null,
+        blockIdIsStandaloneLine: false,
       };
     }
     const text = doc.lines.slice(node.range.startLine, node.range.endLine + 1).join("\n");
-    return { ok: true, kind: "list", text, startLine: node.range.startLine, endLine: node.range.endLine };
+    return {
+      ok: true,
+      kind: "list",
+      text,
+      startLine: node.range.startLine,
+      endLine: node.range.endLine,
+      blockId: null,
+      blockIdIsStandaloneLine: false,
+    };
   }
   if (isSectionNode(node)) {
     const text = doc.lines.slice(node.range.startLine, node.range.endLine + 1).join("\n");
@@ -254,12 +450,23 @@ export function extractSubtreeText(doc: ParsedDocument, nodeId: string): Extract
       text,
       startLine: node.range.startLine,
       endLine: node.range.endLine,
+      blockId: null,
+      blockIdIsStandaloneLine: false,
     };
   }
   // Unreachable given BlockNode = ListBlockNode | SectionBlockNode, kept
   // only so this function has a total, type-checked return for every
   // path.
-  return { ok: false, kind: null, text: "", startLine: -1, endLine: -1, reason: "not-editable" };
+  return {
+    ok: false,
+    kind: null,
+    text: "",
+    startLine: -1,
+    endLine: -1,
+    reason: "not-editable",
+    blockId: null,
+    blockIdIsStandaloneLine: false,
+  };
 }
 
 /**
@@ -295,7 +502,16 @@ function extractComplexBlockText(
       complexBlock.kind !== "table") ||
     complexBlock.editability !== "supported"
   ) {
-    return { ok: false, kind: null, text: "", startLine: -1, endLine: -1, reason: "resolve-failed" };
+    return {
+      ok: false,
+      kind: null,
+      text: "",
+      startLine: -1,
+      endLine: -1,
+      reason: "resolve-failed",
+      blockId: null,
+      blockIdIsStandaloneLine: false,
+    };
   }
   // Phase 5E-3 ("Fenced Code Block Partial Edit の UX 改善"): fenced-code
   // gets its own extraction branch here, ahead of the shared tail below
@@ -326,6 +542,11 @@ function extractComplexBlockText(
     const contentLines = rawLines.slice(1, rawLines.length - 1);
     const bodyText = contentLines.join("\n");
     const fencedCode: FencedCodeBodyExtraction = { infoString, bodyText, fenceChar, fenceLength, openLineIndent };
+    // Block ID field: a fenced block's id is always a standalone line after
+    // the closing fence (a " ^x" inside the code is code, not an id).
+    const layout = detectBlockIdLayout(doc.lines, complexBlock.range.startLine, complexBlock.range.endLine, {
+      inline: false,
+    });
     return {
       ok: true,
       kind: "fenced-code",
@@ -333,16 +554,29 @@ function extractComplexBlockText(
       startLine: complexBlock.range.startLine,
       endLine: complexBlock.range.endLine,
       fencedCode,
+      blockId: layout.blockId,
+      blockIdIsStandaloneLine: layout.standalone,
+      blockIdLayout: layout,
     };
   }
 
-  const text = doc.lines.slice(complexBlock.range.startLine, complexBlock.range.endLine + 1).join("\n");
+  // Block ID field: callout/blockquote/table — an inline suffix on the last
+  // line is stripped from `text`; a standalone id line after the block is
+  // never part of `text` in the first place (endLine stays the block's own
+  // last line).
+  const layout = detectBlockIdLayout(doc.lines, complexBlock.range.startLine, complexBlock.range.endLine, {
+    inline: true,
+  });
+  const text = blockBodyText(doc.lines, complexBlock.range.startLine, layout);
   return {
     ok: true,
     kind: complexBlock.kind,
     text,
     startLine: complexBlock.range.startLine,
     endLine: complexBlock.range.endLine,
+    blockId: layout.blockId,
+    blockIdIsStandaloneLine: layout.standalone,
+    blockIdLayout: layout,
   };
 }
 
@@ -440,7 +674,8 @@ export type NoApplySubtreeEditReason =
   | "table-too-few-lines"
   | "table-missing-pipe"
   | "table-invalid-delimiter"
-  | "table-column-mismatch";
+  | "table-column-mismatch"
+  | "invalid-block-id";
 
 export interface ApplySubtreeEditOutcome {
   changed: boolean;
@@ -569,7 +804,27 @@ export function applySubtreeEdit(
    * (`current.fencedCode.infoString`) — i.e. "no change". Ignored
    * entirely for every kind other than "fenced-code".
    */
-  fencedCodeInfoString?: string
+  fencedCodeInfoString?: string,
+  /**
+   * Block ID field (callout/blockquote/fenced-code/table only; ignored for
+   * section/list): the id to write back — null (or "") removes it, a value
+   * sets it (a leading "^" is accepted). Omitted (undefined) keeps the
+   * block's current id exactly as it is.
+   */
+  blockId?: string | null,
+  /**
+   * The shape to use when the block has NO id yet and one is added: true =
+   * a standalone "^id" line after the block, false = an inline suffix.
+   * When the block already has an id, its current shape is always kept.
+   * Fenced code always uses a standalone line.
+   */
+  blockIdIsStandaloneLine?: boolean,
+  /**
+   * The id the pane loaded. When given (not undefined), Apply is refused as
+   * a "conflict" if the note's current id differs — the id was changed
+   * elsewhere since the pane opened, like a body change is.
+   */
+  originalBlockId?: string | null
 ): ApplySubtreeEditOutcome {
   const current = extractSubtreeText(doc, nodeId);
   if (!current.ok) {
@@ -583,6 +838,37 @@ export function applySubtreeEdit(
   if (current.text !== originalText) {
     return { changed: false, lines: doc.lines, newStartLine: -1, reason: "conflict" };
   }
+  const layout = current.blockIdLayout;
+  if (layout && originalBlockId !== undefined && current.blockId !== originalBlockId) {
+    return { changed: false, lines: doc.lines, newStartLine: -1, reason: "conflict" };
+  }
+  let newBlockId: string | null | undefined = undefined;
+  if (layout && blockId !== undefined) {
+    const normalized = normalizeBlockIdInput(blockId);
+    if (!normalized.ok) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "invalid-block-id" };
+    }
+    newBlockId = normalized.blockId;
+  }
+  // Replaces startLine..(end of the block, or of its id line) with the new
+  // body plus the id in its original shape (see rebuildBlockWithId).
+  const spliceWithBlockId = (bodyLines: string[], forceStandalone: boolean): string[] => {
+    if (!layout) {
+      return [...doc.lines.slice(0, current.startLine), ...bodyLines, ...doc.lines.slice(current.endLine + 1)];
+    }
+    const rebuilt = rebuildBlockWithId({
+      lines: doc.lines,
+      bodyLines,
+      layout,
+      newBlockId,
+      preferStandalone: forceStandalone || blockIdIsStandaloneLine === true,
+    });
+    return [
+      ...doc.lines.slice(0, current.startLine),
+      ...rebuilt.replacement,
+      ...doc.lines.slice(rebuilt.regionEnd + 1),
+    ];
+  };
 
   const newLines = newText.split("\n");
 
@@ -648,11 +934,9 @@ export function applySubtreeEdit(
       return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-invalid-close" };
     }
 
-    const lines = [
-      ...doc.lines.slice(0, current.startLine),
-      ...reconstructed,
-      ...doc.lines.slice(current.endLine + 1),
-    ];
+    // Block ID field: a fenced block's id is always a standalone line
+    // after the closing fence (see extractComplexBlockText).
+    const lines = spliceWithBlockId(reconstructed, true);
     return { changed: true, lines, newStartLine: current.startLine };
   }
 
@@ -682,10 +966,6 @@ export function applySubtreeEdit(
     }
   }
 
-  const lines = [
-    ...doc.lines.slice(0, current.startLine),
-    ...newLines,
-    ...doc.lines.slice(current.endLine + 1),
-  ];
+  const lines = spliceWithBlockId(newLines, false);
   return { changed: true, lines, newStartLine: current.startLine };
 }
