@@ -18,6 +18,7 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 - フィクスチャ: `ipad-test/Test/block-id-field-verification.md` と、他ファイル参照用の `ipad-test/Test/block-id-cross-ref.md`（`^code-id` を別ノートから埋め込む）
 - 設定で ON にする: 本文段落も Outline Tree に表示する、アウトラインツリーにコードブロックを表示、アウトラインツリーに表を表示、アウトラインツリーにミラー（埋め込み）を表示。
 - 各項目の後は Cmd/Ctrl+Z で元に戻す（または確認後にフィクスチャを元に戻す）。
+- 注意: 各ブロックは、そのブロック自身の Tree 行から開くこと。見出し行（例:「## Table」）から開くとセクション全体の編集になり、セクションは Block ID フィールドの対象外なので、`^id` 行も本文の一部としてそのまま表示される（仕様どおり）。
 
 ## 3. 確認項目
 
@@ -35,8 +36,8 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 10 | #8 で Block ID を `callout-id-2` に変えて Apply | 独立行が `^callout-id-2` になり、前の空行は保たれる | Not tested | Not tested | |
 | 11 | 「Callout without id」を開く | Block ID の行が表示されない | Not tested | Not tested | |
 | 12 | 「quote with inline id ^quote-inline」の blockquote を開く | 本文に `^quote-inline` が出ず、Block ID に `quote-inline` が出る。本文を変えて Apply しても行末の ID は残る | Not tested | Not tested | |
-| 13 | fenced code（`^code-id` 付き）を開く | 本文に ID が出ず、Block ID に `code-id` が出る。Block ID を変えて Apply すると、閉じフェンスの後の独立行が更新される | Not tested | Not tested | |
-| 14 | table（`^table-id` 付き）を開き、Raw タブと Table タブを見る | どちらにも `^table-id` が出ない。Block ID に `table-id` が出る | Not tested | Not tested | |
+| 13 | Tree の「js: console.log("x");」行（コードブロックの行。見出し「## Code」の行ではない）→ Open in Partial Edit | 本文に ID が出ず、Block ID に `code-id` が出る。Block ID を変えて Apply すると、閉じフェンスの後の独立行が更新される | Not tested | Not tested | |
+| 14 | Tree の「テーブル: a / b」行（表の行。見出し「## Table」の行ではない）→ Open in Partial Edit で開き、Raw タブと Table タブを見る | どちらにも `^table-id` が出ない。Block ID に `table-id` が出る | Not tested | Not tested | |
 | 15 | #14 で Block ID を空にして Apply | `^table-id` の行と、その前の空行が消える | Not tested | Not tested | |
 | 16 | 任意の ID 付きブロックで、Block ID に `a b` と入れて Apply | 「英数字とハイフンだけ」の旨の Notice が出て、ノートは変わらない | Not tested | Not tested | |
 | 17 | 任意の ID 付きブロックで、Block ID だけを変える | Apply／Cancel が有効になる（dirty）。Cancel で元の ID に戻る | Not tested | Not tested | |
