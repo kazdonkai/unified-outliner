@@ -147,7 +147,13 @@ import {
 import type UnifiedOutlinerPlugin from "../main";
 import { mirrorReferencesForTarget, nextMirrorJumpIndex, PartialEditMirrorTarget } from "../mirror/mirrorOps";
 import { parseDocument } from "../parser/parseDocument";
-import { applySubtreeEdit, extractSubtreeText, FencedCodeBodyExtraction, SubtreeKind } from "../edit/partialEdit";
+import {
+  applySubtreeEdit,
+  extractSubtreeText,
+  FencedCodeBodyExtraction,
+  normalizeBlockIdInput,
+  SubtreeKind,
+} from "../edit/partialEdit";
 import {
   nodeDisplayLabel,
   standaloneComplexBlockLabel,
@@ -1333,6 +1339,20 @@ export class PartialEditView extends ItemView {
   private mirrorRefLines: number[] = [];
   /** Phase 5M-2: index into mirrorRefLines of the mirror the last click jumped to (-1 = none yet). */
   private mirrorRefJumpIndex = -1;
+  /**
+   * Block ID field: the row below the editor that shows / edits the loaded
+   * block's id (`^id`), kept out of the body text. Only for paragraph,
+   * callout, blockquote, fenced-code and table, and only shown while the
+   * loaded block HAS an id (see renderBlockIdRow).
+   */
+  private blockIdRowEl!: HTMLElement;
+  private blockIdInputEl!: HTMLInputElement;
+  /** Block ID field: the id the loaded block had at load / last Apply / reload (null = none). */
+  private loadedBlockId: string | null = null;
+  /** Block ID field: true when that id is a lone `^id` line; false for an inline suffix. */
+  private loadedBlockIdIsStandaloneLine = false;
+  /** Block ID field: whether the loaded kind supports the field at all (paragraph/callout/blockquote/fenced-code/table). */
+  private blockIdFieldEligible = false;
   private cancelButtonEl!: HTMLButtonElement;
   private closeButtonEl!: HTMLElement;
 
@@ -1939,6 +1959,22 @@ export class PartialEditView extends ItemView {
     this.newChildTextareaEl.addEventListener("input", () => this.updateDirtyState());
     this.newChildEditorEl.toggleVisibility(false);
 
+    // Block ID field: "Block ID: [ input ]", directly above the mirror
+    // reference row. See blockIdRowEl's own field doc comment.
+    this.blockIdRowEl = this.contentEl.createDiv({ cls: "unified-outliner-partial-edit-block-id-row" });
+    this.blockIdRowEl.createSpan({
+      cls: "unified-outliner-partial-edit-block-id-label",
+      text: this.plugin.t("partialEdit.blockIdLabel"),
+    });
+    this.blockIdInputEl = this.blockIdRowEl.createEl("input", {
+      cls: "unified-outliner-partial-edit-block-id-input",
+      type: "text",
+    });
+    this.blockIdInputEl.setAttribute("placeholder", this.plugin.t("partialEdit.blockIdPlaceholder"));
+    this.blockIdInputEl.setAttribute("spellcheck", "false");
+    this.blockIdInputEl.addEventListener("input", () => this.updateDirtyState());
+    this.blockIdRowEl.toggleVisibility(false);
+
     // Phase 5M-2: display-only mirror-reference link row, last in the pane.
     // See mirrorRefsEl's own field doc comment.
     this.mirrorRefsEl = this.contentEl.createDiv({ cls: "unified-outliner-partial-edit-mirror-refs" });
@@ -2208,6 +2244,9 @@ export class PartialEditView extends ItemView {
     this.directChildren = [];
     this.siblingState = { previous: null, next: null };
     this.syncState = "synced";
+    this.loadedBlockId = null;
+    this.loadedBlockIdIsStandaloneLine = false;
+    this.blockIdFieldEligible = false;
   }
 
   /**
@@ -2500,6 +2539,14 @@ export class PartialEditView extends ItemView {
     // drifting out of sync with) performAutoReload's and each Apply
     // success rebuild's own copies of the same logic.
     this.reconcileStandaloneNodeState(doc, nodeId, node, extracted.text);
+    // Block ID field: callout/blockquote/fenced-code/table only.
+    this.blockIdFieldEligible =
+      extracted.kind === "callout" ||
+      extracted.kind === "blockquote" ||
+      extracted.kind === "fenced-code" ||
+      extracted.kind === "table";
+    this.loadedBlockId = this.blockIdFieldEligible ? extracted.blockId : null;
+    this.loadedBlockIdIsStandaloneLine = this.blockIdFieldEligible ? extracted.blockIdIsStandaloneLine : false;
     // 2026-09-14 (regression fix): a fresh node load must clear any
     // structured-composite list-member snapshot left behind by a PRIOR
     // composite session — otherwise isDirty()'s listDirty check compares
@@ -2567,6 +2614,10 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = null;
     this.nodeKind = "paragraph";
     this.originalText = paragraph.text;
+    // Block ID field: paragraph.text is the body; the id comes separately.
+    this.blockIdFieldEligible = true;
+    this.loadedBlockId = paragraph.blockId;
+    this.loadedBlockIdIsStandaloneLine = paragraph.blockIdIsStandaloneLine;
     // Phase 5D-0.5: a paragraph never projects — see this class field's own
     // doc comment (quoteProjection is exclusively a callout/blockquote
     // concept). Reset alongside originalText/nodeKind above so a pane that
@@ -2695,6 +2746,9 @@ export class PartialEditView extends ItemView {
     this.paragraphAnchor = null;
     this.compositeAnchor = extracted.resolvedSnapshot;
     this.nodeKind = "composite";
+    this.blockIdFieldEligible = false;
+    this.loadedBlockId = null;
+    this.loadedBlockIdIsStandaloneLine = false;
     this.originalText = extracted.text;
     // Phase 5D-2B ("CompositeBlock Structured Partial Edit Projection"): attempt to
     // split this CompositeBlock into its own list member + trailing
@@ -2848,6 +2902,7 @@ export class PartialEditView extends ItemView {
     this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
+    this.renderBlockIdRow();
     this.updateDirtyState();
     // Phase 5M-2: nothing loaded -> no mirror-reference row.
     this.renderMirrorReferences([]);
@@ -2912,10 +2967,40 @@ export class PartialEditView extends ItemView {
     this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
+    this.renderBlockIdRow();
     this.updateDirtyState();
     // Phase 5M-2: display-only mirror-reference row for the newly loaded block.
     this.mirrorRefJumpIndex = -1;
     this.updateMirrorReferences();
+  }
+
+  /**
+   * Block ID field: show the row (with the loaded id in the input) only for
+   * an eligible kind whose block currently HAS an id; hide it otherwise.
+   * Resets the input to the loaded id — called on load, reload and after
+   * Apply, never while the user is typing.
+   */
+  private renderBlockIdRow(): void {
+    const show = this.isBlockIdFieldActive();
+    this.blockIdInputEl.value = show ? (this.loadedBlockId ?? "") : "";
+    this.blockIdRowEl.toggleVisibility(show);
+  }
+
+  /** Block ID field: true while the row is shown for the loaded block. */
+  private isBlockIdFieldActive(): boolean {
+    return this.blockIdFieldEligible && this.loadedBlockId !== null;
+  }
+
+  /**
+   * Block ID field: the id Apply should write — undefined when the field is
+   * not active (the block's id, if any, is kept as it is); null when the
+   * input was cleared (removes the id); otherwise the typed value (Apply
+   * validates it).
+   */
+  private blockIdForApply(): string | null | undefined {
+    if (!this.isBlockIdFieldActive()) return undefined;
+    const v = this.blockIdInputEl.value.trim();
+    return v === "" ? null : v;
   }
 
   /**
@@ -5227,6 +5312,8 @@ export class PartialEditView extends ItemView {
     // unaffected, since currentDisplayText falls through to originalText
     // verbatim whenever quoteProjection is null.
     this.textareaEl.value = this.currentDisplayText();
+    // Block ID field: back to the loaded id.
+    this.renderBlockIdRow();
     // Phase 5D-1A: revert the title input to its loaded value too, when a
     // title slot is active — a no-op (value already unchanged) otherwise,
     // since quoteTitleInputEl is empty/hidden whenever titleSlot is null.
@@ -5427,7 +5514,9 @@ export class PartialEditView extends ItemView {
     // nodeId/paragraphAnchor is ever set (see this class's own doc
     // comment), so the two paths cannot interfere with each other.
     if (this.paragraphAnchor) {
-      const outcome = applyParagraphEdit(doc, this.paragraphAnchor, this.textareaEl.value);
+      const paragraphBlockId = this.blockIdForApply();
+      const paragraphIdStandalone = this.loadedBlockIdIsStandaloneLine;
+      const outcome = applyParagraphEdit(doc, this.paragraphAnchor, this.textareaEl.value, paragraphBlockId, paragraphIdStandalone);
       if (!outcome.changed) {
         const reasonKey = ("reason." + (outcome.reason ?? "anchor-unresolved")) as TranslationKey;
         new Notice(this.plugin.t(reasonKey));
@@ -5467,9 +5556,18 @@ export class PartialEditView extends ItemView {
         // starts from a fully current anchor, not a stale one.
         const freshDoc = parseDocument(editor.getValue());
         const freshResolved = resolveParagraphAtCursor(freshDoc, outcome.newStartLine);
+        const appliedBlockId = this.blockIdForApply();
+        const appliedNormalized = appliedBlockId === undefined ? null : normalizeBlockIdInput(appliedBlockId);
+        const appliedId = appliedNormalized && appliedNormalized.ok ? appliedNormalized.blockId : this.loadedBlockId;
         this.paragraphAnchor = freshResolved.paragraph
           ? buildParagraphEditAnchor(freshDoc, freshResolved.paragraph)
-          : { ...this.paragraphAnchor, originalText: this.textareaEl.value };
+          : { ...this.paragraphAnchor, originalText: this.textareaEl.value, blockId: appliedId };
+        // Block ID field: re-read the id the note now has.
+        this.loadedBlockId = freshResolved.paragraph ? freshResolved.paragraph.blockId : appliedId;
+        if (freshResolved.paragraph) {
+          this.loadedBlockIdIsStandaloneLine = freshResolved.paragraph.blockIdIsStandaloneLine;
+        }
+        this.renderBlockIdRow();
         // Phase 5A-1 hardening §1: this pane just re-anchored from its own
         // just-applied content, so it is synced by definition — set
         // explicitly rather than left to whatever it happened to be before
@@ -6122,7 +6220,10 @@ export class PartialEditView extends ItemView {
           this.nodeId!,
           this.originalText,
           newRawText,
-          this.nodeKind === "fenced-code" ? (this.fencedCodeSelectedInfoString ?? undefined) : undefined
+          this.nodeKind === "fenced-code" ? (this.fencedCodeSelectedInfoString ?? undefined) : undefined,
+          this.blockIdForApply(),
+          this.loadedBlockIdIsStandaloneLine,
+          this.blockIdFieldEligible ? this.loadedBlockId : undefined
         );
     const node = doc.nodes.get(this.nodeId!);
     const startLine = node ? node.range.startLine : 0;
@@ -6205,6 +6306,16 @@ export class PartialEditView extends ItemView {
       // run yet), so its own `childSubtreeText` is exactly the unchanged
       // child-subtree snapshot to reattach.
       this.originalText = newRawText;
+      // Block ID field: re-read the id the note now has (the Apply may have
+      // changed, removed or kept it).
+      if (this.blockIdFieldEligible) {
+        const freshForId = extractSubtreeText(parseDocument(editor.getValue()), this.nodeId!);
+        if (freshForId.ok) {
+          this.loadedBlockId = freshForId.blockId;
+          this.loadedBlockIdIsStandaloneLine = freshForId.blockIdIsStandaloneLine;
+        }
+        this.renderBlockIdRow();
+      }
       if (this.standaloneParentListItemProjection) {
         // Phase 5L-6: override the re-anchor above — `newRawText` here holds
         // ONLY the just-applied own-text candidate (never the child
@@ -7348,6 +7459,9 @@ export class PartialEditView extends ItemView {
     // would never register as dirty, silently defeating the unsaved-edit
     // guard every requestLoadNode/requestLoadParagraphAtCursor/
     // requestLoadComposite call already relies on via `if (!this.isDirty())`.
+    // Block ID field: an edited id alone makes the pane dirty (only ever
+    // true while a block is loaded and its Block ID row is shown).
+    if (this.isBlockIdDirty()) return true;
     return (
       (this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null) &&
       (this.textareaEl.value !== this.currentDisplayText() ||
@@ -7367,6 +7481,13 @@ export class PartialEditView extends ItemView {
         fencedCodeInfoStringDirty ||
         tableModeDirty)
     );
+  }
+
+  /** Block ID field: dirty when the input no longer names the loaded id ("^x" and "x" count as the same). */
+  private isBlockIdDirty(): boolean {
+    if (!this.isBlockIdFieldActive()) return false;
+    const normalized = normalizeBlockIdInput(this.blockIdInputEl.value);
+    return !normalized.ok || normalized.blockId !== this.loadedBlockId;
   }
 
   /**
@@ -7698,6 +7819,25 @@ export class PartialEditView extends ItemView {
 
     return { ok: false, text: null, ambiguous: false };
   }
+  /**
+   * Block ID field: the loaded target's CURRENT block id in `doc` — null for
+   * none, undefined when the loaded kind has no Block ID field or the target
+   * cannot be resolved (resolveCurrentTarget's own result covers that).
+   * Read-only, like resolveCurrentTarget.
+   */
+  private resolveCurrentTargetBlockId(doc: ParsedDocument): string | null | undefined {
+    if (!this.blockIdFieldEligible) return undefined;
+    if (this.nodeId) {
+      const extracted = extractSubtreeText(doc, this.nodeId);
+      return extracted.ok ? extracted.blockId : undefined;
+    }
+    if (this.paragraphAnchor && this.paragraphAnchor.blockId !== undefined) {
+      const resolvedParagraph = resolveParagraphAnchorText(doc, this.paragraphAnchor);
+      return resolvedParagraph.ok ? (resolvedParagraph.blockId ?? null) : undefined;
+    }
+    return undefined;
+  }
+
 
   /**
    * Classifies the result of one resolveCurrentTarget call against
@@ -7732,12 +7872,20 @@ export class PartialEditView extends ItemView {
     // real assertions rather than only via this file's own static-source
     // checks). Everything below is purely dispatch: apply whichever side
     // effect the decision calls for, never re-deciding anything itself.
-    const decision = classifySyncOutcome({
+    let decision = classifySyncOutcome({
       resolved,
       originalText: this.originalText,
       isDirty: this.isDirty(),
       fromLiveEditor,
     });
+    // Block ID field: a block id changed elsewhere counts as a changed
+    // target, exactly like a changed body (same auto-reload / stale rules).
+    if (decision === "already-synced") {
+      const currentBlockId = this.resolveCurrentTargetBlockId(doc);
+      if (currentBlockId !== undefined && currentBlockId !== this.loadedBlockId) {
+        decision = !this.isDirty() && fromLiveEditor ? "clean-pane-auto-reload" : "stale";
+      }
+    }
 
     switch (decision) {
       case "unavailable":
@@ -7798,7 +7946,17 @@ export class PartialEditView extends ItemView {
    * second stale check) after this must start from a fully current basis.
    */
   private performAutoReload(newText: string, doc: ParsedDocument): void {
+    // Block ID field: take over the target's current id (read BEFORE the
+    // anchor is re-based below; undefined = no Block ID field / unresolved).
+    const blockId = this.resolveCurrentTargetBlockId(doc);
     this.originalText = newText;
+    if (blockId !== undefined) {
+      this.loadedBlockId = blockId;
+      if (this.nodeId) {
+        const reExtracted = extractSubtreeText(doc, this.nodeId);
+        if (reExtracted.ok) this.loadedBlockIdIsStandaloneLine = reExtracted.blockIdIsStandaloneLine;
+      }
+    }
     if (this.nodeId && this.quoteProjection) {
       const kind = this.quoteProjection.kind;
       const rebuilt = buildQuotePrefixProjection(newText, kind);
@@ -7832,7 +7990,11 @@ export class PartialEditView extends ItemView {
       this.reconcileStandaloneNodeState(doc, this.nodeId, reloadedNode, newText);
     }
     if (this.paragraphAnchor) {
-      this.paragraphAnchor = { ...this.paragraphAnchor, originalText: newText };
+      this.paragraphAnchor = {
+        ...this.paragraphAnchor,
+        originalText: newText,
+        ...(this.paragraphAnchor.blockId !== undefined && blockId !== undefined ? { blockId } : {}),
+      };
     }
     if (this.compositeAnchor) {
       const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
@@ -7902,6 +8064,7 @@ export class PartialEditView extends ItemView {
     this.renderTableModeRow();
     this.renderParentChildPreview();
     this.renderLeafFirstChildAddRow();
+    this.renderBlockIdRow();
     this.updateDirtyState();
   }
 

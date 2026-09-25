@@ -2652,3 +2652,25 @@ settings:
   color: var(--text-accent);
   cursor: pointer;
 }
+
+/* Block ID field: the Partial Edit Pane's "Block ID: [ ^id ]" row, below
+ * the editor — the block id kept out of the body text (paragraph, callout,
+ * blockquote, fenced code, table; shown only while the block has an id). */
+.unified-outliner-partial-edit-block-id-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+  font-size: var(--font-ui-small);
+}
+
+.unified-outliner-partial-edit-block-id-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.unified-outliner-partial-edit-block-id-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-monospace);
+}

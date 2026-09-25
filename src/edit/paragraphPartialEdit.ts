@@ -66,6 +66,7 @@
 import { ParsedDocument } from "../model/block";
 import { ComplexBlockInfo } from "../model/complexBlock";
 import { complexBlockDepth, scanComplexBlocks } from "../parser/complexBlocks";
+import { blockBodyText, BlockIdLayout, detectBlockIdLayout, normalizeBlockIdInput, rebuildBlockWithId } from "./partialEdit";
 
 /**
  * Captured once, at load time, via `buildParagraphEditAnchor` below — see
@@ -83,6 +84,18 @@ export interface ParagraphEditAnchor {
    * edit/partialEdit.ts's applySubtreeEdit.
    */
   originalText: string;
+  /**
+   * Block ID field: the paragraph's block id as loaded. When this field is
+   * PRESENT (even null), the anchor is in "body mode": `originalText` is
+   * the paragraph's BODY only (id removed — see
+   * resolver/resolveParagraphAtCursor.ts), identity checks compare bodies
+   * AND ids, and applyParagraphEdit re-attaches the id. Anchors built
+   * elsewhere without this field (the Outline Tree's inline rename) keep
+   * the original full-text behavior unchanged.
+   */
+  blockId?: string | null;
+  /** Body mode only: true when the loaded id was a lone "^id" line. */
+  blockIdIsStandaloneLine?: boolean;
   /**
    * Phase 5P-4 supplement: the number of "supported" paragraph-kind
    * siblings under `parentId`/`depth` at the moment this anchor was built
@@ -159,7 +172,14 @@ export interface ParagraphEditAnchor {
  */
 export function buildParagraphEditAnchor(
   doc: ParsedDocument,
-  resolved: { complexBlockId: string; parentId: string | null; depth: number; text: string },
+  resolved: {
+    complexBlockId: string;
+    parentId: string | null;
+    depth: number;
+    text: string;
+    blockId?: string | null;
+    blockIdIsStandaloneLine?: boolean;
+  },
   complexBlocks: ComplexBlockInfo[] = scanComplexBlocks(doc).blocks
 ): ParagraphEditAnchor {
   // Phase 5A-1 hardening §5: the same filtered, document-order candidate
@@ -181,6 +201,9 @@ export function buildParagraphEditAnchor(
     parentId: resolved.parentId,
     depth: resolved.depth,
     originalText: resolved.text,
+    ...(resolved.blockId !== undefined
+      ? { blockId: resolved.blockId, blockIdIsStandaloneLine: resolved.blockIdIsStandaloneLine ?? false }
+      : {}),
     siblingCount: sameSlot.length,
     siblingIndex,
     prevSiblingText: siblingIndex > 0 ? extract(sameSlot[siblingIndex - 1]) : null,
@@ -192,7 +215,8 @@ export function buildParagraphEditAnchor(
 export type NoParagraphApplyReason =
   | "anchor-unresolved"
   | "content-changed"
-  | "blank-line-not-allowed";
+  | "blank-line-not-allowed"
+  | "invalid-block-id";
 
 export interface ApplyParagraphEditOutcome {
   changed: boolean;
@@ -314,24 +338,87 @@ function extractParagraphText(doc: ParsedDocument, b: ComplexBlockInfo): string 
   return doc.lines.slice(b.range.startLine, b.range.endLine + 1).join("\n");
 }
 
+/** Block ID field: a paragraph's id layout (inline suffix, own trailing lone line, or lone line after it). */
+function paragraphBlockIdLayout(doc: ParsedDocument, b: ComplexBlockInfo): BlockIdLayout {
+  return detectBlockIdLayout(doc.lines, b.range.startLine, b.range.endLine, { inline: true });
+}
+
+/** True when `anchor` is in body mode (see ParagraphEditAnchor.blockId). */
+function isBodyModeAnchor(anchor: ParagraphEditAnchor): boolean {
+  return anchor.blockId !== undefined;
+}
+
+/**
+ * The text an anchor's `originalText` is compared with: the full raw text
+ * for a legacy anchor; for a body-mode anchor the body, with the id folded
+ * in so that a changed id also counts as "the content changed".
+ */
+function anchorComparableText(doc: ParsedDocument, b: ComplexBlockInfo, anchor: ParagraphEditAnchor): string {
+  if (!isBodyModeAnchor(anchor)) return extractParagraphText(doc, b);
+  const layout = paragraphBlockIdLayout(doc, b);
+  return comparableBody(blockBodyText(doc.lines, b.range.startLine, layout), layout.blockId);
+}
+
+function comparableBody(body: string, blockId: string | null | undefined): string {
+  return blockId ? `${body}\u0000^${blockId}` : body;
+}
+
+function anchorOwnComparable(anchor: ParagraphEditAnchor): string {
+  return isBodyModeAnchor(anchor) ? comparableBody(anchor.originalText, anchor.blockId) : anchor.originalText;
+}
+
 export function applyParagraphEdit(
   doc: ParsedDocument,
   anchor: ParagraphEditAnchor,
-  newText: string
+  newText: string,
+  /**
+   * Block ID field (body-mode anchors only — see ParagraphEditAnchor.blockId;
+   * ignored for a legacy anchor): the id to write back. null (or "")
+   * removes it, a value sets it (a leading "^" is accepted); undefined keeps
+   * the paragraph's current id unchanged.
+   */
+  blockId?: string | null,
+  /** The shape for an id added to a paragraph that has none: true = lone "^id" line, false = inline suffix. */
+  blockIdIsStandaloneLine?: boolean
 ): ApplyParagraphEditOutcome {
   if (paragraphEditTextContainsBlankLine(newText)) {
     return { changed: false, lines: doc.lines, newStartLine: -1, reason: "blank-line-not-allowed" };
   }
+  const bodyMode = isBodyModeAnchor(anchor);
+  let newBlockId: string | null | undefined = undefined;
+  if (bodyMode && blockId !== undefined) {
+    const normalized = normalizeBlockIdInput(blockId);
+    if (!normalized.ok) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "invalid-block-id" };
+    }
+    newBlockId = normalized.blockId;
+  }
 
   const paragraphCandidates = supportedParagraphCandidates(doc);
-  const extract = (b: ComplexBlockInfo): string => extractParagraphText(doc, b);
+  const extract = (b: ComplexBlockInfo): string => anchorComparableText(doc, b, anchor);
+  const own = anchorOwnComparable(anchor);
 
   const applyAt = (b: ComplexBlockInfo): ApplyParagraphEditOutcome => {
     const newLines = newText.split("\n");
+    if (!bodyMode) {
+      const lines = [
+        ...doc.lines.slice(0, b.range.startLine),
+        ...newLines,
+        ...doc.lines.slice(b.range.endLine + 1),
+      ];
+      return { changed: true, lines, newStartLine: b.range.startLine };
+    }
+    const rebuilt = rebuildBlockWithId({
+      lines: doc.lines,
+      bodyLines: newLines,
+      layout: paragraphBlockIdLayout(doc, b),
+      newBlockId,
+      preferStandalone: blockIdIsStandaloneLine === true,
+    });
     const lines = [
       ...doc.lines.slice(0, b.range.startLine),
-      ...newLines,
-      ...doc.lines.slice(b.range.endLine + 1),
+      ...rebuilt.replacement,
+      ...doc.lines.slice(rebuilt.regionEnd + 1),
     ];
     return { changed: true, lines, newStartLine: b.range.startLine };
   };
@@ -342,7 +429,7 @@ export function applyParagraphEdit(
     idCandidate &&
     idCandidate.parentId === anchor.parentId &&
     complexBlockDepth(doc, idCandidate.parentId) === anchor.depth &&
-    extract(idCandidate) === anchor.originalText
+    extract(idCandidate) === own
   ) {
     return applyAt(idCandidate);
   }
@@ -352,7 +439,7 @@ export function applyParagraphEdit(
   const sameSlotCandidates = paragraphCandidates.filter(
     (b) => b.parentId === anchor.parentId && complexBlockDepth(doc, b.parentId) === anchor.depth
   );
-  const exactMatches = sameSlotCandidates.filter((b) => extract(b) === anchor.originalText);
+  const exactMatches = sameSlotCandidates.filter((b) => extract(b) === own);
 
   if (exactMatches.length === 1) {
     return applyAt(exactMatches[0]);
@@ -374,6 +461,14 @@ export interface ParagraphAnchorTextResolution {
   text: string | null;
   /** True only when `ok` is false AND no candidate could be safely, uniquely identified — never guessed. */
   ambiguous: boolean;
+  /**
+   * Block ID field, body-mode anchors only (see ParagraphEditAnchor.blockId):
+   * the re-resolved paragraph's CURRENT id, present only when it has one
+   * (`text` is then its body). Always absent for a legacy anchor.
+   */
+  blockId?: string;
+  /** Internal (Pass 3 -> caller): the resolved paragraph's index in the same-slot array; never returned to callers. */
+  index?: number;
 }
 
 /**
@@ -467,7 +562,20 @@ export function resolveParagraphAnchorText(
   anchor: ParagraphEditAnchor
 ): ParagraphAnchorTextResolution {
   const paragraphCandidates = supportedParagraphCandidates(doc);
-  const extract = (b: ComplexBlockInfo): string => extractParagraphText(doc, b);
+  const extract = (b: ComplexBlockInfo): string => anchorComparableText(doc, b, anchor);
+  const own = anchorOwnComparable(anchor);
+  // Block ID field, body mode: report the resolved paragraph's body and current id.
+  const resolvedAs = (b: ComplexBlockInfo): ParagraphAnchorTextResolution => {
+    if (!isBodyModeAnchor(anchor)) return { ok: true, text: extractParagraphText(doc, b), ambiguous: false };
+    const layout = paragraphBlockIdLayout(doc, b);
+    // `blockId` is only present when the paragraph has one (absent = none).
+    return {
+      ok: true,
+      text: blockBodyText(doc.lines, b.range.startLine, layout),
+      ambiguous: false,
+      ...(layout.blockId !== null ? { blockId: layout.blockId } : {}),
+    };
+  };
 
   // Pass 1: fast path via the (possibly stale) scan-local id — see this
   // function's own doc comment above for why the content-match
@@ -477,9 +585,9 @@ export function resolveParagraphAnchorText(
     idCandidate &&
     idCandidate.parentId === anchor.parentId &&
     complexBlockDepth(doc, idCandidate.parentId) === anchor.depth &&
-    extract(idCandidate) === anchor.originalText
+    extract(idCandidate) === own
   ) {
-    return { ok: true, text: anchor.originalText, ambiguous: false };
+    return resolvedAs(idCandidate);
   }
 
   // Pass 2: structural + content re-search, mirroring applyParagraphEdit's
@@ -487,10 +595,10 @@ export function resolveParagraphAnchorText(
   const sameSlotCandidates = paragraphCandidates.filter(
     (b) => b.parentId === anchor.parentId && complexBlockDepth(doc, b.parentId) === anchor.depth
   );
-  const exactMatches = sameSlotCandidates.filter((b) => extract(b) === anchor.originalText);
+  const exactMatches = sameSlotCandidates.filter((b) => extract(b) === own);
 
   if (exactMatches.length === 1) {
-    return { ok: true, text: extract(exactMatches[0]), ambiguous: false };
+    return resolvedAs(exactMatches[0]);
   }
   if (exactMatches.length >= 2) {
     return { ok: false, text: null, ambiguous: true };
@@ -499,7 +607,12 @@ export function resolveParagraphAnchorText(
   // the anchor's exact original text. Pass 3 (Phase 5A-1 hardening §5,
   // "paragraph reload / stale resolution hardening") — reached ONLY when
   // Pass 1 and Pass 2 above have both already failed.
-  return resolveViaSiblingContext(sameSlotCandidates, anchor, extract);
+  // Pass 3 compares RAW texts (the anchor's prev/next sibling snapshots are raw).
+  const viaContext = resolveViaSiblingContext(sameSlotCandidates, anchor, (b) => extractParagraphText(doc, b));
+  if (!viaContext.ok || viaContext.index === undefined) {
+    return { ok: viaContext.ok, text: viaContext.text, ambiguous: viaContext.ambiguous };
+  }
+  return resolvedAs(sameSlotCandidates[viaContext.index]);
 }
 
 /**
@@ -597,5 +710,5 @@ function resolveViaSiblingContext(
     return { ok: false, text: null, ambiguous: true };
   }
 
-  return { ok: true, text: currentTexts[anchor.siblingIndex], ambiguous: false };
+  return { ok: true, text: currentTexts[anchor.siblingIndex], ambiguous: false, index: anchor.siblingIndex };
 }

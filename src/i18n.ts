@@ -321,6 +321,8 @@ const en = {
   "modal.deleteMirrorTitle": "Unified Outliner: delete mirror",
   "modal.deleteMirrorNote": "Only this embed line is removed. The referenced heading or block — and its block id — are not changed.",
   "partialEdit.mirrorReferences": "Mirrors referencing this block: {count}",
+  "partialEdit.blockIdLabel": "Block ID:",
+  "partialEdit.blockIdPlaceholder": "none",
   "partialEdit.mirrorReferencesJump": "Click to jump to mirror {n} of {count}",
   "tree.menu.createMirrorBelow": "Create mirror below",
   "tree.menu.createMirrorAbove": "Create mirror above",
@@ -1238,6 +1240,8 @@ const en = {
     "Unified Outliner: the second line must be a valid delimiter row (each column made of one or more hyphens, with optional leading/trailing colons, and nothing else).",
   "reason.table-column-mismatch":
     "Unified Outliner: every row must have the same number of columns.",
+  "reason.invalid-block-id":
+    "Unified Outliner: a block ID may contain only letters, digits and hyphens — nothing was changed.",
 
   // ---- Fenced code language selector (Phase 5E-3,
   // view/PartialEditView.ts). Label for the kind/info-string selector row
@@ -1689,6 +1693,8 @@ const ja: Record<TranslationKey, string> = {
   "modal.deleteMirrorTitle": "Unified Outliner: ミラーを削除",
   "modal.deleteMirrorNote": "削除するのはこの埋め込み行だけである。参照先の見出し・ブロックとそのブロック ID は変更しない。",
   "partialEdit.mirrorReferences": "このブロックを参照しているミラー: {count} 件",
+  "partialEdit.blockIdLabel": "Block ID:",
+  "partialEdit.blockIdPlaceholder": "なし",
   "partialEdit.mirrorReferencesJump": "クリックでミラー {n} / {count} へ移動",
   "tree.menu.createMirrorBelow": "下にミラーを作成",
   "tree.menu.createMirrorAbove": "上にミラーを作成",
@@ -2272,6 +2278,8 @@ const ja: Record<TranslationKey, string> = {
     "Unified Outliner: 2行目は有効な区切り行（各列がハイフン1文字以上、前後に任意のコロンを許可し、他に何もないこと）である必要がある。",
   "reason.table-column-mismatch":
     "Unified Outliner: すべての行の列数が一致している必要がある。",
+  "reason.invalid-block-id":
+    "Unified Outliner: ブロック ID に使えるのは英数字とハイフンだけである。何も変更していない。",
 
   // ---- fenced code の種別選択 UI（Phase 5E-3、view/PartialEditView.ts）。
   // フェンス行を含まなくなったテキストエリアの上に表示する種別・info

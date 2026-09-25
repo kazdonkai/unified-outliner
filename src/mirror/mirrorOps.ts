@@ -42,7 +42,7 @@ import {
   StandaloneComplexBlockDeleteSnapshot,
 } from "../edit/deleteStandaloneComplexBlock";
 import { StandaloneMoveDirection } from "../move/findStandaloneComplexBlockMoveTarget";
-import { extractSubtreeText } from "../edit/partialEdit";
+import { blockBodyText, detectBlockIdLayout, extractSubtreeText } from "../edit/partialEdit";
 import { isMirrorEmbedBlock } from "./isMirrorEmbedBlock";
 import { scanMirrorEmbeds } from "./scanMirrorEmbeds";
 
@@ -236,11 +236,22 @@ export function partialEditTargetStartLine(doc: ParsedDocument, target: PartialE
         b.kind === "paragraph" &&
         b.editability === "supported" &&
         b.parentId === target.parentId &&
-        doc.lines.slice(b.range.startLine, b.range.endLine + 1).join("\n") === target.originalText
+        paragraphMatchesText(doc, b, target.originalText)
     );
     return matches.length === 1 ? matches[0].range.startLine : null;
   }
   return null;
+}
+
+/**
+ * True when paragraph `b`'s text equals `text` — either its raw text or its
+ * body with the block id removed (the Partial Edit Pane's Block ID field
+ * keeps the id out of the pane's text).
+ */
+function paragraphMatchesText(doc: ParsedDocument, b: ComplexBlockInfo, text: string): boolean {
+  if (doc.lines.slice(b.range.startLine, b.range.endLine + 1).join("\n") === text) return true;
+  const layout = detectBlockIdLayout(doc.lines, b.range.startLine, b.range.endLine, { inline: true });
+  return layout.blockId !== null && blockBodyText(doc.lines, b.range.startLine, layout) === text;
 }
 
 /** Convenience for the view: everything from raw text. */
