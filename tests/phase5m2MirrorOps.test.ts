@@ -68,14 +68,14 @@ describe("Delete mirror", () => {
   it("never removes the referenced block's auto-assigned ^uo- id (inline)", () => {
     const t = J("## S", "para text ^uo-abcd1234", "", "![[#^uo-abcd1234]]", "", "tail");
     const out = deleteMirror(t, snaps(t, 3).delete, rules);
-    expect(out.lines).toEqual(["## S", "para text ^uo-abcd1234", "", "", "tail"]);
+    expect(out.lines).toEqual(["## S", "para text ^uo-abcd1234", "", "tail"]);
     expect(out.lines).toContain("para text ^uo-abcd1234");
   });
 
   it("never removes a separate ^id line after a callout", () => {
     const t = J("> [!note] N", "> body", "", "^uo-abcd1234", "", "![[#^uo-abcd1234]]");
     const out = deleteMirror(t, snaps(t, 5).delete, rules);
-    expect(out.lines).toEqual(["> [!note] N", "> body", "", "^uo-abcd1234", ""]);
+    expect(out.lines).toEqual(["> [!note] N", "> body", "", "^uo-abcd1234"]);
   });
 
   it("round trip with Create mirror: create then delete leaves only the block id behind", () => {
@@ -85,21 +85,95 @@ describe("Delete mirror", () => {
     });
     const text = created.lines.join("\n");
     const out = deleteMirror(text, snaps(text, created.embedLine!).delete, rules);
-    // The two blank separators Create mirror added stay (a run of 2 is not
-    // normalized — the same rule a callout/blockquote delete follows).
-    expect(out.lines).toEqual(["## S", "para ^uo-rtrt0000", "", "", "tail"]);
+    // Follow-up fix: the separators Create mirror added are cleaned up —
+    // the note is back to exactly what it was, plus the block id.
+    expect(out.lines).toEqual(["## S", "para ^uo-rtrt0000", "", "tail"]);
   });
 
-  it("normalizes a resulting run of 3+ blank lines to 2 (same rule as callout/blockquote delete)", () => {
+  it("a long blank run around the embed ends up as a single separator", () => {
     const t = J("para", "", "", "![[#^x]]", "", "", "end ^x");
     const out = deleteMirror(t, snaps(t, 3).delete, rules);
-    expect(out.lines).toEqual(["para", "", "", "end ^x"]);
+    expect(out.lines).toEqual(["para", "", "end ^x"]);
   });
 
-  it("leaves 2 or fewer surrounding blank lines as they are", () => {
-    const t = J("para ^x", "", "![[#^x]]", "", "end");
+  // ---- Follow-up: blank-line cleanup after Delete mirror -------------------
+
+  it("cleanup case 1: one blank before and one after -> no consecutive blank lines remain", () => {
+    const t = J("## S", "para ^x", "", "![[#^x]]", "", "tail");
+    const out = deleteMirror(t, snaps(t, 3).delete, rules);
+    expect(out.lines).toEqual(["## S", "para ^x", "", "tail"]);
+    expect(out.lines.some((l, i) => l === "" && out.lines[i + 1] === "")).toBe(false);
+  });
+
+  it("cleanup case 1 (edge): the embed was the last line -> the trailing blank line goes too", () => {
+    const t = J("## S", "para ^x", "", "![[#^x]]", "");
+    const out = deleteMirror(t, snaps(t, 3).delete, rules);
+    expect(out.lines).toEqual(["## S", "para ^x"]);
+  });
+
+  it("cleanup case 2: blank only before (or only after) -> exactly one separator between the two blocks", () => {
+    // (An embed line directly followed by plain text would be part of that
+    // paragraph, i.e. not a mirror at all — a heading follows here instead.)
+    const before = J("para ^x", "", "![[#^x]]", "## Next");
+    expect(deleteMirror(before, snaps(before, 2).delete, rules).lines).toEqual(["para ^x", "", "## Next"]);
+    const after = J("## S", "![[#^x]]", "", "tail ^x");
+    expect(deleteMirror(after, snaps(after, 1).delete, rules).lines).toEqual(["## S", "", "tail ^x"]);
+  });
+
+  it("cleanup case 2 (edge): the embed was the first line of the note -> no leading blank line remains", () => {
+    const t = J("![[#^x]]", "", "para ^x");
+    const out = deleteMirror(t, snaps(t, 0).delete, rules);
+    expect(out.lines).toEqual(["para ^x"]);
+  });
+
+  it("the last separator between two blocks is never removed (they must not merge; the id keeps its block)", () => {
+    const t = J("para ^x", "", "![[#^x]]", "", "next para");
     const out = deleteMirror(t, snaps(t, 2).delete, rules);
-    expect(out.lines).toEqual(["para ^x", "", "", "end"]);
+    expect(out.lines).toEqual(["para ^x", "", "next para"]);
+    const doc = parseDocument(out.lines.join("\n"));
+    const paras = scanComplexBlocks(doc).blocks.filter((b) => b.kind === "paragraph");
+    expect(paras.map((p) => [p.range.startLine, p.range.endLine])).toEqual([[0, 0], [2, 2]]);
+  });
+
+  it("cleanup case 3: no blank lines around the embed -> deleted cleanly, every other line unchanged", () => {
+    const t = J("## A", "a", "", "## B", "![[#A]]", "## C", "c");
+    const out = deleteMirror(t, snaps(t, 4).delete, rules);
+    expect(out.changed).toBe(true);
+    expect(out.lines).toEqual(["## A", "a", "", "## B", "## C", "c"]);
+  });
+
+  it("cleanup case 4: an invariant violation returns invariantViolated with the ORIGINAL lines (no cleanup)", () => {
+    const t = J("## S", "para ^x", "", "![[#^x]]", "", "tail");
+    // A misbehaving delete that also drops the referenced paragraph.
+    const bad: Parameters<typeof deleteMirror>[3] = () => ({
+      changed: true,
+      lines: ["## S", "", "", "tail"],
+      newStartLine: 0,
+      newCursorCh: 0,
+    });
+    const out = deleteMirror(t, snaps(t, 3).delete, rules, bad);
+    expect(out.changed).toBe(false);
+    expect(out.invariantViolated).toBe(true);
+    expect(out.lines).toEqual(t.split("\n"));
+  });
+
+  it("cleanup keeps Delete a single Undo step", () => {
+    const t = J("## S", "para ^x", "", "![[#^x]]", "", "tail");
+    const out = deleteMirror(t, snaps(t, 3).delete, rules);
+    const editor = new UndoableFakeEditor(t);
+    expect(applyLineEditOutcome(editor as unknown as Editor, { line: 3, ch: 0 }, 3, t.split("\n"), out, () => {})).toBe(true);
+    expect(editor.replaceCalls).toBe(1);
+    expect(editor.lines).toEqual(out.lines);
+    editor.undo();
+    expect(editor.getValue()).toBe(t);
+  });
+
+  it("the cursor fallback line stays in range after cleanup", () => {
+    const t = J("## S", "para ^x", "", "", "", "![[#^x]]", "", "", "", "tail ^y", "", "![[#^y]]");
+    const out = deleteMirror(t, snaps(t, 5).delete, rules);
+    expect(out.newStartLine).toBeGreaterThanOrEqual(0);
+    expect(out.newStartLine).toBeLessThan(out.lines.length);
+    expect(out.lines.slice(0, 4)).toEqual(["## S", "para ^x", "", "tail ^y"]);
   });
 
   it("other mirrors of the same block are untouched", () => {

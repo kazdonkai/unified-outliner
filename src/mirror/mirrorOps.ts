@@ -119,19 +119,68 @@ export function onlyEmbedLineRemoved(before: readonly string[], after: readonly 
   return after.length <= before.length - 1 && after.length >= expected.length;
 }
 
-/** Delete ONLY the mirror embed line (existing standalone Delete, unchanged) — never the referenced block. */
+/**
+ * Phase 5M-2 follow-up ("Delete Mirror 後の空行クリーンアップ"): collapses
+ * the run of blank lines at `boundary` in `lines` (the post-delete array;
+ * `boundary` is any index inside or directly after that run) so that it no
+ * longer carries the separators Create mirror added around the embed.
+ *
+ * The run shrinks to:
+ *   - 0 lines at the start or the end of the note (nothing to separate);
+ *   - exactly 1 line when non-blank content remains on BOTH sides.
+ *
+ * Never 0 between two pieces of content: in Markdown a blank line is what
+ * separates two blocks, so dropping the last one would merge the block
+ * before the mirror with the one after it — e.g. `para ^uo-x` and the next
+ * paragraph would become ONE paragraph and the `^uo-x` id would then point
+ * at the merged text, i.e. deleting a mirror would change the block it
+ * referenced. A run that is already 0 lines is returned unchanged. Only
+ * blank lines are ever removed. Not exported: mirror-delete-specific
+ * post-processing, used solely by deleteMirror below.
+ */
+function collapseAdjacentBlanksAtBoundary(lines: string[], boundary: number): string[] {
+  const b = Math.max(0, Math.min(boundary, lines.length));
+  let start = b;
+  while (start > 0 && isBlankLine(lines[start - 1])) start--;
+  let end = b;
+  while (end < lines.length && isBlankLine(lines[end])) end++;
+  if (end === start) return lines;
+  const keep = start > 0 && end < lines.length ? 1 : 0;
+  return [...lines.slice(0, start), ...Array<string>(keep).fill(""), ...lines.slice(end)];
+}
+
+/**
+ * Delete ONLY the mirror embed line (existing standalone Delete, unchanged) —
+ * never the referenced block. `deleteImpl` exists for tests only (so the
+ * invariant-violation path can be exercised); production callers never pass it.
+ */
 export function deleteMirror(
   text: string,
   snapshot: StandaloneComplexBlockDeleteSnapshot,
-  rules: CompositeBlockRule[]
+  rules: CompositeBlockRule[],
+  deleteImpl: typeof deleteStandaloneComplexBlock = deleteStandaloneComplexBlock
 ): MirrorDeleteOutcome {
-  const outcome = deleteStandaloneComplexBlock(text, snapshot, rules);
+  const outcome = deleteImpl(text, snapshot, rules);
   if (!outcome.changed) return outcome;
   const before = text.split("\n");
   if (!onlyEmbedLineRemoved(before, outcome.lines, snapshot.range.startLine)) {
     return { changed: false, lines: before, newStartLine: -1, newCursorCh: 0, reason: "boundary-changed", invariantViolated: true };
   }
-  return outcome;
+  // Blank-line cleanup (only after the invariant above passed). The run
+  // around the deleted line starts at the first blank line directly above
+  // the embed in the ORIGINAL text; deleteStandaloneComplexBlock's own
+  // "3+ -> 2" normalization may have shortened that run but never moves
+  // its start, so that index locates it in outcome.lines too.
+  let runStart = snapshot.range.startLine;
+  while (runStart > 0 && isBlankLine(before[runStart - 1])) runStart--;
+  const cleaned = collapseAdjacentBlanksAtBoundary(outcome.lines, runStart);
+  // Defense in depth: the cleanup removed blank lines only.
+  if (!onlyEmbedLineRemoved(before, cleaned, snapshot.range.startLine)) return outcome;
+  // A cursor fallback line below the collapsed run moves up with it.
+  const removed = outcome.lines.length - cleaned.length;
+  const shifted = outcome.newStartLine > runStart ? Math.max(runStart, outcome.newStartLine - removed) : outcome.newStartLine;
+  const newStartLine = Math.max(0, Math.min(shifted, cleaned.length - 1));
+  return { ...outcome, lines: cleaned, newStartLine };
 }
 
 // ---- Partial Edit Pane: "mirrors referencing this block" ---------------------
