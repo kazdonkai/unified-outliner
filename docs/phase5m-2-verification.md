@@ -49,7 +49,7 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 24 | （追加修正）「Mirror: ^src-callout」行をクリックする（キーボードで選択して Enter も） | 本文のカーソルが埋め込み行 `![[#^src-callout]]` へ移り、Tree の選択とカーソル追従のハイライトが同じミラー行になる | Not tested | Not tested | |
 | 25 | （追加修正）同じ行を右クリック（iPad は長押し） | メニューの先頭に「参照先へ移動」があり、選ぶと callout の先頭行へ移動する。Tree の選択はミラー行のまま | Not tested | Not tested | |
 | 26 | （追加修正・Mac）同じ行をダブルクリックする | callout の先頭行へ移動し、埋め込み行へ戻らない。リネームにもならない | Not tested | — | |
-| 27 | （追加修正・iPad）同じ行をタップして選択し、もう一度タップする | 1 回目で埋め込み行へ、2 回目で callout の先頭行へ移動する | — | Not tested | |
+| 27 | （追加修正・iPad）同じ行をタップして選択し、さらに 3 回タップする | 1 回目で埋め込み行へ、2 回目で callout の先頭行へ、3 回目で埋め込み行へ、4 回目で再び callout の先頭行へ移動する（再タップのたびに切り替わる） | — | Not tested | |
 | 28 | （追加修正・iPad）選択済みのミラー行を長押ししてメニューを開く | メニューが開くだけで、参照先へは移動しない | — | Not tested | |
 | 29 | （追加修正）「Mirror: ^missing」のような参照先のないミラー行（なければ `![[#^missing]]` を 1 行追加する）で「参照先へ移動」／ダブルクリック | メニュー項目は「（利用不可）」表示。選ぶ・ダブルクリックすると「参照先が見つからない」旨の Notice が出て、カーソルは動かない | Not tested | Not tested | |
 | 30 | （追加修正）設定の説明文を確認する | 「クリックすると埋め込み行そのものへ移動する」旨に更新されている | Not tested | Not tested | |

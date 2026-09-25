@@ -100,7 +100,7 @@ const en = {
     "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
   "settings.showMirrorEmbedsInOutline.name": "Show mirror embeds in Outline Tree",
   "settings.showMirrorEmbedsInOutline.desc":
-    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row moves to the embed line itself; double-click it (on mobile, tap the selected row again) or choose “Go to mirror source” to move to the referenced heading or block. Off by default; when off, embed lines are shown as ordinary paragraphs.",
+    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row moves to the embed line itself; double-click it or choose “Go to mirror source” to move to the referenced heading or block. On mobile, tapping the selected row again switches between the referenced block and the embed line. Off by default; when off, embed lines are shown as ordinary paragraphs.",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": " (not found)",
   "tree.mirrorCycleSuffix": " (circular)",
@@ -1486,7 +1486,7 @@ const ja: Record<TranslationKey, string> = {
     "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
   "settings.showMirrorEmbedsInOutline.name": "アウトラインツリーにミラー（埋め込み）を表示",
   "settings.showMirrorEmbedsInOutline.desc":
-    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると埋め込み行そのものへ移動する。参照先の見出しまたはブロックへ移動するには、行をダブルクリックする（モバイルでは選択済みの行をもう一度タップする）か、「参照先へ移動」を選ぶ。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
+    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると埋め込み行そのものへ移動する。参照先の見出しまたはブロックへ移動するには、行をダブルクリックするか、「参照先へ移動」を選ぶ。モバイルでは、選択済みの行をもう一度タップするたびに、参照先と埋め込み行が切り替わる。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": "（参照先なし）",
   "tree.mirrorCycleSuffix": "（循環参照）",

@@ -10,9 +10,12 @@
  * showed, and scrolled the embed line being operated on out of view. So:
  *
  *   - click / Enter        -> the mirror's OWN embed line (like every other row);
- *   - "Go to mirror source" (context menu), desktop double click, or — on
- *     mobile — tapping the already-selected row again
- *                          -> the referenced heading/block.
+ *   - "Go to mirror source" (context menu) or a desktop double click
+ *                          -> the referenced heading/block;
+ *   - on mobile, tapping the already-selected row again TOGGLES the cursor
+ *     between the referenced block and the embed line (follow-up after
+ *     real-device testing: a third tap used to "do nothing", because it
+ *     jumped to the source the cursor was already on).
  *
  * This module never reads the clock or the DOM (timestamps are passed in),
  * matching view/rowDoubleClickDetector.ts, so it is unit-testable directly.
@@ -64,9 +67,13 @@ export type MirrorRowClickAction = "jump-to-embed" | "jump-to-source";
 
 /**
  * What a click/tap on a mirror row does. On mobile, a short TAP on the row
- * that is ALREADY selected (and the tree focused) jumps to the source — the
- * same gesture that starts inline rename on an editable row, which a
- * read-only mirror row never has. The click a long press's release
+ * that is ALREADY selected (and the tree focused) toggles: when the body
+ * cursor is currently on the referenced block's first line
+ * (`cursorAtSource`) it goes back to the embed line, otherwise it jumps to
+ * the source. This is the gesture that starts inline rename on an editable
+ * row, which a read-only mirror row never has. Deciding from the actual
+ * cursor position (not a remembered toggle bit) keeps it right after the
+ * user moved the cursor some other way. The click a long press's release
  * produces (`pressDurationMs >= longPressMs`: that gesture opened the
  * context menu) never jumps to the source; an unknown press duration
  * (`null`) is treated as a tap. Desktop clicks always go to the embed line
@@ -78,7 +85,15 @@ export function mirrorRowClickAction(params: {
   alreadySelected: boolean;
   pressDurationMs: number | null;
   longPressMs: number;
+  cursorAtSource: boolean;
 }): MirrorRowClickAction {
   const isTap = params.pressDurationMs === null || params.pressDurationMs < params.longPressMs;
-  return params.isMobile && params.treeHasFocus && params.alreadySelected && isTap ? "jump-to-source" : "jump-to-embed";
+  const reTap = params.isMobile && params.treeHasFocus && params.alreadySelected && isTap;
+  return reTap && !params.cursorAtSource ? "jump-to-source" : "jump-to-embed";
+}
+
+/** True when the body cursor is on the mirror's resolved source line (for the mobile re-tap toggle). */
+export function isCursorAtMirrorSource(node: OutlineTreeMirrorNode, cursorLine: number | null): boolean {
+  const target = mirrorSourceJumpTarget(node);
+  return target.ok && cursorLine !== null && cursorLine === target.line;
 }

@@ -5,6 +5,7 @@ import { parseDocument } from "../src/parser/parseDocument";
 import { scanComplexBlocks } from "../src/parser/complexBlocks";
 import { buildOutlineTree, flattenOutlineTree, isOutlineMirrorNode, OutlineTreeMirrorNode } from "../src/tree/buildOutlineTree";
 import {
+  isCursorAtMirrorSource,
   MIRROR_SOURCE_JUMP_CLICK_SUPPRESS_MS,
   mirrorRowClickAction,
   mirrorRowClickLine,
@@ -108,7 +109,51 @@ describe("Go to mirror source: the referenced block", () => {
 });
 
 describe("mobile: tapping the already-selected mirror row again", () => {
-  const base = { isMobile: true, treeHasFocus: true, alreadySelected: true, pressDurationMs: 80, longPressMs: LONG_PRESS_DURATION_MS };
+  const base = {
+    isMobile: true,
+    treeHasFocus: true,
+    alreadySelected: true,
+    pressDurationMs: 80,
+    longPressMs: LONG_PRESS_DURATION_MS,
+    cursorAtSource: false,
+  };
+
+  it("toggle: a re-tap while the cursor is already on the source goes back to the embed line", () => {
+    expect(mirrorRowClickAction({ ...base, cursorAtSource: true })).toBe("jump-to-embed");
+  });
+
+  it("toggle sequence: tap (select) -> embed, re-tap -> source, re-tap -> embed, re-tap -> source", () => {
+    const rows = mirrorRows(FIXTURE);
+    const row = rows[2]; // ![[#^src-callout]] at 16, source at 6
+    let cursor: number | null = null;
+    let selected = false;
+    const seq: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const action = mirrorRowClickAction({ ...base, alreadySelected: selected, cursorAtSource: isCursorAtMirrorSource(row, cursor) });
+      if (action === "jump-to-source") {
+        const t = mirrorSourceJumpTarget(row);
+        cursor = t.ok ? t.line : cursor;
+      } else {
+        cursor = mirrorRowClickLine(row);
+      }
+      selected = true;
+      seq.push(cursor as number);
+    }
+    expect(seq).toEqual([16, 6, 16, 6]);
+  });
+
+  it("isCursorAtMirrorSource: only the resolved source line counts", () => {
+    const rows = mirrorRows(FIXTURE);
+    expect(isCursorAtMirrorSource(rows[2], 6)).toBe(true);
+    expect(isCursorAtMirrorSource(rows[2], 7)).toBe(false);
+    expect(isCursorAtMirrorSource(rows[2], null)).toBe(false);
+    expect(isCursorAtMirrorSource(rows[3], 18)).toBe(false); // unresolved
+  });
+
+  it("a re-tap after the cursor was moved elsewhere jumps to the source again", () => {
+    const rows = mirrorRows(FIXTURE);
+    expect(mirrorRowClickAction({ ...base, cursorAtSource: isCursorAtMirrorSource(rows[2], 11) })).toBe("jump-to-source");
+  });
 
   it("a short tap on the selected row jumps to the source", () => {
     expect(mirrorRowClickAction(base)).toBe("jump-to-source");
@@ -220,6 +265,7 @@ describe("view wiring (static source checks)", () => {
     expect(retap).toBeGreaterThan(suppress);
     expect(jump).toBeGreaterThan(retap);
     expect(handler).toContain("longPressMs: LONG_PRESS_DURATION_MS");
+    expect(handler).toContain("cursorAtSource: isCursorAtMirrorSource(node,");
   });
 
   it("mirror rows still get no rename or drag wiring", () => {
