@@ -2,7 +2,9 @@
 
 Unified Outliner focuses on safe structural editing inside a single Markdown note. The roadmap prioritizes operations that help people rearrange, inspect, and refine meaningful blocks rather than duplicating Obsidian core features.
 
-## Current Release (1.0)
+## Current Release (1.0.0)
+
+**Released: 2026-09-25**
 
 Unified Outliner 1.0 completes the plugin's core scope: safe structural editing inside a single Markdown note.
 

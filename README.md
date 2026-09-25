@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, copy, inspect, and focus on heading sections, list subtrees, and body blocks through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block. Same-note embeds of a heading or block (`![[#Heading]]`, `![[#^block-id]]`) can also be created and managed from the tree as *mirrors*.
 
-**Current version:** see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the latest version and changelog.
+**Current version:** 1.0.0 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
 
 **Minimum Obsidian version:** 1.8.7
 

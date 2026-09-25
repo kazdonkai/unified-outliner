@@ -1,6 +1,6 @@
 {
   "name": "unified-outliner",
-  "version": "0.8.1",
+  "version": "1.0.0",
   "description": "Move, reorganize, and locally edit heading sections and list subtrees.",
   "main": "main.js",
   "repository": {
