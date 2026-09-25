@@ -728,6 +728,17 @@ export class PartialEditView extends ItemView {
    */
   private tableModeParseFailureReason: MarkdownTableParseFailureReason | null = null;
   /**
+   * Table Mode dirty-state fix: the Raw textarea's text and the table model
+   * it was parsed into at the last Raw -> Table switch. Switching back to
+   * Raw without changing the model restores that text exactly, instead of
+   * replacing it with the serializer's canonical formatting (which alone
+   * used to make an untouched table read as edited). See
+   * handleTableModeSwitchToRawTab.
+   */
+  private tableModeRawAtSwitch: { raw: string; serialized: string } | null = null;
+  /** Cache for tableModeBaselineSerialized (keyed by the originalText it was computed from). */
+  private tableModeBaselineCache: { originalText: string; serialized: string } | null = null;
+  /**
    * Phase 5L-8 ("Child Item Inline Structured Editing in Parent Partial
    * Edit Pane"): non-null ONLY while `standaloneParentListItemProjection`
    * is ALSO non-null (a child can only ever be inline-edited from inside a
@@ -2265,6 +2276,7 @@ export class PartialEditView extends ItemView {
     this.loadedBlockId = null;
     this.loadedBlockIdIsStandaloneLine = false;
     this.blockIdFieldEligible = false;
+    this.tableModeRawAtSwitch = null;
   }
 
   /**
@@ -2536,6 +2548,7 @@ export class PartialEditView extends ItemView {
     // parse itself succeeds — the Table tab (renderTableModeRow) is
     // simply disabled when it doesn't.
     this.tableModeActiveTab = "raw";
+    this.tableModeRawAtSwitch = null;
     if (extracted.kind === "table") {
       const parsed = parseMarkdownTable(extracted.text);
       this.tableModeTable = parsed.ok ? parsed.table : null;
@@ -5018,8 +5031,13 @@ export class PartialEditView extends ItemView {
   private handleTableModeSwitchToRawTab(): void {
     if (this.nodeKind !== "table") return;
     if (this.tableModeActiveTab === "table" && this.tableModeTable) {
-      this.textareaEl.value = serializeMarkdownTable(this.tableModeTable).join("\n");
+      const serialized = serializeMarkdownTable(this.tableModeTable).join("\n");
+      // Dirty-state fix: an unchanged model gives back the Raw text exactly
+      // as it was (its own formatting kept), not the canonical form.
+      const atSwitch = this.tableModeRawAtSwitch;
+      this.textareaEl.value = atSwitch && atSwitch.serialized === serialized ? atSwitch.raw : serialized;
     }
+    this.tableModeRawAtSwitch = null;
     this.tableModeActiveTab = "raw";
     this.renderTableModeRow();
     this.updateDirtyState();
@@ -5047,9 +5065,29 @@ export class PartialEditView extends ItemView {
     }
     this.tableModeTable = parsed.table;
     this.tableModeParseFailureReason = null;
+    this.tableModeRawAtSwitch = {
+      raw: this.textareaEl.value,
+      serialized: serializeMarkdownTable(parsed.table).join("\n"),
+    };
     this.tableModeActiveTab = "table";
     this.renderTableModeRow();
     this.updateDirtyState();
+  }
+
+  /**
+   * Table Mode dirty-state fix: the loaded table in the SERIALIZER's
+   * canonical form (e.g. a "| - |" delimiter row becomes "| --- |"), so the
+   * Table tab is compared model-to-model rather than against the note's
+   * own formatting — merely opening the Table tab no longer reads as an
+   * edit. Falls back to originalText verbatim when it does not parse.
+   */
+  private tableModeBaselineSerialized(): string {
+    const cached = this.tableModeBaselineCache;
+    if (cached && cached.originalText === this.originalText) return cached.serialized;
+    const parsed = parseMarkdownTable(this.originalText);
+    const serialized = parsed.ok ? serializeMarkdownTable(parsed.table).join("\n") : this.originalText;
+    this.tableModeBaselineCache = { originalText: this.originalText, serialized };
+    return serialized;
   }
 
   private handleTableModeAddRow(): void {
@@ -7561,7 +7599,7 @@ export class PartialEditView extends ItemView {
       this.nodeKind === "table" &&
       this.tableModeActiveTab === "table" &&
       this.tableModeTable !== null &&
-      serializeMarkdownTable(this.tableModeTable).join("\n") !== this.originalText;
+      serializeMarkdownTable(this.tableModeTable).join("\n") !== this.tableModeBaselineSerialized();
     // Phase 5D-2A: ALSO counts a loaded CompositeBlock (compositeAnchor)
     // as "something is loaded" here — otherwise a composite-wide edit
     // would never register as dirty, silently defeating the unsaved-edit
