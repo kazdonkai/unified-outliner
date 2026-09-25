@@ -15,7 +15,7 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 
 ## 2. 事前準備
 
-- フィクスチャ: `ipad-test/Test/block-id-field-verification.md`
+- フィクスチャ: `ipad-test/Test/block-id-field-verification.md` と、他ファイル参照用の `ipad-test/Test/block-id-cross-ref.md`（`^code-id` を別ノートから埋め込む）
 - 設定で ON にする: 本文段落も Outline Tree に表示する、アウトラインツリーにコードブロックを表示、アウトラインツリーに表を表示、アウトラインツリーにミラー（埋め込み）を表示。
 - 各項目の後は Cmd/Ctrl+Z で元に戻す（または確認後にフィクスチャを元に戻す）。
 
@@ -25,8 +25,8 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | --- | --- | --- | --- | --- | --- |
 | 1 | 「Inline id paragraph. ^para-inline」を段落を編集…で開く | 本文エリアは「Inline id paragraph.」だけで `^para-inline` を含まない。下に「Block ID: para-inline」の行が出る | Not tested | Not tested | |
 | 2 | #1 で本文だけを変えて Apply | ノートの行末の ` ^para-inline` はそのまま残る | Not tested | Not tested | |
-| 3 | #1 で Block ID を `para-inline-2` に変えて Apply | ノートの行末が ` ^para-inline-2` になる。本文は変わらない（「Mirror: ^para-inline」は参照先なしになる。想定どおり） | Not tested | Not tested | |
-| 4 | #3 の直後に Cmd/Ctrl+Z を 1 回 | 元の ID に戻る | Not tested | Not tested | |
+| 3 | #1 で Block ID を `para-inline-2` に変えて Apply | ノートの行末が ` ^para-inline-2` になる。本文は変わらない。同じノートの `![[#^para-inline]]` も `![[#^para-inline-2]]` に自動で書き換わり、「同一ファイル内の 1 件のミラー参照を自動更新しました。」の Notice が出る（下記 #23） | Not tested | Not tested | |
+| 4 | #3 の直後に Cmd/Ctrl+Z を 1 回 | ブロックの ID と埋め込み行の両方が元に戻る（1 回で戻る） | Not tested | Not tested | |
 | 5 | 「Standalone id paragraph.」を開く | 本文エリアに ID はなく、Block ID に `para-lone` が出る | Not tested | Not tested | |
 | 6 | #5 で Block ID を空にして Apply | `^para-lone` の行と、その前の空行が消える。次の段落との間の空行は残る | Not tested | Not tested | |
 | 7 | 「Paragraph without id.」を開く | Block ID の行が表示されない | Not tested | Not tested | |
@@ -45,6 +45,18 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 20 | 「Inline id paragraph.」を開いた状態で、ペイン最下部を見る | 「このブロックを参照しているミラー: 1 件」が引き続き出る | Not tested | Not tested | |
 | 21 | 回帰: セクション・リスト項目・拡張ブロックを開く | Block ID の行は出ない。従来どおり編集できる | Not tested | Not tested | |
 | 22 | 回帰: Outline Tree で「Inline id paragraph. ^para-inline」をリネームする | 従来どおり全文（ID を含む）でリネームできる | Not tested | Not tested | |
+
+### 追加修正：ミラー参照の自動更新と警告
+
+| # | 操作 | 期待結果 | Mac | iPad | メモ |
+| --- | --- | --- | --- | --- | --- |
+| 23 | 「Callout with id」を開き、Block ID を `callout-id-2` に変えて Apply | callout 後の独立行が `^callout-id-2` になり、`## Mirrors` の `![[#^callout-id]]` も `![[#^callout-id-2]]` に書き換わる。「同一ファイル内の 1 件のミラー参照を自動更新しました。」の Notice が出る。Tree の「Mirror: ^callout-id-2」は解決されたまま | Not tested | Not tested | |
+| 24 | #23 の直後に Cmd/Ctrl+Z を 1 回 | ID の行と埋め込み行の両方が 1 回で元に戻る | Not tested | Not tested | |
+| 25 | fenced code（`^code-id`。`block-id-cross-ref.md` から参照されている）の Block ID を `code-id-2` に変えて Apply | Apply は行われ、「他のファイルから参照されています…」の警告 Notice が出る。`block-id-cross-ref.md` は変更されない | Not tested | Not tested | |
+| 26 | fenced code の Block ID を空にして Apply | ID が削除され、「他のファイルから参照されています。Block ID を削除したため…」の警告 Notice が出る | Not tested | Not tested | |
+| 27 | 「Inline id paragraph.」の Block ID を空にして Apply | ID が削除され、同じノートの `![[#^para-inline]]` は書き換わらずに残る。「同じファイル内から参照されています。Block ID を削除したため、それらの参照が壊れています。」の警告 Notice が出る | Not tested | Not tested | |
+| 28 | 参照のない ID（`^table-id`）を変更して Apply | 自動更新・警告の Notice はどちらも出ない | Not tested | Not tested | |
+| 29 | Block ID を変えずに本文だけを変えて Apply | 自動更新・警告の Notice は出ず、埋め込み行も変わらない | Not tested | Not tested | |
 
 ## 4. 完了判定基準
 

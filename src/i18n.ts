@@ -323,6 +323,14 @@ const en = {
   "partialEdit.mirrorReferences": "Mirrors referencing this block: {count}",
   "partialEdit.blockIdLabel": "Block ID:",
   "partialEdit.blockIdPlaceholder": "none",
+  "partialEdit.blockIdCrossFileWarning":
+    "Unified Outliner: this block ID is referenced from other files. Those references may now be broken.",
+  "partialEdit.blockIdSameFileRenamed":
+    "Unified Outliner: updated {count} mirror reference(s) in the same file automatically.",
+  "partialEdit.blockIdDeletedCrossFileWarning":
+    "Unified Outliner: this block ID is referenced from other files. Those references may now be broken after ID deletion.",
+  "partialEdit.blockIdDeletedSameFileWarning":
+    "Unified Outliner: this block ID is referenced within the same file. Those references are now broken after ID deletion.",
   "partialEdit.mirrorReferencesJump": "Click to jump to mirror {n} of {count}",
   "tree.menu.createMirrorBelow": "Create mirror below",
   "tree.menu.createMirrorAbove": "Create mirror above",
@@ -1695,6 +1703,13 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.mirrorReferences": "このブロックを参照しているミラー: {count} 件",
   "partialEdit.blockIdLabel": "Block ID:",
   "partialEdit.blockIdPlaceholder": "なし",
+  "partialEdit.blockIdCrossFileWarning":
+    "Unified Outliner: このブロック ID は他のファイルから参照されています。Block ID を変更したため、それらの参照が壊れている可能性があります。",
+  "partialEdit.blockIdSameFileRenamed": "Unified Outliner: 同一ファイル内の {count} 件のミラー参照を自動更新しました。",
+  "partialEdit.blockIdDeletedCrossFileWarning":
+    "Unified Outliner: このブロック ID は他のファイルから参照されています。Block ID を削除したため、それらの参照が壊れている可能性があります。",
+  "partialEdit.blockIdDeletedSameFileWarning":
+    "Unified Outliner: このブロック ID は同じファイル内から参照されています。Block ID を削除したため、それらの参照が壊れています。",
   "partialEdit.mirrorReferencesJump": "クリックでミラー {n} / {count} へ移動",
   "tree.menu.createMirrorBelow": "下にミラーを作成",
   "tree.menu.createMirrorAbove": "上にミラーを作成",

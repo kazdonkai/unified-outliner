@@ -148,6 +148,12 @@ import type UnifiedOutlinerPlugin from "../main";
 import { mirrorReferencesForTarget, nextMirrorJumpIndex, PartialEditMirrorTarget } from "../mirror/mirrorOps";
 import { parseDocument } from "../parser/parseDocument";
 import {
+  countSameFileBlockIdMirrors,
+  findCrossFileBlockIdReferences,
+  NoteLinkReference,
+  renameBlockIdInText,
+} from "../edit/blockIdRename";
+import {
   applySubtreeEdit,
   extractSubtreeText,
   FencedCodeBodyExtraction,
@@ -455,6 +461,18 @@ function parentChildIndentOutdentApplyReasonKey(
     case undefined:
       return "partialEdit.parentChildInlineEditResolveFailed";
   }
+}
+
+/** Block ID field: what an Apply that changes a block id will do to mirror references (see prepareBlockIdRename). */
+interface BlockIdRenamePlan {
+  /** The live text with same-note embeds `![[#^old]]` renamed (the live text itself when nothing is renamed). */
+  renamedText: string;
+  replacedCount: number;
+  /** True when the Apply removes the id. */
+  removed: boolean;
+  /** Removal only: same-note mirror embeds that still point at the removed id. */
+  sameFileBrokenCount: number;
+  hasCrossFileRefs: boolean;
 }
 
 /**
@@ -3004,6 +3022,82 @@ export class PartialEditView extends ItemView {
   }
 
   /**
+   * Block ID field — mirror references (see edit/blockIdRename.ts). Only
+   * when the Apply CHANGES the loaded id (`oldId` non-null and the
+   * normalized new value different — removal included):
+   *   - rename: the same-note embeds `![[#^old]]` are rewritten in
+   *     `renamedText` (applied by applyEdit in the same edit as the id);
+   *   - removal: nothing is rewritten; same-note references are counted
+   *     for a warning;
+   *   - both: references from OTHER notes (Obsidian's metadata cache) are
+   *     detected for a warning.
+   * Otherwise `renamedText === currentText` and nothing is reported. Never
+   * blocks the Apply.
+   */
+  private prepareBlockIdRename(
+    oldId: string | null,
+    newId: string | null | undefined,
+    currentText: string
+  ): BlockIdRenamePlan {
+    const none: BlockIdRenamePlan = {
+      renamedText: currentText,
+      replacedCount: 0,
+      removed: false,
+      sameFileBrokenCount: 0,
+      hasCrossFileRefs: false,
+    };
+    if (oldId === null || newId === undefined) return none;
+    const normalized = normalizeBlockIdInput(newId);
+    if (!normalized.ok || normalized.blockId === oldId) return none;
+    const notePath = this.sourcePath ?? "";
+    const hasCrossFileRefs = notePath !== "" && this.hasCrossFileBlockIdReferences(notePath, oldId);
+    if (normalized.blockId === null) {
+      return {
+        ...none,
+        removed: true,
+        sameFileBrokenCount: countSameFileBlockIdMirrors(currentText, notePath, oldId),
+        hasCrossFileRefs,
+      };
+    }
+    const renamed = renameBlockIdInText(currentText, oldId, normalized.blockId);
+    return { ...none, renamedText: renamed.text, replacedCount: renamed.replacedLines.length, hasCrossFileRefs };
+  }
+
+  /** Block ID field: links/embeds in OTHER notes that point at `notePath#^blockId` (metadata cache, read-only). */
+  private hasCrossFileBlockIdReferences(notePath: string, blockId: string): boolean {
+    const cache = this.app.metadataCache;
+    const links: NoteLinkReference[] = [];
+    for (const [sourcePath, targets] of Object.entries(cache.resolvedLinks)) {
+      if (sourcePath === notePath || !targets[notePath]) continue;
+      const fileCache = cache.getCache(sourcePath);
+      for (const l of [...(fileCache?.links ?? []), ...(fileCache?.embeds ?? [])]) {
+        links.push({ sourcePath, link: l.link });
+      }
+    }
+    return findCrossFileBlockIdReferences(
+      links,
+      notePath,
+      blockId,
+      (linkpath, sourcePath) => cache.getFirstLinkpathDest(linkpath, sourcePath)?.path ?? null
+    );
+  }
+
+  /** Block ID field: the Notices for a successful Apply that renamed or removed an id (never blocks anything). */
+  private notifyBlockIdRename(plan: BlockIdRenamePlan): void {
+    if (plan.replacedCount > 0) {
+      new Notice(this.plugin.t("partialEdit.blockIdSameFileRenamed", { count: String(plan.replacedCount) }));
+    }
+    if (plan.removed && plan.sameFileBrokenCount > 0) {
+      new Notice(this.plugin.t("partialEdit.blockIdDeletedSameFileWarning"));
+    }
+    if (plan.hasCrossFileRefs) {
+      new Notice(
+        this.plugin.t(plan.removed ? "partialEdit.blockIdDeletedCrossFileWarning" : "partialEdit.blockIdCrossFileWarning")
+      );
+    }
+  }
+
+  /**
    * Phase 5L-6 ("Parent List Item Structured Partial Edit"): draw (or
    * hide) the read-only child-subtree preview below the shared textarea.
    * Shown ONLY when a parent item's own-text is currently projected
@@ -5503,7 +5597,16 @@ export class PartialEditView extends ItemView {
       return false;
     }
 
-    const doc = parseDocument(editor.getValue());
+    // Block ID field: when the Apply renames the loaded block's id, rewrite
+    // the same-note mirror embeds `![[#^old]]` in the SAME edit — `doc` is
+    // the live text with those embed lines already renamed, and every
+    // applyLineEditOutcome below diffs against the untouched live lines, so
+    // the id change and the embed rewrite land in one replaceRange (one
+    // Undo step). With no rename, `doc` is exactly the live text as before.
+    const liveText = editor.getValue();
+    const liveLines = liveText.split("\n");
+    const blockIdRename = this.prepareBlockIdRename(this.loadedBlockId, this.blockIdForApply(), liveText);
+    const doc = parseDocument(blockIdRename.renamedText);
 
     // Phase 5P-2: a loaded paragraph is a fully separate re-resolution path
     // — see edit/paragraphPartialEdit.ts's own doc comment for why it
@@ -5531,12 +5634,14 @@ export class PartialEditView extends ItemView {
       // released, even if applyLineEditOutcome/re-anchoring/updateDirtyState
       // were ever to throw.
       this.isApplyingOwnEdit = true;
+      // Block ID field: see the node branch's identical call below.
+      this.notifyBlockIdRename(blockIdRename);
       try {
         applyLineEditOutcome(
           editor,
           { line: outcome.newStartLine, ch: 0 },
           outcome.newStartLine,
-          doc.lines,
+          liveLines,
           outcome,
           () => {}
         );
@@ -6240,6 +6345,9 @@ export class PartialEditView extends ItemView {
     // applyLineEditOutcome's own no-op branch never fires — the notify
     // callback is unreachable, but required by its signature.
     this.isApplyingOwnEdit = true;
+    // Block ID field: same-note mirror references were rewritten into this
+    // same edit (one Undo step); report them / warn about broken references.
+    this.notifyBlockIdRename(blockIdRename);
     try {
       // Phase 5E-3a fix: first Apply right after a Tree insert — fold the
       // insert and this Apply into one Undo step (see
@@ -6281,7 +6389,7 @@ export class PartialEditView extends ItemView {
           editor,
           { line: startLine, ch: 0 },
           startLine,
-          doc.lines,
+          liveLines,
           outcome,
           () => {}
         );
