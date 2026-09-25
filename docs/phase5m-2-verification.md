@@ -30,7 +30,7 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 5 | #2 で Cancel を押す／ダイアログを閉じる | 何も変わらない | Not tested | Not tested | |
 | 6 | 「Mirror: ^src-para」を Delete mirror | 埋め込み行だけが消え、参照先の段落の行末 `^src-para` は残る | Not tested | Not tested | |
 | 7 | 「Mirror: ^src-callout」を Delete mirror | 埋め込み行だけが消え、callout 直後の単独行 `^src-callout` は残る | Not tested | Not tested | |
-| 8 | 空行が多い位置の「Mirror: Source A」（Blank-run セクション）を Delete mirror | 前後の連続空行が 2 行に整えられ、それ以外は変わらない | Not tested | Not tested | |
+| 8 | 空行が多い位置の「Mirror: Source A」（Blank-run セクション）を Delete mirror | 前後の連続空行が 1 行にまとめられ（ノートの先頭・末尾なら 0 行）、それ以外は変わらない | Not tested | Not tested | |
 | 9 | 「Mirror: ^src-para」行で Move mirror up | 直前の段落と入れ替わる（間の空行は保たれる）。Tree の選択がミラー行に追従する | Not tested | Not tested | |
 | 10 | 同じ行で Move mirror down | 直後のブロックと入れ替わる | Not tested | Not tested | |
 | 11 | 「## Blank-run」内の「Mirror: Source A」（セクション先頭のブロック）の Move mirror up | unavailable 表示になり、クリックすると理由の Notice が出る。本文は変わらない | Not tested | Not tested | |
