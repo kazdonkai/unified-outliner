@@ -100,7 +100,7 @@ const en = {
     "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
   "settings.showMirrorEmbedsInOutline.name": "Show mirror embeds in Outline Tree",
   "settings.showMirrorEmbedsInOutline.desc":
-    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row jumps to the referenced heading or block. Off by default; when off, embed lines are shown as ordinary paragraphs.",
+    "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row moves to the embed line itself; double-click it (on mobile, tap the selected row again) or choose “Go to mirror source” to move to the referenced heading or block. Off by default; when off, embed lines are shown as ordinary paragraphs.",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": " (not found)",
   "tree.mirrorCycleSuffix": " (circular)",
@@ -311,6 +311,11 @@ const en = {
   "tree.menu.moveMirrorUp": "Move mirror up",
   "tree.menu.moveMirrorDown": "Move mirror down",
   "tree.menu.deleteMirror": "Delete mirror",
+  "tree.menu.goToMirrorSource": "Go to mirror source",
+  "notice.mirrorSourceUnavailable.unresolved":
+    "Unified Outliner: this mirror's target heading or block was not found — there is nothing to go to.",
+  "notice.mirrorSourceUnavailable.cycle":
+    "Unified Outliner: this mirror is part of a circular reference — there is no source to go to.",
   "notice.mirrorDeleted": "Unified Outliner: deleted the mirror embed line (the referenced block was not changed).",
   "notice.mirrorDeleteRefused": "Unified Outliner: the mirror could not be deleted safely (the note may have changed) — nothing was changed.",
   "modal.deleteMirrorTitle": "Unified Outliner: delete mirror",
@@ -1481,7 +1486,7 @@ const ja: Record<TranslationKey, string> = {
     "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
   "settings.showMirrorEmbedsInOutline.name": "アウトラインツリーにミラー（埋め込み）を表示",
   "settings.showMirrorEmbedsInOutline.desc":
-    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると参照先の見出しまたはブロックへ移動する。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
+    "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると埋め込み行そのものへ移動する。参照先の見出しまたはブロックへ移動するには、行をダブルクリックする（モバイルでは選択済みの行をもう一度タップする）か、「参照先へ移動」を選ぶ。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
   "tree.mirrorLabel": "Mirror: {target}",
   "tree.mirrorNotFoundSuffix": "（参照先なし）",
   "tree.mirrorCycleSuffix": "（循環参照）",
@@ -1674,6 +1679,11 @@ const ja: Record<TranslationKey, string> = {
   "tree.menu.moveMirrorUp": "ミラーを上へ移動",
   "tree.menu.moveMirrorDown": "ミラーを下へ移動",
   "tree.menu.deleteMirror": "ミラーを削除",
+  "tree.menu.goToMirrorSource": "参照先へ移動",
+  "notice.mirrorSourceUnavailable.unresolved":
+    "Unified Outliner: このミラーの参照先の見出しまたはブロックが見つからないため、移動できない。",
+  "notice.mirrorSourceUnavailable.cycle":
+    "Unified Outliner: このミラーは循環参照になっているため、参照先へ移動できない。",
   "notice.mirrorDeleted": "Unified Outliner: ミラーの埋め込み行を削除した（参照先のブロックは変更していない）。",
   "notice.mirrorDeleteRefused": "Unified Outliner: ミラーを安全に削除できなかった（ノートが変更された可能性がある）。何も変更していない。",
   "modal.deleteMirrorTitle": "Unified Outliner: ミラーを削除",

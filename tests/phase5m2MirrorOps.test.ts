@@ -422,8 +422,9 @@ describe("wiring (static source checks)", () => {
     return src.slice(start, src.indexOf("\n  }\n", start));
   }
 
-  it("the mirror row menu offers exactly Move up / Move down / Delete — no rename, Partial Edit or copy/paste", () => {
+  it("the mirror row menu offers exactly Go to mirror source / Move up / Move down / Delete — no rename, Partial Edit or copy/paste", () => {
     const menu = body(viewTs, "private showMirrorMenu(");
+    expect(menu).toContain('"tree.menu.goToMirrorSource"');
     expect(menu).toContain('"tree.menu.moveMirrorUp"');
     expect(menu).toContain('"tree.menu.moveMirrorDown"');
     expect(menu).toContain('"tree.menu.deleteMirror"');

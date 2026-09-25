@@ -36,7 +36,7 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 11 | 「## Blank-run」内の「Mirror: Source A」（セクション先頭のブロック）の Move mirror up | unavailable 表示になり、クリックすると理由の Notice が出る。本文は変わらない | Not tested | Not tested | |
 | 12 | 「## Mirrors」内の最後の「Mirror: Source A」（セクション末尾のブロック）の Move mirror down | unavailable 表示（セクションを越えない） | Not tested | Not tested | |
 | 13 | ミラー行をドラッグしようとする（Mac はマウス、iPad はハンドル） | ドラッグできない（ハンドルも出ない） | Not tested | Not tested | |
-| 14 | ミラー行をダブルクリック／選択して F2 | リネームにならない | Not tested | Not tested | |
+| 14 | ミラー行を選択して F2 | リネームにならない | Not tested | Not tested | |
 | 15 | 「## Source A」行 → Open in Partial Edit | ペイン最下部に「このブロックを参照しているミラー: 3 件」が出る | Not tested | Not tested | |
 | 16 | #15 のリンクをクリックする（繰り返す） | 元ノートのカーソルとスクロールが 1 件目のミラー行へ、次のクリックで 2 件目へ…と移り、最後の次は 1 件目に戻る | Not tested | Not tested | |
 | 17 | #15 のペインを開いたまま、本文で `![[#Source A]]` を 1 行追加する／1 行消す | 件数が自動で増減する。ペインの Apply ボタンの状態（dirty 表示）は変わらない | Not tested | Not tested | |
@@ -46,10 +46,17 @@ cp /Users/kazumikaizuka/Obsidian/unified-outliner-public/{main.js,manifest.json,
 | 21 | Copy block でコピー待機中に、ミラー行の Delete／Move を行う | ミラーの操作は正常に行われ、コピー待機のバナーと破線枠はそのまま残る | Not tested | Not tested | |
 | 22 | 設定「Show mirror embeds」を OFF にする | 埋め込み行は段落行に戻り、段落用のメニューが従来どおり出る（ミラー用メニューは出ない） | Not tested | Not tested | |
 | 23 | 回帰: callout／blockquote／fenced code／table の Move・Delete、段落の Move、Copy／Paste、Create mirror | 従来どおり動作する | Not tested | Not tested | |
+| 24 | （追加修正）「Mirror: ^src-callout」行をクリックする（キーボードで選択して Enter も） | 本文のカーソルが埋め込み行 `![[#^src-callout]]` へ移り、Tree の選択とカーソル追従のハイライトが同じミラー行になる | Not tested | Not tested | |
+| 25 | （追加修正）同じ行を右クリック（iPad は長押し） | メニューの先頭に「参照先へ移動」があり、選ぶと callout の先頭行へ移動する。Tree の選択はミラー行のまま | Not tested | Not tested | |
+| 26 | （追加修正・Mac）同じ行をダブルクリックする | callout の先頭行へ移動し、埋め込み行へ戻らない。リネームにもならない | Not tested | — | |
+| 27 | （追加修正・iPad）同じ行をタップして選択し、もう一度タップする | 1 回目で埋め込み行へ、2 回目で callout の先頭行へ移動する | — | Not tested | |
+| 28 | （追加修正・iPad）選択済みのミラー行を長押ししてメニューを開く | メニューが開くだけで、参照先へは移動しない | — | Not tested | |
+| 29 | （追加修正）「Mirror: ^missing」のような参照先のないミラー行（なければ `![[#^missing]]` を 1 行追加する）で「参照先へ移動」／ダブルクリック | メニュー項目は「（利用不可）」表示。選ぶ・ダブルクリックすると「参照先が見つからない」旨の Notice が出て、カーソルは動かない | Not tested | Not tested | |
+| 30 | （追加修正）設定の説明文を確認する | 「クリックすると埋め込み行そのものへ移動する」旨に更新されている | Not tested | Not tested | |
 
 ## 4. 完了判定基準
 
-- 上表の全項目が Mac・iPad の双方で Pass であること。#13 は iPad ではハンドルが出ないことで確認する。#14 の F2 はキーボード操作ができる場合に限る。
+- 上表の全項目が Mac・iPad の双方で Pass であること。#13 は iPad ではハンドルが出ないことで確認する。#26 は Mac のみ、#27・#28 は iPad のみの項目である。#14 の F2 はキーボード操作ができる場合に限る。
 - 以下のいずれかが 1 件でもあれば Fail とし、再現手順をメモ欄に残す。
   - 参照先の見出し・本文・ブロック ID が変化した。
   - Undo 1 回で戻らない。
