@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, copy, inspect, and focus on heading sections, list subtrees, and body blocks through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block. Same-note embeds of a heading or block (`![[#Heading]]`, `![[#^block-id]]`) can also be created and managed from the tree as *mirrors*.
 
-**Current version:** 1.0.0 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
+**Current version:** 1.0.1 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -315,7 +315,7 @@ Settings are organized into two tabs, **General** (grouped above by category) an
 
 Install the [Style Settings](https://github.com/community-archive/obsidian-style-settings) community plugin to customize the Outline Tree View's appearance beyond the toggles above, without editing CSS by hand. Under **Settings → Style Settings → Outline Tree View – Appearance** you can adjust, separately for light and dark mode:
 
-- **Font size** of the tree's heading labels.
+- **Outline Tree font size** (tree row labels) and **Partial Edit pane font size**, adjustable independently.
 - **Background color** of the Outline Tree View panel.
 - **Text color**, **muted text color** (secondary text, such as the empty-state message), and **list item text color**.
 - **Highlighted node color** (the row matching the body editor's cursor) and **keyboard selection background color** (the row selected via keyboard navigation).

@@ -28,7 +28,7 @@ import {
   splitCompositeBlockMembers,
 } from "../src/edit/compositeBlockMemberProjection";
 import {
-  buildListMarkerProjection,
+  buildCompositeListMemberProjection,
   invertListMarkerProjection,
   ListMarkerProjection,
 } from "../src/edit/listMarkerProjection";
@@ -67,7 +67,7 @@ function loadStructured(text: string, rules: CompositeBlockRule[] = DEFAULT_COMP
   const listEligible = isListMemberEligibleForMarkerFreeProjection(
     extracted.resolvedSnapshot.members[0].kind
   );
-  const listBuilt = listEligible ? buildListMarkerProjection(memberSplit.split.listLineText) : null;
+  const listBuilt = listEligible ? buildCompositeListMemberProjection(memberSplit.split.listLineText) : null;
   return {
     doc,
     snapshot: extracted.resolvedSnapshot,
@@ -318,28 +318,43 @@ describe("Phase 5D-2C: fallback to the raw list row (member-local, never a whole
     expect(isListMemberEligibleForMarkerFreeProjection("list")).toBe(false);
   });
 
-  it("a task-list single-line-list member ('- [ ] ...') falls back to showing the RAW list line, while the trailing callout keeps its FULL structured editor (partial degradation, not a whole-session regression)", () => {
+  it("2026-09-27: a task-list single-line-list member ('- [ ] ...') strips ONLY the '- ' marker — the checkbox stays in the editable body — and the trailing callout keeps its FULL structured editor", () => {
     const text = ["- [ ] ![[imgX1.png]]", "> [!note] タイトル", "> 本文"].join("\n");
     const loaded = loadStructured(text);
     expect(loaded.snapshot.members[0].kind).toBe("single-line-list");
-    expect(loaded.listProjection).toBeNull();
+    expect(loaded.listProjection?.marker).toBe("-");
+    expect(loaded.listProjection?.body).toBe("[ ] ![[imgX1.png]]");
     expect(loaded.rawListLine).toBe("- [ ] ![[imgX1.png]]");
-    // The trailing member's OWN structured projection is completely
-    // unaffected by the list member's raw-fallback status.
     expect(loaded.trailingProjection.titleSlot?.title).toBe("タイトル");
+    // Unedited round-trip is byte-for-byte.
+    const unchanged = applyStructured(loaded, "[ ] ![[imgX1.png]]", "本文");
+    if (!unchanged.ok) throw new Error("expected ok");
+    expect(unchanged.composedListLine).toBe("- [ ] ![[imgX1.png]]");
   });
 
-  it("an ordered-marker single-line-list member ('1. ...') falls back to showing the RAW list line the same way", () => {
+  it("2026-09-27: an ordered-marker single-line-list member ('1. ...') strips only the '1. ' marker the same way", () => {
     const text = ["1. ![[imgX1.png]]", "> [!note] タイトル", "> 本文"].join("\n");
     const loaded = loadStructured(text);
-    expect(loaded.listProjection).toBeNull();
-    expect(loaded.rawListLine).toBe("1. ![[imgX1.png]]");
+    expect(loaded.listProjection?.marker).toBe("1.");
+    expect(loaded.listProjection?.body).toBe("![[imgX1.png]]");
+    const result = applyStructured(loaded, "![[imgY1.png]]", "本文");
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.composedListLine).toBe("1. ![[imgY1.png]]");
   });
 
-  it("Apply still works normally for a raw-fallback list row within an otherwise-structured session — the RAW value the user typed becomes the new list line verbatim", () => {
+  it("2026-09-27: editing the checkbox inside a task-list member's marker-free body writes it back under the original '- ' marker", () => {
     const text = ["- [ ] ![[imgX1.png]]", "> [!note] タイトル", "> 本文"].join("\n");
     const loaded = loadStructured(text);
-    expect(loaded.listProjection).toBeNull();
+    const result = applyStructured(loaded, "[x] ![[imgY1.png]]", "編集後本文");
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.composedListLine).toBe("- [x] ![[imgY1.png]]");
+    expect(result.outcome.changed).toBe(true);
+  });
+
+  it("Apply still works normally for a (defensive) raw-fallback list row within an otherwise-structured session — the RAW value the user typed becomes the new list line verbatim", () => {
+    const text = ["- [ ] ![[imgX1.png]]", "> [!note] タイトル", "> 本文"].join("\n");
+    const loaded = { ...loadStructured(text), listProjection: null };
     const result = applyStructured(loaded, "- [x] ![[imgY1.png]]", "編集後本文");
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected ok");
@@ -362,7 +377,7 @@ describe("Phase 5D-2C: 方針A is unchanged — a rule-mismatch after Apply stil
     // all — exactly like editing the pre-5D-2C raw whole-block textarea
     // already could.
     const text = ["- [ ] ![[imgX1.png]]", "> [!note] タイトル", "> 本文"].join("\n");
-    const loaded = loadStructured(text);
+    const loaded = { ...loadStructured(text), listProjection: null };
     const result = applyStructured(loaded, "no longer a list line at all", "本文");
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected ok");

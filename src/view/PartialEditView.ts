@@ -202,6 +202,7 @@ import {
   splitCompositeBlockMembers,
 } from "../edit/compositeBlockMemberProjection";
 import {
+  buildCompositeListMemberProjection,
   buildListMarkerProjection,
   invertListMarkerProjection,
   ListMarkerProjection,
@@ -2857,9 +2858,11 @@ export class PartialEditView extends ItemView {
         // kind, which permits continuation lines/nested children that
         // edit/listMarkerProjection.ts's pure one-line model cannot
         // safely represent (see that module's own top doc comment).
-        // Either gate failing (wrong kind, or buildListMarkerProjection
-        // itself refusing an ordered marker/task-list checkbox/
-        // unrecognized shape) leaves listMarkerProjection null and
+        // (2026-09-27: built with buildCompositeListMemberProjection, which
+        // strips ONLY the list marker and keeps a task-list checkbox /
+        // follows an ordered marker as part of the body — see its doc
+        // comment.) Either gate failing (wrong kind, or an unrecognized
+        // shape) leaves listMarkerProjection null and
         // compositeListOriginalText holding the list member's RAW line
         // instead — Phase 5D-2B's own original, unmodified behavior for
         // the list row specifically. This is a NARROWER, member-local
@@ -2870,7 +2873,7 @@ export class PartialEditView extends ItemView {
         const listBuilt = isListMemberEligibleForMarkerFreeProjection(
           extracted.resolvedSnapshot.members[0].kind
         )
-          ? buildListMarkerProjection(memberSplit.split.listLineText)
+          ? buildCompositeListMemberProjection(memberSplit.split.listLineText)
           : null;
         this.listMarkerProjection = listBuilt?.ok ? listBuilt.projection : null;
         this.compositeListOriginalText = this.listMarkerProjection
@@ -5943,7 +5946,7 @@ export class PartialEditView extends ItemView {
             // that only just NOW became eligible, e.g. a raw-edited task
             // checkbox the user removed, pick up marker-free editing on
             // the very next round within this same pane session).
-            const listRebuilt = buildListMarkerProjection(composedListLine);
+            const listRebuilt = buildCompositeListMemberProjection(composedListLine);
             this.listMarkerProjection = listRebuilt.ok ? listRebuilt.projection : null;
             this.compositeListOriginalText = this.listMarkerProjection
               ? this.listMarkerProjection.body
@@ -8175,7 +8178,7 @@ export class PartialEditView extends ItemView {
             const listBuilt = isListMemberEligibleForMarkerFreeProjection(
               extracted.resolvedSnapshot.members[0].kind
             )
-              ? buildListMarkerProjection(memberSplit.split.listLineText)
+              ? buildCompositeListMemberProjection(memberSplit.split.listLineText)
               : null;
             this.listMarkerProjection = listBuilt?.ok ? listBuilt.projection : null;
             this.compositeListOriginalText = this.listMarkerProjection

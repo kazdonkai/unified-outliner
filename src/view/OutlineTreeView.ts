@@ -495,6 +495,12 @@ export class OutlineTreeView extends ItemView {
   // across refreshes by itself — see that method's doc comment.
   private collapsedIds = new Set<string>();
   private highlightedId: string | null = null;
+  /**
+   * Teardown for the short "keep the jumped-to line at the top" window
+   * started by scrollLineToTop (see stabilizeScrollToLine). Null when no
+   * window is active.
+   */
+  private cancelScrollStabilize: (() => void) | null = null;
   private currentTree: OutlineTreeNode[] = [];
   // Cached alongside currentTree so Phase 2B commands can resolve a
   // clicked node's id against the SAME parse the tree was built from —
@@ -895,6 +901,7 @@ export class OutlineTreeView extends ItemView {
     // insertParagraph.ts top comment) affecting all of them, not just
     // paragraph insert.
     if (this.renameState) this.cancelRename();
+    this.cancelScrollStabilize?.();
     // UXP-02 (2026-08-12, docs/uxp-02-long-press-menu-duplicate.md): hide
     // any menu this view still has tracked as open before the view itself
     // tears down, so closing/switching away from this leaf while a
@@ -3187,6 +3194,93 @@ export class OutlineTreeView extends ItemView {
     const clampedLine = Math.min(Math.max(line, 0), cm.state.doc.lines - 1);
     const pos = cm.state.doc.line(clampedLine + 1).from;
     cm.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "start" }) });
+    this.stabilizeScrollToLine(cm, pos);
+  }
+
+  /**
+   * 2026-09-27 (List + Callout のリスト行クリック時のずれ): CM6 scrolls using
+   * the heights it knows at dispatch time. When the lines around the target
+   * contain block widgets whose real height is only known later — above
+   * all image embeds (`- [ ] ![[scan.jpg]]` list rows of a List + Callout
+   * group), which load asynchronously, and the target line itself switching
+   * its embed to source view once the cursor lands on it — those heights
+   * change AFTER the scroll, so the target drifts (the reported symptom:
+   * the image's top cut off and the following callout shown instead,
+   * landing somewhere different on every click). Callout rows were not
+   * affected because a callout's rendered height is stable immediately.
+   *
+   * Fix: for a short window after the jump, re-issue the same top-aligned
+   * scroll whenever the editor content's size changes (ResizeObserver on
+   * contentDOM — covers image loads, widget re-measures and source/preview
+   * toggles alike) and once after the next two frames. The window ends
+   * early, and never fights the user, on any wheel / touch / pointer / key
+   * input in the editor, on the next jump, or when this view closes.
+   */
+  private stabilizeScrollToLine(cm: EditorView, pos: number): void {
+    this.cancelScrollStabilize?.();
+    const STABILIZE_MS = 2000;
+    // Hard cap on corrective scrolls per jump, so a note whose layout never
+    // settles (e.g. a widget that keeps resizing) cannot keep the editor
+    // pinned for the whole window.
+    const MAX_REAPPLY = 8;
+    // Tolerance, in px, between the target line's top and the scroller's
+    // top before a corrective scroll is issued.
+    const TOLERANCE_PX = 2;
+    let active = true;
+    let reapplyCount = 0;
+    let rafId: number | null = null;
+
+    // Runs in its own animation frame, never inside the ResizeObserver
+    // callback itself (2026-09-27 follow-up): dispatching a scroll there
+    // makes CM6 render/measure new lines in the same frame, which resizes
+    // the very element being observed and triggers the browser's
+    // "ResizeObserver loop completed with undelivered notifications" error
+    // (surfaced as a notice by error-reporting plugins in some vaults).
+    // It also scrolls ONLY when the target line is actually off the top,
+    // so a settled layout produces no further scroll (and no feedback).
+    const reapply = (): void => {
+      rafId = null;
+      if (!active) return;
+      if (pos > cm.state.doc.length) return cancel();
+      const coords = cm.coordsAtPos(pos);
+      const scrollerTop = cm.scrollDOM.getBoundingClientRect().top;
+      if (coords && Math.abs(coords.top - scrollerTop) <= TOLERANCE_PX) return;
+      if (reapplyCount >= MAX_REAPPLY) return cancel();
+      reapplyCount++;
+      cm.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "start" }) });
+    };
+    const scheduleReapply = (): void => {
+      if (!active || rafId !== null) return;
+      rafId = window.requestAnimationFrame(reapply);
+    };
+
+    // First check two frames after the initial jump.
+    rafId = window.requestAnimationFrame(() => {
+      rafId = null;
+      scheduleReapply();
+    });
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => scheduleReapply());
+    observer?.observe(cm.contentDOM);
+    const userEvents = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    const onUserInput = (): void => cancel();
+    for (const type of userEvents) {
+      cm.scrollDOM.addEventListener(type, onUserInput, { passive: true, capture: true });
+    }
+    const timeoutId = window.setTimeout(() => cancel(), STABILIZE_MS);
+    const cancel = (): void => {
+      if (!active) return;
+      active = false;
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      rafId = null;
+      window.clearTimeout(timeoutId);
+      observer?.disconnect();
+      for (const type of userEvents) {
+        cm.scrollDOM.removeEventListener(type, onUserInput, { capture: true });
+      }
+      if (this.cancelScrollStabilize === cancel) this.cancelScrollStabilize = null;
+    };
+    this.cancelScrollStabilize = cancel;
   }
 
   /**

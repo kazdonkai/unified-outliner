@@ -664,7 +664,7 @@ describe("view/PartialEditView.ts: applyEdit's composite branch — Phase 5D-2C 
     );
     expect(rebuildGateIdx).toBeGreaterThan(-1);
     const rebuildRegion = branch.slice(rebuildGateIdx);
-    expect(rebuildRegion).toContain("const listRebuilt = buildListMarkerProjection(composedListLine);");
+    expect(rebuildRegion).toContain("const listRebuilt = buildCompositeListMemberProjection(composedListLine);");
     expect(rebuildRegion).toContain(
       "this.listMarkerProjection = listRebuilt.ok ? listRebuilt.projection : null;"
     );

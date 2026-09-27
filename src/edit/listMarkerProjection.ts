@@ -194,6 +194,40 @@ export function buildListMarkerProjection(rawLine: string): ListMarkerProjection
   return { ok: true, projection: { rawLine, indent, marker, markerSpacing, body } };
 }
 
+/**
+ * 2026-09-27 (List + Callout のリスト行に "- " が残る問題): the
+ * CompositeBlock (List + Callout / List + Quote) list-member row's own
+ * projection. Strips ONLY the list marker (`-`/`*`/`+` or an ordered
+ * `1.`/`1)`) and the whitespace after it — a task-list checkbox (`[ ] `,
+ * `[x] `, …) or anything else that follows is kept verbatim as part of
+ * the editable body. Previously this row reused buildListMarkerProjection,
+ * whose "task-list-marker"/"ordered-marker" refusals made the whole row
+ * fall back to the RAW line (`- [ ] ![[scan.jpg]]`), so the marker was
+ * shown in the input — exactly the case List + Callout groups are built
+ * from in practice.
+ *
+ * Keeping the checkbox inside the body (instead of splitting it out like
+ * edit/taskListProjection.ts does for standalone task items) is safe
+ * here: invertListMarkerProjection is a literal
+ * `indent + marker + markerSpacing + body` concatenation, so an unedited
+ * body round-trips byte-for-byte, an edited checkbox character is simply
+ * written back as typed, and a body can never introduce a newline (that
+ * refusal is unchanged). The standalone/multi-line/parent-child callers
+ * keep using buildListMarkerProjection and its refusals, unchanged.
+ * `marker` may therefore be an ordered marker in a projection built here.
+ */
+export function buildCompositeListMemberProjection(
+  rawLine: string
+): ListMarkerProjectionBuildResult {
+  const m = rawLine.match(LIST_MARKER_LINE_RE);
+  if (!m) {
+    // Defensive only — see this module's top doc comment.
+    return { ok: false, reason: "not-list-line" };
+  }
+  const [, indent, marker, markerSpacing, body] = m;
+  return { ok: true, projection: { rawLine, indent, marker, markerSpacing, body } };
+}
+
 /** The list-member input's display value for a built projection — just `projection.body`. A trivial one-liner (unlike edit/quotePrefixProjection.ts's own multi-line projectedDisplayText), kept as its own named export for the same reason that one is: callers reference the CONCEPT ("this projection's editable display text"), not the field name, and a future Phase 5L-1 standalone-list caller gets the same stable entry point edit/quotePrefixProjection.ts's callers already rely on. */
 export function projectedListBodyText(projection: ListMarkerProjection): string {
   return projection.body;

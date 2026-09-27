@@ -6,7 +6,7 @@
 
 Unified Outliner は、単一のMarkdownノート内で構造を編集するための [Obsidian](https://obsidian.md) プラグインです。見出しセクション、リストの部分木、本文のブロックを、本文エディタ、専用の Outline Tree View、ブロックに焦点を当てて編集するための Partial Edit Pane から移動・レベル変更・コピー・閲覧・編集できます。また、同じノート内の見出しやブロックの埋め込み（`![[#見出し]]`、`![[#^block-id]]`）を、*ミラー* としてツリーから作成・管理できます。
 
-**現在のバージョン:** 1.0.0 — 完全な変更履歴は [Releases](https://github.com/kazdonkai/unified-outliner/releases) をご覧ください。
+**現在のバージョン:** 1.0.1 — 完全な変更履歴は [Releases](https://github.com/kazdonkai/unified-outliner/releases) をご覧ください。
 
 **必要なObsidianのバージョン:** 1.8.7以上
 
@@ -319,7 +319,7 @@ Outline Tree のセクション行、リスト項目の行（部分木全体）�
 
 [Style Settings](https://github.com/community-archive/obsidian-style-settings) コミュニティプラグインを導入すると、上記のトグル項目だけでなく、CSSを直接編集せずに Outline Tree View の見た目を調整できます。**設定 → Style Settings → Outline Tree View – Appearance** から、ライトモード・ダークモードそれぞれ個別に次を調整できます。
 
-- ツリーの見出しラベルの**フォントサイズ**。
+- **Outline Tree のフォントサイズ**（ツリーの行ラベル）と、**Partial Edit ペインのフォントサイズ**（それぞれ独立に調整できます）。
 - Outline Tree View パネルの**背景色**。
 - **文字色**、**目立たせない文字色**（空状態メッセージなどの補助的なテキスト）、**リスト項目の文字色**。
 - **ハイライトされたノードの色**（本文エディタのカーソル位置に対応する行）と、**キーボード選択の背景色**（キーボード操作で選択中の行）。

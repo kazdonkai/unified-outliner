@@ -4,9 +4,19 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-27
+
 ### Added
 
+- Style Settings: new **Outline Tree Font Size** slider (`--uo-tree-font-size`, default 14px), listed before the Partial Edit pane's slider.
+
 ### Fixed
+
+- Style Settings: the former **Font Size** slider claimed to change the Outline Tree's labels but actually changed only the Partial Edit pane (Obsidian core's `.tree-item-self` sets `font-size: var(--nav-item-size)`, so tree rows never inherited the panel's font size). The slider is now correctly titled **Partial Edit Pane Font Size** (same `uo-font-size` id, so existing values are kept), and the Tree's font size is driven by the new slider above, scoped to the Outline Tree panel only.
+- Outline Tree labels now follow the Tree font size even when a CSS snippet forces `.tree-item-inner { font-size: var(--font-size-menu) !important }`: that variable is redefined inside the Outline Tree panel only (no `!important` used).
+- Partial Edit Pane header: the "Editing (…)" title was ellipsized far too early because the hidden Apply/Cancel buttons (`visibility: hidden`) still reserved their space. Hidden buttons are now removed from layout and the title takes the remaining row width, shrinking only when Apply/Cancel are actually shown.
+- Outline Tree jump: clicking a row whose surroundings contain late-sizing block widgets (typically the `- [ ] ![[image]]` list row of a List + Callout group) no longer lands on a drifting position. For up to 2 s after a jump the same top-aligned scroll is re-applied whenever the editor content resizes (image load, source/preview toggle); any wheel / touch / pointer / key input in the editor, the next jump, or closing the view ends it immediately. Corrections run in their own animation frame (never inside the ResizeObserver callback, which caused a "ResizeObserver loop completed with undelivered notifications" error in some vaults), only when the line is actually off the top, and at most 8 times per jump.
+- Partial Edit Pane, List + Callout / List + Quote: the list row now strips only the list marker (`- `, `* `, `+ `, `1. `), so a task item such as `- [ ] ![[scan.jpg]]` is shown as `[ ] ![[scan.jpg]]` instead of falling back to the raw line with its marker. The checkbox stays editable as part of the text and is written back under the original marker; standalone list / task / ordered editing is unchanged.
 
 ### Changed
 

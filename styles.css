@@ -25,7 +25,7 @@ settings:
     -
         id: uo-appearance-heading
         title: Outline Tree View – Appearance
-        description: Colors and font size for the right-sidebar Outline Tree View panel. Color pickers apply separately to light and dark mode.
+        description: Colors and font sizes for the Outline Tree View panel and the Partial Edit pane. Color pickers apply separately to light and dark mode.
         type: heading
         level: 1
         collapsed: false
@@ -84,9 +84,19 @@ settings:
         default-light: '#e3e3f8'
         default-dark: '#35335c'
     -
+        id: uo-tree-font-size
+        title: Outline Tree Font Size
+        description: Font size of row labels in the Outline Tree View (headings; list / paragraph / block rows scale relative to it).
+        type: variable-number-slider
+        default: 14
+        min: 10
+        max: 22
+        step: 1
+        format: px
+    -
         id: uo-font-size
-        title: Font Size
-        description: Font size of heading labels in the tree.
+        title: Partial Edit Pane Font Size
+        description: Font size of the Partial Edit pane (editor textarea, header, breadcrumb, navigation and other pane controls).
         type: variable-number-slider
         default: 14
         min: 10
@@ -150,11 +160,51 @@ settings:
   --uo-move-flash-color: #a29bfe59;
 }
 
+/* 2026-09-27 (Tree / Partial Edit のフォントサイズ分離): the Tree now has
+ * its own Style Settings slider (--uo-tree-font-size), independent of the
+ * Partial Edit pane's (--uo-font-size, whose Style Settings id is kept
+ * unchanged so existing user values carry over to the Partial Edit pane).
+ * Setting font-size on this container alone was never enough: Obsidian
+ * core's own `.tree-item-self` declares `font-size: var(--nav-item-size)`,
+ * so tree rows never inherited it — which is why the old single "Font
+ * Size" slider visibly changed only the Partial Edit pane. Both the
+ * variable and the row's own font-size are therefore redefined here,
+ * scoped to this panel only (no other Obsidian tree panel is affected). */
 .unified-outliner-outline-view {
   padding: 4px 0;
   background-color: var(--uo-bg-color);
   color: var(--uo-text-color);
-  font-size: var(--uo-font-size, 14px);
+  font-size: var(--uo-tree-font-size, 14px);
+  --nav-item-size: var(--uo-tree-font-size, 14px);
+}
+
+/* Only the ROW is targeted (not .tree-item-inner): the inner label
+ * inherits from it, which keeps the relative 0.92em / 0.75em sizing of
+ * list / paragraph / complex-member / heading-prefix labels intact. */
+.unified-outliner-outline-view .tree-item-self {
+  font-size: var(--uo-tree-font-size, 14px);
+}
+
+/* 2026-09-27 real-device follow-up: on the user's vault, another stylesheet
+ * (a CSS snippet / other plugin, injected inline) forces
+ * `.tree-item-inner { font-size: var(--font-size-menu) !important }` on
+ * EVERY tree label in the app, so the row picked up the new size while the
+ * label itself stayed at the menu size. Instead of fighting that with an
+ * `!important` of our own (discouraged for Obsidian community plugins),
+ * the variable that rule reads is redefined inside THIS panel only: its
+ * value then resolves to the Tree's own size, and nothing changes for
+ * other tree panels. Without such a snippet this variable is simply
+ * unused here. List / paragraph / complex-member labels restate their
+ * usual 0.92 ratio on the label element itself (a custom property set on
+ * an element is what that element's own var() resolves to). */
+.unified-outliner-outline-view {
+  --font-size-menu: var(--uo-tree-font-size, 14px);
+}
+
+.unified-outliner-outline-view .unified-outliner-list-text,
+.unified-outliner-outline-view .unified-outliner-complex-member-text,
+.unified-outliner-outline-view .unified-outliner-paragraph-text {
+  --font-size-menu: calc(var(--uo-tree-font-size, 14px) * 0.92);
 }
 
 /* Obsidian's own .tree-item* classes are still used for structure/layout
@@ -488,8 +538,10 @@ settings:
   padding-left: 45px;
 }
 
-/* Phase 3B: Partial Edit Pane. Same plugin-owned colors/font-size as the
- * Outline Tree View above (--uo-bg-color / --uo-text-color / --uo-font-size)
+/* Phase 3B: Partial Edit Pane. Same plugin-owned colors as the Outline
+ * Tree View above (--uo-bg-color / --uo-text-color); its font size is the
+ * pane's own --uo-font-size ("Partial Edit Pane Font Size" slider — the
+ * Tree uses the separate --uo-tree-font-size since 2026-09-27)
  * — this pane is not exempt from the "don't inherit the Obsidian theme's
  * own colors" policy just because it's a different view.
  *
@@ -634,6 +686,8 @@ settings:
 }
 
 .unified-outliner-partial-edit-title {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -645,6 +699,20 @@ settings:
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+/* 2026-09-27 (Partial Edit ヘッダーのタイトル省略緩和): Apply/Cancel are
+ * hidden with toggleVisibility(false) while the draft is clean (see
+ * PartialEditView.ts's dirty-state update), and Obsidian implements that
+ * as inline `visibility: hidden` — the buttons stayed in the layout as
+ * invisible placeholders, so the title was ellipsized to make room for
+ * buttons nobody could see. Same fix as the phantom rows further below:
+ * drop them from layout once hidden. Together with the title's
+ * `flex: 1 1 auto; min-width: 0` above, the title now uses the full row
+ * width when only × is shown, and shrinks (still ellipsized, never
+ * overlapping) as soon as Apply/Cancel appear. */
+.unified-outliner-partial-edit-actions > button[style*="visibility: hidden"] {
+  display: none;
 }
 
 /* One-click close (added alongside Apply/Cancel so closing the pane
