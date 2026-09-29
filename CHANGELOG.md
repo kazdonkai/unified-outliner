@@ -4,6 +4,18 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-30
+
+### Added
+
+- Partial Edit Pane, **List + Callout** (`image-ocr`) extended blocks: **Previous** / **Next** now step through the note's List + Callout blocks in document order (the whole note, across headings), each opened as a whole extended block through the same unsaved-changes guard (Apply / Cancel) as every other pane switch — never as a standalone list or callout member. List + Quote and other rules are not included; the ordinary sibling navigation of sections and list items is unchanged, and only one Previous/Next row is ever shown. The target is re-resolved from the note at click time (and again after an Apply chosen in the guard dialog), so a changed line count never opens the wrong block. New pure module `src/tree/imageOcrNavigation.ts`. See `docs/統合実装ロードマップ_2026-08-05.md` §3.33 and `docs/image_ocr_sibling_navigation_manual_acceptance_test.md`.
+- Partial Edit Pane, List + Callout: the ancestor breadcrumb (headings / parent list items) is now shown, anchored on the block's list item; clicking a segment opens that ancestor as before. Other extended-block rules still show no breadcrumb, and the Subtree Navigator stays hidden for every extended block. New pure module `src/tree/compositeAncestorPath.ts`. See §3.32 of the same roadmap.
+- New setting **Follow Partial Edit Pane navigation in the editor** (`syncEditorOnPartialEditNavigation`, on by default, General → Editing & interaction): when you move to another block from inside the Partial Edit Pane — breadcrumb, sibling Previous/Next, Subtree Navigator, child preview row, or List + Callout Previous/Next — the body editor moves to the same place the way an Outline Tree row click does (cursor at the line start, line scrolled to the top, no focus change). Opening from the Outline Tree, auto-resync, the rebuild after Apply, and Reload never move the editor, and the pane's draft, Apply/Cancel state and conflict protection are untouched; any editor-side failure is a silent no-op. See §3.34 and `docs/partial_edit_navigation_editor_sync_manual_acceptance_test.md`.
+
+### Changed
+
+- The Outline Tree's body-editor jump (top-aligned scroll, off-screen Properties fallback, post-jump stabilizer) moved unchanged from `OutlineTreeView` to the shared `src/view/editorLineReveal.ts` (`EditorLineRevealer`), now also used by the Partial Edit Pane. No behavior change for Tree clicks.
+
 ## [1.0.2] - 2026-09-30
 
 ### Changed

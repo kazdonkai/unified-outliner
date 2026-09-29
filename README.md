@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, copy, inspect, and focus on heading sections, list subtrees, and body blocks through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block. Same-note embeds of a heading or block (`![[#Heading]]`, `![[#^block-id]]`) can also be created and managed from the tree as *mirrors*.
 
-**Current version:** 1.0.2 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
+**Current version:** 1.0.3 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -241,6 +241,8 @@ For a paragraph, callout, blockquote, fenced code block, or table that has a blo
 
 An ancestor breadcrumb and a Subtree Navigator let you move up to a parent block or into a child block without leaving the pane. The pane can also be popped out into its own window from a node's context menu, and it asks for confirmation before navigating away from unsaved changes.
 
+A **List + Callout** extended block opened in the pane also shows its ancestor breadcrumb and **Previous** / **Next** buttons that step through the note's List + Callout blocks in document order, each opened as a whole extended block (List + Quote blocks are not included). When you navigate from inside the pane — parent, child, sibling, breadcrumb, or Previous/Next — the body editor also moves to the same place, the same way clicking an Outline Tree row does; turn this off with **Follow Partial Edit Pane navigation in the editor**.
+
 #### Structured, marker-free editing for list items
 
 For an eligible standalone list item, the pane hides the Markdown syntax that carries no meaning to type directly — the list marker (`-`/`*`/`+`), the task-list checkbox (`[ ]`/`[x]`), or the ordered-list number and its delimiter — and shows only the item's own text, plus a small checkbox or number control alongside it when relevant. Apply always restores the original marker, checkbox syntax, delimiter, and indentation exactly, so the underlying Markdown only ever changes in the way you actually edited it.
@@ -305,6 +307,7 @@ Open **Settings → Community plugins → Unified Outliner** to configure. The *
 
 - **Normalize ordered list markers to "1."**: normalizes ordered-list markers after structural edits.
 - **Follow keyboard selection into body editor**: keeps the body editor synchronized while navigating the tree with the keyboard.
+- **Follow Partial Edit Pane navigation in the editor**: when you move to another block from inside the Partial Edit Pane (parent, child, sibling, breadcrumb, or previous/next extended block), the body editor scrolls to the same place. On by default.
 - **Sync Outline Tree folding to editor**: folding or unfolding a node in the tree also folds or unfolds the matching content in the active Markdown editor.
   Any node with something to fold gets a toggle — including a heading whose body is only text, a table or a code block, with no sub-heading under it. A heading with an empty body does not.
 - **Show no-op notices**: explains why an unavailable operation made no change.
