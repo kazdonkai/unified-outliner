@@ -120,7 +120,8 @@ describe("view/PartialEditView.ts: Phase 5L-7 (Read-Only Child Subtree Preview N
     expect(body).toContain("resolveParentChildPreviewNavigationTarget(doc, this.nodeId, target)");
     // The nodeId ACTUALLY navigated to must come from the resolver's own
     // fresh result, never from `target.nodeId` directly.
-    expect(body).toContain("this.requestLoadNode(resolved.nodeId)");
+    // 2026-09-30: + explicit-navigation reveal option (body editor sync).
+    expect(body).toContain("this.requestLoadNode(resolved.nodeId, { revealInEditor: true })");
     expect(body).not.toContain("this.requestLoadNode(target.nodeId)");
   });
 

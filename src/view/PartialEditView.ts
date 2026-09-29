@@ -168,10 +168,19 @@ import {
 import { scanComplexBlocks } from "../parser/complexBlocks";
 import { BlockNode, isListNode, ListBlockNode, ParsedDocument } from "../model/block";
 import { AncestorPathEntry, findAncestorPath } from "../tree/ancestorPath";
+import { findCompositeBreadcrumbAncestors } from "../tree/compositeAncestorPath";
+import { CompositeSiblingTargets, findCompositeSiblingTargets } from "../tree/imageOcrNavigation";
+import { matchCompositeBlocks } from "../parser/compositeBlocks";
 import { DescendantNavigationEntry, findDirectChildren } from "../tree/descendantPath";
 import { SiblingNavigationState, getSiblingNavigationState } from "../tree/siblingNavigation";
 import { applyLineEditOutcome } from "../commands/applyLineEditOutcome";
 import { checkPartialEditSourceNote } from "./partialEditSourceNoteCheck";
+import { EditorLineRevealer, revealLineSafely } from "./editorLineReveal";
+import {
+  PartialEditNavigationOptions,
+  partialEditTargetKey,
+  shouldRevealAfterNavigation,
+} from "./partialEditNavigationReveal";
 import { TranslationKey } from "../i18n";
 import { CODE_BLOCK_PRESETS } from "../edit/codeBlockPresets";
 import { resolveParagraphAtCursor } from "../resolver/resolveParagraphAtCursor";
@@ -195,7 +204,7 @@ import {
   compositePartialEditReasonText,
   extractCompositeBlockText,
 } from "../edit/compositeBlockPartialEdit";
-import { CompositeBlockSnapshot } from "../edit/deleteCompositeBlock";
+import { buildCompositeBlockSnapshot, CompositeBlockSnapshot } from "../edit/deleteCompositeBlock";
 import {
   composeCompositeBlockMemberText,
   isListMemberEligibleForMarkerFreeProjection,
@@ -302,7 +311,7 @@ import {
   applyLeafFirstChildAdditionToDocument,
   buildPendingLeafFirstChild,
 } from "../edit/parentChildInlineEditSession";
-import { compositeBlockDisplayLabel, getCompositeBlockRuleById } from "../model/compositeBlock";
+import { CompositeBlockInfo, compositeBlockDisplayLabel, getCompositeBlockRuleById } from "../model/compositeBlock";
 import { getEnabledCompositeBlockRules } from "../settingsDefaults";
 // Phase 5E-3c ("軽量 Table Mode"): the pure Markdown table parser/
 // serializer foundation (Phase 5E-3b, unmodified) and the pure Table Mode
@@ -862,6 +871,28 @@ export class PartialEditView extends ItemView {
   private directChildren: DescendantNavigationEntry[] = [];
   /** Sibling前後移動: the loaded node's previous/next sibling, computed once at load time alongside `ancestors`/`directChildren` — see renderSiblingNav's doc comment. */
   private siblingState: SiblingNavigationState = { previous: null, next: null };
+  /**
+   * 2026-09-30: body-editor reveal (cursor + top-aligned scroll +
+   * stabilizer) for user-initiated in-pane navigation — the same
+   * implementation an Outline Tree row click uses (view/editorLineReveal.ts).
+   * Only ever used via revealAfterNavigation; cancelled in onClose.
+   */
+  private readonly editorLineRevealer = new EditorLineRevealer();
+  /**
+   * List+Callout (image-ocr) sibling navigation (2026-09-30): display-only
+   * previous/next labels for the image-ocr-only Previous/Next buttons,
+   * derived by refreshCompositeNavigationState at the same three points as
+   * the composite breadcrumb (initial load, clean-pane auto-reload,
+   * post-Apply). Only ever non-empty while an image-ocr CompositeBlock is
+   * loaded (`compositeAnchor` non-null); renderSiblingNav reads THIS
+   * instead of `siblingState` in that case. The click target itself is
+   * never taken from here — requestLoadAdjacentImageOcr re-resolves it
+   * fresh at click time (see that method's doc comment).
+   */
+  private imageOcrSiblingState: { previous: { displayLabel: string } | null; next: { displayLabel: string } | null } = {
+    previous: null,
+    next: null,
+  };
 
   /**
    * Phase 5A-1 ("Partial Edit Pane の stale 状態検知・安全な再読み込み"):
@@ -1522,8 +1553,15 @@ export class PartialEditView extends ItemView {
     // chips (see requestLoadNode's own doc comment) — never loadNodeInternal
     // directly.
     this.siblingPrevEl.addEventListener("click", () => {
+      // 2026-09-30: while an image-ocr CompositeBlock is loaded, this row
+      // is the dedicated image-ocr Previous/Next (see renderSiblingNav) —
+      // routed to requestLoadAdjacentImageOcr, never requestLoadNode.
+      if (this.compositeAnchor) {
+        this.requestLoadAdjacentImageOcr("previous");
+        return;
+      }
       const target = this.siblingState.previous;
-      if (target) this.requestLoadNode(target.nodeId);
+      if (target) this.requestLoadNode(target.nodeId, { revealInEditor: true });
     });
 
     this.siblingNextEl = this.siblingNavEl.createEl("button", {
@@ -1557,8 +1595,13 @@ export class PartialEditView extends ItemView {
     });
     setIcon(siblingNextIconEl, "chevron-right");
     this.siblingNextEl.addEventListener("click", () => {
+      // 2026-09-30: see siblingPrevEl's identical image-ocr branch above.
+      if (this.compositeAnchor) {
+        this.requestLoadAdjacentImageOcr("next");
+        return;
+      }
       const target = this.siblingState.next;
-      if (target) this.requestLoadNode(target.nodeId);
+      if (target) this.requestLoadNode(target.nodeId, { revealInEditor: true });
     });
 
     // Subtree Navigator: a third header row, below the ancestor breadcrumb,
@@ -2117,6 +2160,7 @@ export class PartialEditView extends ItemView {
     // registerEvent's automatic unregistration alone isn't enough to make
     // those paths inert.
     this.closed = true;
+    this.editorLineRevealer.cancel();
     this.resetLoadedState();
     this.contentEl.empty();
   }
@@ -2228,6 +2272,7 @@ export class PartialEditView extends ItemView {
     this.nodeKind = null;
     this.paragraphAnchor = null;
     this.compositeAnchor = null;
+    this.imageOcrSiblingState = { previous: null, next: null };
     this.originalText = "";
     this.quoteProjection = null;
     // Phase 5L-1: reset alongside quoteProjection above — see this
@@ -2305,22 +2350,92 @@ export class PartialEditView extends ItemView {
    * Dismissing the modal any other way (Escape, clicking outside) is
    * treated as Cancel — see DiscardChangesModal's onClose.
    */
-  requestLoadNode(nodeId: string): void {
-    if (!this.isDirty()) {
+  requestLoadNode(nodeId: string, options: PartialEditNavigationOptions = {}): void {
+    // 2026-09-30: `options.revealInEditor` is passed ONLY by this pane's own
+    // user-initiated navigation (breadcrumb, sibling nav, Subtree Navigator,
+    // child-preview rows); main.ts's Tree-triggered open passes nothing.
+    // The reveal runs after a successful load only — see
+    // revealAfterNavigation. Guard/load behavior itself is unchanged.
+    const load = (): void => {
+      const keyBefore = this.loadedTargetKey();
       this.loadNodeInternal(nodeId);
+      this.revealAfterNavigation(options, keyBefore);
+    };
+    if (!this.isDirty()) {
+      load();
       return;
     }
     new DiscardChangesModal(this.app, this.plugin, (choice) => {
       if (choice === "cancel") return;
       if (choice === "discard") {
-        this.loadNodeInternal(nodeId);
+        load();
         return;
       }
       // choice === "apply"
       if (this.applyEdit()) {
-        this.loadNodeInternal(nodeId);
+        load();
       }
     }).open();
+  }
+
+  /**
+   * 2026-09-30: the identity partialEditTargetKey compares before/after a
+   * navigation (node id, or the loaded CompositeBlock's start line).
+   */
+  private loadedTargetKey(): string | null {
+    return partialEditTargetKey(this.nodeId, this.compositeAnchor ? this.compositeAnchor.range.startLine : null);
+  }
+
+  /**
+   * 2026-09-30 (Partial Edit Pane navigation -> body editor sync): after a
+   * navigation entry point's load, move the body editor to the newly
+   * loaded target — only when the caller asked for it (explicit user
+   * navigation), settings.syncEditorOnPartialEditNavigation is on, the
+   * load actually succeeded and changed the target
+   * (shouldRevealAfterNavigation). Uses the same active-leaf-first editor
+   * resolution as every other pane operation (ActiveMarkdownViewTracker)
+   * and only when that editor still shows the note this pane was loaded
+   * from; never focuses the editor, never touches this pane's own
+   * dirty/draft/Apply state. Any failure is a silent no-op
+   * (revealLineSafely) — the pane's own switch has already happened.
+   */
+  private revealAfterNavigation(options: PartialEditNavigationOptions, keyBefore: string | null): void {
+    if (
+      !shouldRevealAfterNavigation({
+        revealRequested: options.revealInEditor === true,
+        settingEnabled: this.plugin.settings.syncEditorOnPartialEditNavigation,
+        keyBefore,
+        keyAfter: this.loadedTargetKey(),
+      })
+    ) {
+      return;
+    }
+    try {
+      const view = this.activeMarkdownView.get();
+      if (!view || (view.file?.path ?? null) !== this.sourcePath) return;
+      const line = this.loadedTargetStartLine(parseDocument(view.editor.getValue()));
+      revealLineSafely(this.editorLineRevealer, view.editor, line);
+    } catch {
+      // Fail-safe: never let an editor-side problem affect the pane.
+    }
+  }
+
+  /**
+   * 2026-09-30: first line of the currently loaded target in `doc` — a
+   * BlockNode's own range start (section heading / list item line, the
+   * same line a Tree row jumps to), else the extracted range start
+   * (standalone callout/blockquote/fenced code/table), or a loaded
+   * CompositeBlock's start line (its list member). Null when unresolved.
+   */
+  private loadedTargetStartLine(doc: ParsedDocument): number | null {
+    if (this.nodeId) {
+      const node = doc.nodes.get(this.nodeId);
+      if (node) return node.range.startLine;
+      const extracted = extractSubtreeText(doc, this.nodeId);
+      return extracted.ok ? extracted.startLine : null;
+    }
+    if (this.compositeAnchor) return this.compositeAnchor.range.startLine;
+    return null;
   }
 
   /**
@@ -2533,6 +2648,7 @@ export class PartialEditView extends ItemView {
     // ever active at a time (see this class's own doc comment).
     this.paragraphAnchor = null;
     this.compositeAnchor = null;
+    this.imageOcrSiblingState = { previous: null, next: null };
     this.originalText = extracted.text;
     this.quoteProjection = quoteProjection;
     // Phase 5E-3: populate the fence metadata field (and initialize the
@@ -2644,6 +2760,7 @@ export class PartialEditView extends ItemView {
     // Phase 5D-2A: clear any previously-loaded composite identity — see
     // this class's own doc comment on the three-way exclusivity.
     this.compositeAnchor = null;
+    this.imageOcrSiblingState = { previous: null, next: null };
     this.nodeKind = "paragraph";
     this.originalText = paragraph.text;
     // Block ID field: paragraph.text is the body; the id comes separately.
@@ -2742,6 +2859,13 @@ export class PartialEditView extends ItemView {
    * breadcrumb/sibling-nav/Subtree Navigator — the pane shows the whole
    * range as plain raw Markdown, at the same safety level as the existing
    * section/list raw Partial Edit, and nothing more.
+   *
+   * 2026-09-30 (List+Callout breadcrumb): the "no breadcrumb" part of the
+   * scope above is now narrowed — a List + Callout ("image-ocr")
+   * CompositeBlock shows the ancestor breadcrumb of its LIST member (see
+   * compositeBreadcrumbAncestors / tree/compositeAncestorPath.ts). Every
+   * other rule (incl. "image-quote") still shows none, and sibling nav /
+   * Subtree Navigator stay empty for every CompositeBlock.
    */
   private loadCompositeInternal(snapshot: CompositeBlockSnapshot): void {
     const view = this.activeMarkdownView.get();
@@ -2899,13 +3023,157 @@ export class PartialEditView extends ItemView {
     // Phase 5A-1: see loadNodeInternal's identical reset — a fresh load is
     // always in sync with what it was just read from.
     this.syncState = "synced";
-    // Phase 5D-2A explicit scope: no breadcrumb / sibling nav / Subtree
-    // Navigator for a CompositeBlock — mirrors loadParagraphInternal's own
-    // identical choice above.
-    this.ancestors = [];
+    // Phase 5D-2A explicit scope was: no breadcrumb / sibling nav /
+    // Subtree Navigator for a CompositeBlock (mirroring
+    // loadParagraphInternal). 2026-09-30: for a List + Callout
+    // ("image-ocr") CompositeBlock only, the breadcrumb (anchored on its
+    // list member) and a DEDICATED image-ocr Previous/Next navigation are
+    // now derived — see refreshCompositeNavigationState. The ordinary
+    // BlockNode sibling state and the Subtree Navigator stay empty for
+    // every CompositeBlock, exactly as before; any other rule gets no
+    // breadcrumb and no Previous/Next either.
+    this.refreshCompositeNavigationState(doc, this.compositeAnchor);
     this.directChildren = [];
     this.siblingState = { previous: null, next: null };
     this.renderLoadedState();
+  }
+
+  /**
+   * 2026-09-30: the single place this pane derives its image-ocr
+   * navigation state for a loaded CompositeBlock — the breadcrumb
+   * (`ancestors`, via compositeBreadcrumbAncestors) and the dedicated
+   * Previous/Next labels (`imageOcrSiblingState`, via
+   * tree/imageOcrNavigation.ts#findCompositeSiblingTargets). Shared by
+   * loadCompositeInternal (initial load), performAutoReload (clean-pane
+   * external-change reload) and applyEdit's composite branch (post-Apply
+   * re-anchor), so the three never disagree. A null `anchor` (the
+   * composite was lost: rule no longer matches, re-resolution failed)
+   * clears both — stale navigation is never kept. `doc` may be null only
+   * together with a null anchor.
+   */
+  private refreshCompositeNavigationState(doc: ParsedDocument | null, anchor: CompositeBlockSnapshot | null): void {
+    if (!doc || !anchor) {
+      this.ancestors = [];
+      this.imageOcrSiblingState = { previous: null, next: null };
+      return;
+    }
+    this.ancestors = this.compositeBreadcrumbAncestors(doc, anchor);
+    const targets = this.imageOcrSiblingTargets(doc, anchor);
+    this.imageOcrSiblingState = {
+      previous: targets.previous ? { displayLabel: this.imageOcrTargetLabel(doc, targets.previous) } : null,
+      next: targets.next ? { displayLabel: this.imageOcrTargetLabel(doc, targets.next) } : null,
+    };
+  }
+
+  /**
+   * 2026-09-30: previous/next image-ocr CompositeBlocks of `anchor` in
+   * `doc`, matched with the CURRENTLY enabled rule set (the same set
+   * extractCompositeBlockText re-resolves against). Empty for a
+   * non-image-ocr anchor — findCompositeSiblingTargets' own gate.
+   */
+  private imageOcrSiblingTargets(doc: ParsedDocument, anchor: CompositeBlockSnapshot): CompositeSiblingTargets {
+    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    return findCompositeSiblingTargets(anchor, matchCompositeBlocks(doc, scanComplexBlocks(doc), rules));
+  }
+
+  /** Display label for an image-ocr navigation target: its list member's own Tree label (e.g. the image embed). */
+  private imageOcrTargetLabel(doc: ParsedDocument, target: CompositeBlockInfo): string {
+    const listNode = doc.nodes.get(target.members[0]?.id ?? "");
+    if (listNode && isListNode(listNode)) return nodeDisplayLabel(doc, listNode, this.plugin.t.bind(this.plugin));
+    return target.ruleId;
+  }
+
+  /**
+   * 2026-09-30: the image-ocr Previous/Next click entry point. Same
+   * unsaved-edit guard as requestLoadNode/requestLoadComposite (the SAME
+   * DiscardChangesModal, Apply/Discard/Cancel), ending in the SAME
+   * loadCompositeInternal every CompositeBlock load already goes through —
+   * so the destination always opens as a whole CompositeBlock, never as a
+   * standalone list or callout member session.
+   *
+   * Why not simply requestLoadComposite(cachedTargetSnapshot): a
+   * CompositeBlockSnapshot is matched by exact line range, so a snapshot
+   * captured before an Apply that changed the CURRENT composite's line
+   * count (possible via the dialog's own "Apply" choice) would no longer
+   * match a LATER target, and loadCompositeInternal would then empty the
+   * pane. The target is therefore re-resolved from a fresh parse of the
+   * note both before asking (nothing to do -> no dialog at all) and again
+   * after the user's choice (post-Apply positions). When it cannot be
+   * resolved (current composite gone / not image-ocr / different note),
+   * nothing is loaded and the Previous/Next state is simply cleared.
+   */
+  private requestLoadAdjacentImageOcr(direction: "previous" | "next"): void {
+    if (!this.resolveAdjacentImageOcrSnapshot(direction)) {
+      this.imageOcrSiblingState = { previous: null, next: null };
+      this.renderSiblingNav();
+      return;
+    }
+    const proceed = (): void => {
+      const target = this.resolveAdjacentImageOcrSnapshot(direction);
+      if (target) {
+        const keyBefore = this.loadedTargetKey();
+        this.loadCompositeInternal(target);
+        // 2026-09-30: explicit user navigation -> body editor sync (only
+        // after a successful move; see revealAfterNavigation).
+        this.revealAfterNavigation({ revealInEditor: true }, keyBefore);
+        return;
+      }
+      this.imageOcrSiblingState = { previous: null, next: null };
+      this.renderSiblingNav();
+    };
+    if (!this.isDirty()) {
+      proceed();
+      return;
+    }
+    new DiscardChangesModal(this.app, this.plugin, (choice) => {
+      if (choice === "cancel") return;
+      if (choice === "discard") {
+        proceed();
+        return;
+      }
+      // choice === "apply"
+      if (this.applyEdit()) {
+        proceed();
+      }
+    }).open();
+  }
+
+  /**
+   * 2026-09-30: fresh, read-only resolution of the image-ocr CompositeBlock
+   * adjacent to the currently loaded one, as a snapshot for
+   * loadCompositeInternal. Null unless the active note is still the one
+   * this pane was loaded from and the current anchor still resolves there
+   * as an image-ocr CompositeBlock with a neighbour in `direction`.
+   */
+  private resolveAdjacentImageOcrSnapshot(direction: "previous" | "next"): CompositeBlockSnapshot | null {
+    if (!this.compositeAnchor) return null;
+    const view = this.activeMarkdownView.get();
+    if (!view || (view.file?.path ?? null) !== this.sourcePath) return null;
+    const doc = parseDocument(view.editor.getValue());
+    const target = this.imageOcrSiblingTargets(doc, this.compositeAnchor)[direction];
+    return target ? buildCompositeBlockSnapshot(target) : null;
+  }
+
+  /**
+   * 2026-09-30 (List+Callout breadcrumb): the single place this pane
+   * derives `this.ancestors` for a loaded CompositeBlock — shared by
+   * loadCompositeInternal (initial load), performAutoReload (clean-pane
+   * external-change reload) and applyEdit's composite branch (post-Apply
+   * re-anchor), so the three never disagree. Thin wrapper over the pure
+   * tree/compositeAncestorPath.ts#findCompositeBreadcrumbAncestors, which
+   * returns [] for any rule other than "image-ocr", for a null anchor, and
+   * for a list member that no longer resolves — callers therefore never
+   * need their own "clear on failure" branch beyond passing null.
+   * Anchored on the composite's list member only (a real ListBlockNode);
+   * the returned path never contains that member itself, so breadcrumb
+   * clicks (renderBreadcrumb -> requestLoadNode, both unchanged) can only
+   * ever target a section or parent list item.
+   */
+  private compositeBreadcrumbAncestors(
+    doc: ParsedDocument,
+    composite: CompositeBlockSnapshot | null
+  ): AncestorPathEntry[] {
+    return findCompositeBreadcrumbAncestors(doc, composite, this.plugin.t.bind(this.plugin));
   }
 
   private renderEmptyState(): void {
@@ -4305,7 +4573,7 @@ export class PartialEditView extends ItemView {
       new Notice(this.plugin.t("partialEdit.parentChildPreviewNavigationFailed"));
       return;
     }
-    this.requestLoadNode(resolved.nodeId);
+    this.requestLoadNode(resolved.nodeId, { revealInEditor: true });
   }
 
   /**
@@ -5213,7 +5481,7 @@ export class PartialEditView extends ItemView {
       // through the same guarded projection entry point as a Tree click —
       // never a direct loadNodeInternal call. See requestLoadNode's doc
       // comment for the full rationale (dirty-guard parity above all).
-      segEl.addEventListener("click", () => this.requestLoadNode(ancestor.id));
+      segEl.addEventListener("click", () => this.requestLoadNode(ancestor.id, { revealInEditor: true }));
       if (index < visible.length - 1) {
         this.breadcrumbEl.createSpan({
           cls: "unified-outliner-partial-edit-breadcrumb-sep",
@@ -5272,13 +5540,34 @@ export class PartialEditView extends ItemView {
    * label for a disabled button, matching the button's own disabled state.
    */
   private renderSiblingNav(): void {
+    // 2026-09-30: a loaded CompositeBlock never uses the BlockNode
+    // sibling state; the SAME row instead shows the dedicated image-ocr
+    // Previous/Next (imageOcrSiblingState — empty for every other rule,
+    // which therefore keeps the row hidden exactly as before). One row,
+    // never two competing sibling navs.
+    if (this.compositeAnchor) {
+      const nav = this.imageOcrSiblingState;
+      if (!nav.previous && !nav.next) {
+        this.siblingNavEl.toggleVisibility(false);
+        return;
+      }
+      this.siblingNavEl.toggleVisibility(true);
+      this.renderSiblingNavButtons(nav.previous, nav.next);
+      return;
+    }
     if (!this.nodeId || (!this.siblingState.previous && !this.siblingState.next)) {
       this.siblingNavEl.toggleVisibility(false);
       return;
     }
     this.siblingNavEl.toggleVisibility(true);
+    this.renderSiblingNavButtons(this.siblingState.previous, this.siblingState.next);
+  }
 
-    const previous = this.siblingState.previous;
+  /** Shared per-button disabled/tooltip/target-label rendering for renderSiblingNav's two sources. */
+  private renderSiblingNavButtons(
+    previous: { displayLabel: string } | null,
+    next: { displayLabel: string } | null
+  ): void {
     this.siblingPrevEl.disabled = !previous;
     setTooltip(
       this.siblingPrevEl,
@@ -5287,7 +5576,6 @@ export class PartialEditView extends ItemView {
     this.siblingPrevTargetEl.setText(previous ? previous.displayLabel : "");
     this.siblingPrevTargetEl.toggleVisibility(!!previous);
 
-    const next = this.siblingState.next;
     this.siblingNextEl.disabled = !next;
     setTooltip(
       this.siblingNextEl,
@@ -5358,7 +5646,7 @@ export class PartialEditView extends ItemView {
               .setIcon(child.kind === "section" ? "heading" : "list")
               // Same guarded entry point as every other Subtree Navigator
               // chip — see appendSubtreeChip's doc comment.
-              .onClick(() => this.requestLoadNode(child.id))
+              .onClick(() => this.requestLoadNode(child.id, { revealInEditor: true }))
           );
         }
         if (mouseEvt) {
@@ -5428,7 +5716,7 @@ export class PartialEditView extends ItemView {
       });
     }
 
-    const activate = () => this.requestLoadNode(child.id);
+    const activate = () => this.requestLoadNode(child.id, { revealInEditor: true });
     chipEl.addEventListener("click", activate);
     chipEl.addEventListener("keydown", (evt) => {
       if (evt.key === "Enter" || evt.key === " ") {
@@ -5923,6 +6211,15 @@ export class PartialEditView extends ItemView {
         // CompositeBlock that no longer exists.
         this.originalText = newCompositeText;
         this.compositeAnchor = outcome.resolvedSnapshot ?? null;
+        // 2026-09-30 (image-ocr breadcrumb + Previous/Next): re-derive
+        // both from the just-written note, the same way the other
+        // post-Apply rebuild sites use a fresh parseDocument(editor.getValue()).
+        // A null anchor (方針A: the edit broke the rule match) always
+        // clears them — never leaves pre-Apply navigation behind.
+        this.refreshCompositeNavigationState(
+          this.compositeAnchor ? parseDocument(editor.getValue()) : null,
+          this.compositeAnchor
+        );
         // Phase 5D-2B: re-split/re-project this pane's own structured state
         // fresh from the just-applied pieces (never a re-parse — the
         // pieces are already known from composition above), exactly like
@@ -5960,6 +6257,8 @@ export class PartialEditView extends ItemView {
         // comment above — explicitly synced right after this pane's own
         // re-anchoring, regardless of what syncState held before Apply.
         this.syncState = "synced";
+        this.renderBreadcrumb();
+        this.renderSiblingNav();
         this.renderQuoteHeader();
         this.renderCompositeListSlot();
         this.textareaEl.value = this.currentDisplayText();
@@ -8148,6 +8447,16 @@ export class PartialEditView extends ItemView {
     if (this.compositeAnchor) {
       const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
       const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
+      // 2026-09-30 (image-ocr breadcrumb + Previous/Next): re-derived
+      // from the same fresh `doc` on every clean-pane auto-reload; a
+      // failed re-resolve (defensive — classifySyncOutcome only routes a
+      // resolvable target here) clears both instead of keeping stale
+      // navigation. Rendered by this method's existing renderBreadcrumb()/
+      // renderSiblingNav() calls below.
+      this.refreshCompositeNavigationState(
+        doc,
+        extracted.ok && extracted.resolvedSnapshot ? extracted.resolvedSnapshot : null
+      );
       if (extracted.ok && extracted.resolvedSnapshot) {
         this.compositeAnchor = extracted.resolvedSnapshot;
         // Phase 5D-2B: re-split/re-project the structured composite

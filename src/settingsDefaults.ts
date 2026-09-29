@@ -59,6 +59,19 @@ export interface UnifiedOutlinerSettings {
    */
   followKeyboardSelectionIntoBody: boolean;
   /**
+   * 2026-09-30: when the user explicitly moves the Partial Edit Pane to
+   * another target (breadcrumb segment, previous/next sibling, Subtree
+   * Navigator / child preview entry, image-ocr Previous/Next), also move
+   * the body editor to the same place — the same cursor + top-aligned
+   * scroll an Outline Tree row click does (view/editorLineReveal.ts),
+   * without focusing the editor. Never applied to the pane's internal
+   * refreshes (initial load from the Tree, auto-reload, post-Apply
+   * rebuild, manual reload). On by default, matching the Tree <-> body
+   * selection sync that is this plugin's core experience; turn off to
+   * keep Partial Edit Pane navigation confined to the pane.
+   */
+  syncEditorOnPartialEditNavigation: boolean;
+  /**
    * Phase 3D's Outline Tree -> CM6 body editor fold sync
    * (OutlineTreeView.syncFoldToBodyEditor, invoked from the single control
    * point in setNodeCollapsed) is one-directional only: it never affects
@@ -311,6 +324,7 @@ export const DEFAULT_SETTINGS: UnifiedOutlinerSettings = {
   showNoopNotices: true,
   showListItemsInOutline: false,
   followKeyboardSelectionIntoBody: true,
+  syncEditorOnPartialEditNavigation: true,
   syncOutlineTreeFoldingToEditor: true,
   treeKindHighlight: { ...DEFAULT_TREE_KIND_HIGHLIGHT },
   compositeBlocks: { ...DEFAULT_COMPOSITE_BLOCK_SETTINGS },

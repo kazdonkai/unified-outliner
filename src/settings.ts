@@ -126,6 +126,7 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
   //     showMoveResultToast (what Move block / Move section is allowed to
   //     do, and how its result is surfaced back to the user).
   //   - 編集・操作: normalizeOrderedLists, followKeyboardSelectionIntoBody,
+  //     syncEditorOnPartialEditNavigation (2026-09-30),
   //     syncOutlineTreeFoldingToEditor, showNoopNotices (remaining editor-
   //     interaction behaviors that don't belong to any of the above three).
   private renderGeneralTab(containerEl: HTMLElement): void {
@@ -419,6 +420,20 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.followKeyboardSelectionIntoBody)
           .onChange(async (v) => {
             this.plugin.settings.followKeyboardSelectionIntoBody = v;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // 2026-09-30: Partial Edit Pane navigation -> body editor sync. Read at
+    // navigation time by PartialEditView (no refresh needed on change).
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.syncEditorOnPartialEditNavigation.name"))
+      .setDesc(this.plugin.t("settings.syncEditorOnPartialEditNavigation.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.syncEditorOnPartialEditNavigation)
+          .onChange(async (v) => {
+            this.plugin.settings.syncEditorOnPartialEditNavigation = v;
             await this.plugin.saveSettings();
           })
       );

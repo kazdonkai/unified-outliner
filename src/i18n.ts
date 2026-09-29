@@ -107,6 +107,9 @@ const en = {
   "settings.showTablesInOutline.name": "Show tables in Outline Tree View",
   "settings.showTablesInOutline.desc":
     "Show Markdown tables as read-only navigation nodes in the Outline Tree View. Click a row to jump to its header row; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
+  "settings.syncEditorOnPartialEditNavigation.name": "Follow Partial Edit Pane navigation in the editor",
+  "settings.syncEditorOnPartialEditNavigation.desc":
+    "When you move to another block from the Partial Edit Pane (parent, child, sibling, breadcrumb, or previous/next extended block), also scroll the editor to the same place. Turn off to keep that navigation inside the pane.",
   "settings.followKeyboardSelectionIntoBody.name":
     "Follow keyboard selection into body editor",
   "settings.followKeyboardSelectionIntoBody.desc":
@@ -1505,6 +1508,9 @@ const ja: Record<TranslationKey, string> = {
   "settings.showTablesInOutline.name": "アウトラインツリーに表を表示",
   "settings.showTablesInOutline.desc":
     "Markdown の表を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックするとヘッダー行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
+  "settings.syncEditorOnPartialEditNavigation.name": "部分編集ペインでの移動に本文エディタを追従させる",
+  "settings.syncEditorOnPartialEditNavigation.desc":
+    "部分編集ペインで親・子・兄弟・パンくず・拡張ブロックの前後へ移動したとき、本文エディタも同じ位置へ移動する。オフにすると移動は部分編集ペインの中だけで行われる。",
   "settings.followKeyboardSelectionIntoBody.name": "キーボード選択を本文エディタに追従させる",
   "settings.followKeyboardSelectionIntoBody.desc":
     "アウトラインツリーを矢印キーで移動する際、行をクリックした場合と同様に本文エディタのカーソルとスクロール位置も移動する。オフにすると矢印キーによる移動はツリーパネル内に留まる（Enter キーは引き続き本文へジャンプする）。",
