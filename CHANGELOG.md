@@ -4,6 +4,8 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-30
+
 ### Changed
 
 - Mirror rows on desktop: clicking the already-selected `⧉ Mirror:` row again now toggles the body cursor between the referenced heading/block and the embed line, like re-tapping it on mobile. The desktop rule is decided from the cursor position: a click while the cursor is on the row's own embed line goes to the source; any other click (cursor on the source, or moved elsewhere) goes to the embed line. The desktop double click (-> source) and **Go to mirror source** are unchanged. `mirrorRowClickAction` gains an optional `cursorAtEmbed`; new `isCursorAtMirrorEmbed`. See `docs/phase5m-2_mirror-ops-design-memo.md` §9-5.
