@@ -4,6 +4,14 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Changed
+
+- Mirror rows on desktop: clicking the already-selected `⧉ Mirror:` row again now toggles the body cursor between the referenced heading/block and the embed line, like re-tapping it on mobile. The desktop rule is decided from the cursor position: a click while the cursor is on the row's own embed line goes to the source; any other click (cursor on the source, or moved elsewhere) goes to the embed line. The desktop double click (-> source) and **Go to mirror source** are unchanged. `mirrorRowClickAction` gains an optional `cursorAtEmbed`; new `isCursorAtMirrorEmbed`. See `docs/phase5m-2_mirror-ops-design-memo.md` §9-5.
+
+### Fixed
+
+- Outline Tree jump did nothing in a note whose Properties block is taller than the editor viewport: with the content entirely below the visible area, CodeMirror reports the editor as not in view, skips its measure cycle and drops the scroll request, so a row click only moved the cursor. The Tree now scrolls the editor directly to the estimated position first when the content is off screen, then applies the usual top-aligned scroll and stabilizer. New pure module `src/view/offscreenContentScroll.ts`. See `docs/fix_tree-jump-offscreen-properties-design-memo.md`.
+
 ## [1.0.1] - 2026-09-27
 
 ### Added

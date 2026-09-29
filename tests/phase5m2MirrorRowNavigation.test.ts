@@ -5,6 +5,7 @@ import { parseDocument } from "../src/parser/parseDocument";
 import { scanComplexBlocks } from "../src/parser/complexBlocks";
 import { buildOutlineTree, flattenOutlineTree, isOutlineMirrorNode, OutlineTreeMirrorNode } from "../src/tree/buildOutlineTree";
 import {
+  isCursorAtMirrorEmbed,
   isCursorAtMirrorSource,
   MIRROR_SOURCE_JUMP_CLICK_SUPPRESS_MS,
   mirrorRowClickAction,
@@ -176,8 +177,70 @@ describe("mobile: tapping the already-selected mirror row again", () => {
     expect(mirrorRowClickAction({ ...base, pressDurationMs: null })).toBe("jump-to-source");
   });
 
-  it("desktop: a click on the selected row still goes to the embed line (desktop uses double click)", () => {
+  it("desktop: a click on the selected row goes to the embed line unless the cursor is already on it", () => {
     expect(mirrorRowClickAction({ ...base, isMobile: false })).toBe("jump-to-embed");
+  });
+});
+
+describe("desktop: clicking the already-selected mirror row again toggles (2026-09-30)", () => {
+  const base = {
+    isMobile: false,
+    treeHasFocus: true,
+    alreadySelected: true,
+    pressDurationMs: null,
+    longPressMs: LONG_PRESS_DURATION_MS,
+    cursorAtSource: false,
+    cursorAtEmbed: true,
+  };
+
+  it("a click on the selected row while the cursor is on its embed line jumps to the source", () => {
+    expect(mirrorRowClickAction(base)).toBe("jump-to-source");
+  });
+
+  it("a click while the cursor is on the source goes back to the embed line", () => {
+    expect(mirrorRowClickAction({ ...base, cursorAtEmbed: false, cursorAtSource: true })).toBe("jump-to-embed");
+  });
+
+  it("a click after the cursor was moved elsewhere goes to the embed line first", () => {
+    expect(mirrorRowClickAction({ ...base, cursorAtEmbed: false })).toBe("jump-to-embed");
+  });
+
+  it("the first click (row not yet selected) goes to the embed line even if the cursor is on it", () => {
+    expect(mirrorRowClickAction({ ...base, alreadySelected: false })).toBe("jump-to-embed");
+  });
+
+  it("tree focus and press duration are not consulted on desktop", () => {
+    expect(mirrorRowClickAction({ ...base, treeHasFocus: false })).toBe("jump-to-source");
+    expect(mirrorRowClickAction({ ...base, pressDurationMs: 5000 })).toBe("jump-to-source");
+  });
+
+  it("omitting cursorAtEmbed never jumps to the source", () => {
+    const { cursorAtEmbed: _omit, ...rest } = base;
+    expect(mirrorRowClickAction(rest)).toBe("jump-to-embed");
+  });
+
+  it("toggle sequence: click (select) -> embed, click -> source, click -> embed, click -> source", () => {
+    const rows = mirrorRows(FIXTURE);
+    const row = rows[0];
+    let cursor: number | null = null;
+    let selected = false;
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const action = mirrorRowClickAction({
+        ...base,
+        alreadySelected: selected,
+        cursorAtSource: isCursorAtMirrorSource(row, cursor),
+        cursorAtEmbed: isCursorAtMirrorEmbed(row, cursor),
+      });
+      const target = mirrorSourceJumpTarget(row);
+      cursor = action === "jump-to-source" && target.ok ? target.line : mirrorRowClickLine(row);
+      selected = true;
+      seen.push(cursor);
+    }
+    const src = mirrorSourceJumpTarget(row);
+    expect(src.ok).toBe(true);
+    const srcLine = src.ok ? src.line : -1;
+    expect(seen).toEqual([row.line, srcLine, row.line, srcLine]);
   });
 });
 
@@ -266,6 +329,7 @@ describe("view wiring (static source checks)", () => {
     expect(jump).toBeGreaterThan(retap);
     expect(handler).toContain("longPressMs: LONG_PRESS_DURATION_MS");
     expect(handler).toContain("cursorAtSource: isCursorAtMirrorSource(node,");
+    expect(handler).toContain("cursorAtEmbed: isCursorAtMirrorEmbed(node,");
   });
 
   it("mirror rows still get no rename or drag wiring", () => {

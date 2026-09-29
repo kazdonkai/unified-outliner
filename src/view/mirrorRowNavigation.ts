@@ -15,7 +15,9 @@
  *   - on mobile, tapping the already-selected row again TOGGLES the cursor
  *     between the referenced block and the embed line (follow-up after
  *     real-device testing: a third tap used to "do nothing", because it
- *     jumped to the source the cursor was already on).
+ *     jumped to the source the cursor was already on);
+ *   - on desktop, clicking the already-selected row again toggles the same
+ *     way (2026-09-30; see mirrorRowClickAction).
  *
  * This module never reads the clock or the DOM (timestamps are passed in),
  * matching view/rowDoubleClickDetector.ts, so it is unit-testable directly.
@@ -76,8 +78,18 @@ export type MirrorRowClickAction = "jump-to-embed" | "jump-to-source";
  * user moved the cursor some other way. The click a long press's release
  * produces (`pressDurationMs >= longPressMs`: that gesture opened the
  * context menu) never jumps to the source; an unknown press duration
- * (`null`) is treated as a tap. Desktop clicks always go to the embed line
- * (desktop uses the double click instead).
+ * (`null`) is treated as a tap.
+ *
+ * Desktop (2026-09-30, "デスクトップでもクリックごとに交互に移動"): a mouse
+ * click on the ALREADY selected mirror row toggles as well, but decided
+ * from `cursorAtEmbed`: when the body cursor is on the row's own embed
+ * line it jumps to the source, otherwise (cursor on the source, or moved
+ * somewhere else meanwhile) it goes to the embed line. So repeated clicks
+ * alternate embed -> source -> embed -> ..., and a click after the user
+ * moved the cursor elsewhere first returns to the embed line like any
+ * ordinary row click. Tree focus and press duration are not consulted on
+ * desktop (a mouse has no long press; the context menu is a right click).
+ * The desktop double click (-> source) is kept.
  */
 export function mirrorRowClickAction(params: {
   isMobile: boolean;
@@ -86,10 +98,20 @@ export function mirrorRowClickAction(params: {
   pressDurationMs: number | null;
   longPressMs: number;
   cursorAtSource: boolean;
+  /** Desktop toggle: the body cursor is on this mirror row's own embed line. Defaults to false. */
+  cursorAtEmbed?: boolean;
 }): MirrorRowClickAction {
+  if (!params.isMobile) {
+    return params.alreadySelected && params.cursorAtEmbed === true ? "jump-to-source" : "jump-to-embed";
+  }
   const isTap = params.pressDurationMs === null || params.pressDurationMs < params.longPressMs;
-  const reTap = params.isMobile && params.treeHasFocus && params.alreadySelected && isTap;
+  const reTap = params.treeHasFocus && params.alreadySelected && isTap;
   return reTap && !params.cursorAtSource ? "jump-to-source" : "jump-to-embed";
+}
+
+/** True when the body cursor is on the mirror row's own embed line (for the desktop click toggle). */
+export function isCursorAtMirrorEmbed(node: OutlineTreeMirrorNode, cursorLine: number | null): boolean {
+  return cursorLine !== null && cursorLine === mirrorRowClickLine(node);
 }
 
 /** True when the body cursor is on the mirror's resolved source line (for the mobile re-tap toggle). */
