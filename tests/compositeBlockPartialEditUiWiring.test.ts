@@ -160,11 +160,21 @@ describe("view/PartialEditView.ts: requestLoadComposite (unsaved-edit guard, sam
 });
 
 describe("view/PartialEditView.ts: loadCompositeInternal — dual-mode member reuse (structured when splittable+projectable, raw fallback otherwise)", () => {
-  it("clears ancestors/directChildren/siblingState — no breadcrumb, Subtree Navigator, or sibling nav for a CompositeBlock", () => {
+  // 2026-09-30: Phase 5D-2A originally cleared ancestors/directChildren/
+  // siblingState for EVERY CompositeBlock. For image-ocr only, the
+  // breadcrumb and a DEDICATED Previous/Next are now derived via
+  // refreshCompositeNavigationState (see the dedicated describe block
+  // below and tests/compositeAncestorPath.test.ts /
+  // tests/imageOcrNavigation.test.ts); the BlockNode sibling state and the
+  // Subtree Navigator stay unconditionally empty.
+  it("derives image-ocr navigation via refreshCompositeNavigationState and still clears directChildren/siblingState — no Subtree Navigator or BlockNode sibling nav for any CompositeBlock", () => {
     const body = bodyOf(viewTs, "private loadCompositeInternal(", "loadCompositeInternal");
-    expect(body).toContain("this.ancestors = [];");
+    expect(body).toContain("this.refreshCompositeNavigationState(doc, this.compositeAnchor);");
+    expect(body).not.toContain("this.ancestors = [];");
     expect(body).toContain("this.directChildren = [];");
     expect(body).toContain("this.siblingState = { previous: null, next: null };");
+    expect(body).not.toContain("findDirectChildren(");
+    expect(body).not.toContain("getSiblingNavigationState(");
   });
 
   it("sets nodeKind to \"composite\" (not reusing \"section\"/\"list\"/\"callout\"/\"blockquote\"/\"paragraph\")", () => {
@@ -726,5 +736,183 @@ describe("i18n.ts: Phase 5D-2A/5D-2B keys", () => {
     expect(i18nTs).toContain(
       "Unified Outliner: この編集後の内容は CompositeBlock の規則に一致しません。各 block は個別に表示されます。"
     );
+  });
+});
+
+describe("view/PartialEditView.ts: List+Callout (image-ocr) breadcrumb + dedicated Previous/Next wiring (2026-09-30)", () => {
+  const helperBody = bodyOf(
+    viewTs,
+    "private compositeBreadcrumbAncestors(",
+    "compositeBreadcrumbAncestors"
+  );
+  const refreshBody = bodyOf(
+    viewTs,
+    "private refreshCompositeNavigationState(",
+    "refreshCompositeNavigationState"
+  );
+  const targetsBody = bodyOf(viewTs, "private imageOcrSiblingTargets(", "imageOcrSiblingTargets");
+  const requestBody = bodyOf(viewTs, "private requestLoadAdjacentImageOcr(", "requestLoadAdjacentImageOcr");
+  const resolveBody = bodyOf(
+    viewTs,
+    "private resolveAdjacentImageOcrSnapshot(",
+    "resolveAdjacentImageOcrSnapshot"
+  );
+  const renderSibling = bodyOf(viewTs, "private renderSiblingNav(): void {", "renderSiblingNav");
+
+  it("imports the pure helpers and delegates to them (no view-local ancestor/ordering logic or rule-id literal)", () => {
+    expect(viewTs).toContain(
+      'import { findCompositeBreadcrumbAncestors } from "../tree/compositeAncestorPath";'
+    );
+    expect(viewTs).toContain(
+      'import { CompositeSiblingTargets, findCompositeSiblingTargets } from "../tree/imageOcrNavigation";'
+    );
+    expect(helperBody).toContain("return findCompositeBreadcrumbAncestors(doc, composite, this.plugin.t.bind(this.plugin));");
+    expect(targetsBody).toContain("return findCompositeSiblingTargets(anchor, matchCompositeBlocks(doc, scanComplexBlocks(doc), rules));");
+    for (const body of [helperBody, refreshBody, targetsBody, requestBody, resolveBody]) {
+      expect(body).not.toContain('"image-ocr"');
+      expect(body).not.toContain("findAncestorPath(");
+      expect(body).not.toContain(".sort(");
+    }
+  });
+
+  it("all new helpers are private (no new public API on PartialEditView)", () => {
+    for (const name of [
+      "compositeBreadcrumbAncestors",
+      "refreshCompositeNavigationState",
+      "imageOcrSiblingTargets",
+      "imageOcrTargetLabel",
+      "requestLoadAdjacentImageOcr",
+      "resolveAdjacentImageOcrSnapshot",
+    ]) {
+      expect(viewTs).toContain(`  private ${name}(`);
+      expect(viewTs).not.toMatch(new RegExp(`\\n  (public )?${name}\\(`));
+    }
+  });
+
+  it("refreshCompositeNavigationState derives breadcrumb + Previous/Next together, and clears BOTH for a null anchor", () => {
+    const nullIdx = refreshBody.indexOf("if (!doc || !anchor) {");
+    expect(nullIdx).toBeGreaterThan(-1);
+    const nullBranch = refreshBody.slice(nullIdx, refreshBody.indexOf("return;", nullIdx));
+    expect(nullBranch).toContain("this.ancestors = [];");
+    expect(nullBranch).toContain("this.imageOcrSiblingState = { previous: null, next: null };");
+    expect(refreshBody).toContain("this.ancestors = this.compositeBreadcrumbAncestors(doc, anchor);");
+    expect(refreshBody).toContain("const targets = this.imageOcrSiblingTargets(doc, anchor);");
+  });
+
+  it("performAutoReload re-derives via the shared helper from the fresh doc (null on failed re-resolution), then re-renders breadcrumb and sibling nav", () => {
+    const body = bodyOf(viewTs, "private performAutoReload(", "performAutoReload");
+    const compositeIdx = body.indexOf("if (this.compositeAnchor) {");
+    expect(compositeIdx).toBeGreaterThan(-1);
+    const compositeSlice = body.slice(compositeIdx);
+    expect(compositeSlice).toContain("this.refreshCompositeNavigationState(");
+    expect(compositeSlice).toContain(
+      "extracted.ok && extracted.resolvedSnapshot ? extracted.resolvedSnapshot : null"
+    );
+    const recomputeIdx = body.indexOf("this.refreshCompositeNavigationState(");
+    expect(body.indexOf("this.renderBreadcrumb();")).toBeGreaterThan(recomputeIdx);
+    expect(body.indexOf("this.renderSiblingNav();")).toBeGreaterThan(recomputeIdx);
+  });
+
+  it("applyEdit's composite branch re-derives via the shared helper right after re-anchoring (fresh parse; null anchor -> null doc -> cleared), then re-renders breadcrumb and sibling nav", () => {
+    const body = bodyOf(viewTs, "private applyEdit(): boolean {", "applyEdit");
+    const anchorIdx = body.indexOf("this.compositeAnchor = outcome.resolvedSnapshot ?? null;");
+    expect(anchorIdx).toBeGreaterThan(-1);
+    const after = body.slice(anchorIdx);
+    const refreshIdx = after.indexOf("this.refreshCompositeNavigationState(");
+    expect(refreshIdx).toBeGreaterThan(-1);
+    const refreshStmt = after.slice(refreshIdx, after.indexOf(");", refreshIdx) + 2);
+    expect(refreshStmt).toContain("this.compositeAnchor ? parseDocument(editor.getValue()) : null");
+    const returnIdx = after.indexOf("return true;");
+    for (const call of ["this.renderBreadcrumb();", "this.renderSiblingNav();"]) {
+      const idx = after.indexOf(call);
+      expect(idx).toBeGreaterThan(refreshIdx);
+      expect(idx).toBeLessThan(returnIdx);
+    }
+  });
+
+  it("leaves the save/conflict path untouched: applyCompositeBlockEdit is still the only writer, called with the same arguments", () => {
+    const body = bodyOf(viewTs, "private applyEdit(): boolean {", "applyEdit");
+    expect(body).toContain(`const outcome = applyCompositeBlockEdit(
+        doc,
+        this.compositeAnchor,
+        this.originalText,
+        newCompositeText,
+        rules
+      );`);
+  });
+
+  it("breadcrumb clicks still go only through requestLoadNode(ancestor.id) — no composite/member route added there", () => {
+    const render = bodyOf(viewTs, "private renderBreadcrumb(): void {", "renderBreadcrumb");
+    expect(render).toContain(
+      'segEl.addEventListener("click", () => this.requestLoadNode(ancestor.id, { revealInEditor: true }));'
+    );
+    expect(render).not.toContain("requestLoadComposite(");
+    expect(render).not.toContain("compositeAnchor");
+    expect(helperBody).not.toContain("requestLoad");
+  });
+
+  it("Previous/Next clicks branch to requestLoadAdjacentImageOcr while a CompositeBlock is loaded, otherwise keep the original requestLoadNode(target.nodeId) path", () => {
+    for (const dir of ["previous", "next"]) {
+      const branch = `if (this.compositeAnchor) {
+        this.requestLoadAdjacentImageOcr("${dir}");
+        return;
+      }
+      const target = this.siblingState.${dir};
+      if (target) this.requestLoadNode(target.nodeId, { revealInEditor: true });`;
+      expect(viewTs).toContain(branch);
+    }
+  });
+
+  it("requestLoadAdjacentImageOcr uses the SAME DiscardChangesModal Apply/Discard/Cancel guard and ends only in loadCompositeInternal — never requestLoadNode / a member id", () => {
+    expect(requestBody).toContain("if (!this.isDirty()) {");
+    expect(requestBody).toContain("new DiscardChangesModal(this.app, this.plugin, (choice) => {");
+    expect(requestBody).toContain('if (choice === "cancel") return;');
+    expect(requestBody).toContain('if (choice === "discard") {');
+    expect(requestBody).toContain("if (this.applyEdit()) {");
+    expect(requestBody).toContain("this.loadCompositeInternal(target);");
+    expect(requestBody).not.toContain("requestLoadNode(");
+    expect(requestBody).not.toContain("loadNodeInternal(");
+    expect(requestBody).not.toContain("members[");
+    // The target is re-resolved AFTER the user's choice (post-Apply positions).
+    const modalIdx = requestBody.indexOf("new DiscardChangesModal(");
+    const proceedDefIdx = requestBody.indexOf("const proceed = (): void => {");
+    expect(proceedDefIdx).toBeGreaterThan(-1);
+    expect(requestBody.slice(proceedDefIdx, modalIdx)).toContain("this.resolveAdjacentImageOcrSnapshot(direction)");
+  });
+
+  it("resolveAdjacentImageOcrSnapshot re-resolves freshly from the active note (same sourcePath only) and returns a WHOLE-composite snapshot", () => {
+    expect(resolveBody).toContain("if (!this.compositeAnchor) return null;");
+    expect(resolveBody).toContain("(view.file?.path ?? null) !== this.sourcePath");
+    expect(resolveBody).toContain("parseDocument(view.editor.getValue())");
+    expect(resolveBody).toContain("return target ? buildCompositeBlockSnapshot(target) : null;");
+  });
+
+  it("renderSiblingNav: a loaded CompositeBlock shows ONLY imageOcrSiblingState in the one existing row (hidden when empty, e.g. image-quote); BlockNode nodes keep the original condition", () => {
+    const compositeIdx = renderSibling.indexOf("if (this.compositeAnchor) {");
+    const nodeIdx = renderSibling.indexOf("if (!this.nodeId || (!this.siblingState.previous && !this.siblingState.next)) {");
+    expect(compositeIdx).toBeGreaterThan(-1);
+    expect(nodeIdx).toBeGreaterThan(compositeIdx);
+    const compositeBranch = renderSibling.slice(compositeIdx, nodeIdx);
+    expect(compositeBranch).toContain("const nav = this.imageOcrSiblingState;");
+    expect(compositeBranch).toContain("if (!nav.previous && !nav.next) {");
+    expect(compositeBranch).not.toContain("this.siblingState");
+    expect(compositeBranch).toContain("this.renderSiblingNavButtons(nav.previous, nav.next);");
+    expect(renderSibling).toContain("this.renderSiblingNavButtons(this.siblingState.previous, this.siblingState.next);");
+  });
+
+  it("image-ocr navigation state is reset wherever a composite identity is cleared (other load kinds never inherit it)", () => {
+    const resetCount = viewTs.split("this.imageOcrSiblingState = { previous: null, next: null };").length - 1;
+    // resetLoadedState, loadNodeInternal, loadParagraphInternal, the null branch of
+    // refreshCompositeNavigationState, and requestLoadAdjacentImageOcr's two "no target" paths.
+    expect(resetCount).toBe(6);
+    expect(bodyOf(viewTs, "private resetLoadedState(): void {", "resetLoadedState")).toContain(
+      "this.imageOcrSiblingState = { previous: null, next: null };"
+    );
+  });
+
+  it("the Subtree Navigator stays unwired to any composite state", () => {
+    const sub = bodyOf(viewTs, "private renderSubtreeNavigator(): void {", "renderSubtreeNavigator");
+    expect(sub).not.toContain("compositeAnchor");
+    expect(sub).not.toContain("imageOcr");
   });
 });

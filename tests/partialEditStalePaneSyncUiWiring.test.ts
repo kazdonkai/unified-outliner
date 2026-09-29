@@ -400,8 +400,11 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     // constructor with exactly 3 arguments (no options object, so
     // showApply stays at its default of true) — only the actual Reload
     // call site passes a 4th argument, verified separately below.
+    // 2026-09-30: +1 — requestLoadAdjacentImageOcr (the image-ocr-only
+    // Previous/Next navigation) reuses this exact same modal as a fourth
+    // node-switch guard, again with exactly 3 arguments. Total now 10.
     const callSites = viewTs.split("new DiscardChangesModal(").length - 1;
-    expect(callSites).toBe(9);
+    expect(callSites).toBe(10);
     // The exact call-site check (only performReload's own body actually
     // passes `showApply: false,` as a real constructor argument, not just
     // in prose) is covered by the dedicated "the new dirty+stale/
@@ -487,7 +490,10 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
 
   it("existing node-switch-guard DiscardChangesModal call sites (requestLoadNode/requestLoadParagraphAtCursor/requestLoadComposite) are untouched by this ticket", () => {
     const cases: Array<[string, string]> = [
-      ["requestLoadNode(nodeId: string): void {", "this.loadNodeInternal(nodeId)"],
+      // 2026-09-30: requestLoadNode gained an optional navigation-options
+      // parameter (Partial Edit Pane navigation -> body editor sync); its
+      // guard/load shape is unchanged.
+      ["requestLoadNode(nodeId: string, options: PartialEditNavigationOptions = {}): void {", "this.loadNodeInternal(nodeId)"],
       [
         "requestLoadParagraphAtCursor(cursorLine: number): void {",
         "this.loadParagraphInternal(cursorLine)",
@@ -552,9 +558,9 @@ describe("PartialEditView.ts Phase 5A-1 stale-Pane sync wiring (static source ch
     );
   });
 
-  it("(5) every existing DiscardChangesModal call site (node-switch guard x3, Reload confirmation, Phase 5L-8 child-inline-edit x2, Phase 5L-9 new-child-draft, Phase 5L-9b leaf-first-child-draft) is untouched — call-site count stays 9, none pass a 'cancel'-labeled button option", () => {
+  it("(5) every existing DiscardChangesModal call site (node-switch guard x3 + image-ocr Previous/Next guard, Reload confirmation, Phase 5L-8 child-inline-edit x2, Phase 5L-9 new-child-draft, Phase 5L-9b leaf-first-child-draft) is untouched — call-site count is 10, none pass a 'cancel'-labeled button option", () => {
     const callSites = viewTs.split("new DiscardChangesModal(").length - 1;
-    expect(callSites).toBe(9);
+    expect(callSites).toBe(10);
     expect(viewTs).not.toContain("cancelButtonKey");
   });
 

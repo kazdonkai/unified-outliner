@@ -35,6 +35,20 @@ CompositeBlock編集時は理論上100%の確率で「前後どちらのきょ�
 ず、常に空疎な1行分の高さ・余白をヘッダー直下に残し続けていたことが、報告1の
 「拡張ブロック等の編集時に広大な無駄な空白が生じる」の主因である。
 
+> **追記（2026-09-30）**: 上記の「CompositeBlock にはパンくずを出さない」という
+> Phase 5D-2A の方針は、その後 List+Callout（`image-ocr`）に限って変更された。
+> `image-ocr` の CompositeBlock では、list 側 member を基準にした祖先 breadcrumb
+> を表示する（`compositeBreadcrumbAncestors`）。List+Quote（`image-quote`）その他
+> の規則では従来どおり breadcrumb は出ない。同日さらに、`image-ocr` に限って
+> sibling-nav 行を「同じノート内の image-ocr どうしの前後移動」として表示する
+> ようにした（通常の BlockNode 用 sibling state ではなく専用の状態。実機手順は
+> `docs/image_ocr_sibling_navigation_manual_acceptance_test.md`）。`image-quote`
+> その他の規則では sibling-nav 行は従来どおり表示されず、Subtree Navigator は
+> すべての CompositeBlock で引き続き表示しない。本ドキュメントの余白修正
+> （sibling-nav 行の非表示条件・`gap` への集約・非表示行の `display: none` 化）
+> 自体はこの変更の影響を受けない。breadcrumb 行は祖先が空のときに隠れる既存条件
+> のまま扱われる。詳細は `docs/統合実装ロードマップ_2026-08-05.md` §3.32 を参照。
+
 ### 2.2 副因: 行間余白が各行に個別の margin-bottom として重複宣言されていた
 
 `.unified-outliner-partial-edit-header` / `-sync-status` / `-breadcrumb` /
