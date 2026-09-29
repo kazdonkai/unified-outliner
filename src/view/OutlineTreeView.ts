@@ -337,6 +337,7 @@ import { createMirrorBelow, MirrorCreateRef } from "../mirror/createMirror";
 import { buildMirrorOpSnapshots, deleteMirror, evaluateMirrorMove } from "../mirror/mirrorOps";
 import {
   MirrorSourceJumpRecord,
+  isCursorAtMirrorEmbed,
   isCursorAtMirrorSource,
   mirrorRowClickAction,
   mirrorRowClickLine,
@@ -1941,9 +1942,10 @@ export class OutlineTreeView extends ItemView {
       // Phase 5M-2 follow-up (mirror row click target): a click on a mirror
       // row goes to its OWN embed line like every other row (see the
       // jumpToLine call at the end of this handler); the referenced block
-      // is reached by "Go to mirror source", a desktop double click, or —
-      // on mobile — tapping the already-selected mirror row again, which
-      // toggles between the source and the embed line (the gesture that
+      // is reached by "Go to mirror source", a desktop double click, or
+      // clicking/tapping the already-selected mirror row again, which
+      // toggles between the source and the embed line (desktop too since
+      // 2026-09-30) (the gesture that
       // starts rename on an editable row; a mirror row has none). See
       // view/mirrorRowNavigation.ts.
       if (isOutlineMirrorNode(node)) {
@@ -1953,13 +1955,15 @@ export class OutlineTreeView extends ItemView {
         }
         const press = this.lastMirrorPointerDown;
         this.lastMirrorPointerDown = null;
+        const cursorLine = this.activeMarkdownView.get()?.editor.getCursor().line ?? null;
         const action = mirrorRowClickAction({
           isMobile: Platform.isMobile,
           treeHasFocus: this.hasFocus,
           alreadySelected: node.id === this.selectedId,
           pressDurationMs: press && press.nodeId === node.id ? evt.timeStamp - press.time : null,
           longPressMs: LONG_PRESS_DURATION_MS,
-          cursorAtSource: isCursorAtMirrorSource(node, this.activeMarkdownView.get()?.editor.getCursor().line ?? null),
+          cursorAtSource: isCursorAtMirrorSource(node, cursorLine),
+          cursorAtEmbed: isCursorAtMirrorEmbed(node, cursorLine),
         });
         if (action === "jump-to-source") {
           this.jumpToMirrorSource(node.id);
