@@ -1,6 +1,6 @@
 /**
  * v1.0.4 (Tree + Partial Edit phase): Partial Edit projection / Apply of a
- * "List item + Paragraph" CompositeBlock, with the paragraph's existing
+ * "List + Paragraph" CompositeBlock, with the paragraph's existing
  * block id protected. Pure level: edit/listParagraphCompositeProjection.ts
  * composed with the unchanged edit/compositeBlockPartialEdit.ts pipeline.
  */
@@ -81,7 +81,7 @@ describe("projection: display order and content", () => {
     expect(p.body).toBe("body text");
   });
 
-  it("only applies to List item + Paragraph snapshots", () => {
+  it("only applies to List + Paragraph snapshots", () => {
     const doc = parseDocument(["- img", "> [!ocr]", "> t"].join("\n"));
     const c = matchCompositeBlocks(doc, scanComplexBlocks(doc), rules)[0];
     const snap = buildCompositeBlockSnapshot(c);
@@ -209,5 +209,40 @@ describe("list row is shown marker-free (same projection as a List + Callout lis
     if (!inv.ok) throw new Error("invert refused");
     const composed = composeListParagraphText(p, inv.rawLine, p.body);
     expect(composed.ok && composed.text).toBe(["- 史料A（改）", "  本文 ^lp-a"].join("\n"));
+  });
+});
+
+describe("1.0.6: renaming / clearing the paragraph's block id from the Block ID field", () => {
+  it("renames an inline id in place, keeping its spacing", () => {
+    const { p } = project(["- item", "  body  ^old-id"].join("\n"));
+    const c = composeListParagraphText(p, p.listLine, p.body, "new-id");
+    expect(c.ok && c.text).toBe(["- item", "  body  ^new-id"].join("\n"));
+  });
+
+  it("renames a standalone id line, keeping it the paragraph's last line", () => {
+    const { p } = project(["- item", "  body", "  ^old-id"].join("\n"));
+    const c = composeListParagraphText(p, p.listLine, "edited", "new-id");
+    expect(c.ok && c.text).toBe(["- item", "  edited", "  ^new-id"].join("\n"));
+    expect(c.ok && c.idLineOffset).toBe(2);
+  });
+
+  it("clears the id when the field is emptied (null)", () => {
+    const { p } = project(["- item", "  body ^old-id"].join("\n"));
+    const c = composeListParagraphText(p, p.listLine, p.body, null);
+    expect(c.ok && c.text).toBe(["- item", "  body"].join("\n"));
+    expect(c.ok && c.idLineOffset).toBeNull();
+  });
+
+  it("undefined keeps the id unchanged (byte-for-byte round trip)", () => {
+    const { p, lines } = project(["- item", "  body ^keep"].join("\n"));
+    const c = composeListParagraphText(p, p.listLine, p.body, undefined);
+    expect(c.ok && c.text).toBe(lines.join("\n"));
+  });
+
+  it("the renamed id is verified to stay at the end of the paragraph", () => {
+    const { p } = project(["- item", "  body ^old-id"].join("\n"));
+    const c = composeListParagraphText(p, p.listLine, p.body, "new-id");
+    if (!c.ok) throw new Error("compose refused");
+    expect(verifyBlockIdStaysInParagraph(c.text.split("\n"), c.idLineOffset!, "new-id")).toBe(true);
   });
 });

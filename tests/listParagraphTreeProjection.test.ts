@@ -1,6 +1,6 @@
 /**
  * v1.0.4 (Tree + Partial Edit phase): Outline Tree projection of the
- * "List item + Paragraph" CompositeBlock rule — pure buildOutlineTree /
+ * "List + Paragraph" CompositeBlock rule — pure buildOutlineTree /
  * foldIdentity / resolveCurrentPositionNodeId level.
  */
 import { describe, expect, it } from "vitest";
@@ -42,7 +42,7 @@ function build(text: string, opts: { rules?: CompositeBlockRule[]; paragraphs?: 
 
 const composites = (flat: OutlineTreeNode[]) => flat.filter(isOutlineCompositeNode);
 
-describe("Outline Tree: List item + Paragraph composite row", () => {
+describe("Outline Tree: List + Paragraph composite row", () => {
   const text = ["# H", "- 史料A", "  村持入会地として記載。 ^lp-a"].join("\n");
 
   it("is projected as a composite parent row: ruleId, English label, ≡ prefix, start line, no structural ops", () => {
@@ -50,7 +50,7 @@ describe("Outline Tree: List item + Paragraph composite row", () => {
       const { flat } = build(text, { ja });
       const [c] = composites(flat);
       expect(c.ruleId).toBe("list-paragraph");
-      expect(c.label).toBe("List item + Paragraph");
+      expect(c.label).toBe("List + Paragraph");
       expect(c.prefix).toBe("≡");
       expect(c.line).toBe(1);
       expect(c.allowsStructuralOps).toBe(false);
@@ -152,11 +152,11 @@ describe("Outline Tree: the composite disappears naturally when its conditions b
 });
 
 describe("fold identity and cursor highlight", () => {
-  it("each List item + Paragraph composite gets its own stable, non-colliding identity", () => {
+  it("each List + Paragraph composite gets its own stable, non-colliding identity", () => {
     const { tree, flat } = build(["# H", "- a", "  p1", "- b", "  p2"].join("\n"));
     const map = buildNodeIdentityMap(tree);
     const ids = composites(flat).map((c) => map.get(c.id));
-    expect(ids).toEqual(["section:H/composite:List item + Paragraph", "section:H/composite:List item + Paragraph#1"]);
+    expect(ids).toEqual(["section:H/composite:List + Paragraph", "section:H/composite:List + Paragraph#1"]);
     expect(new Set(map.values()).size).toBe(map.size);
   });
 

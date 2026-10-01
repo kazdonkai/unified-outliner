@@ -553,7 +553,7 @@ export class OutlineTreeView extends ItemView {
   // trusted to survive a re-parse.
   private currentComposites: CompositeBlockInfo[] = [];
   // v1.0.4: EVERY composite projected into this refresh's Tree, including
-  // tree-read-only ones ("List item + Paragraph") that currentComposites
+  // tree-read-only ones ("List + Paragraph") that currentComposites
   // (the operable subset — the only one move / delete / drag / copy logic
   // ever sees) deliberately leaves out. Used solely to build the snapshot
   // for a tree-read-only composite's "Open in Partial Edit" item.
@@ -1015,7 +1015,7 @@ export class OutlineTreeView extends ItemView {
     // pattern-matching step, more work than the scan above) rather than
     // paying its cost for users who don't use the feature at all.
     // v1.0.4: the Tree projects every enabled built-in rule, including the
-    // tree-read-only "List item + Paragraph" rule; currentComposites keeps
+    // tree-read-only "List + Paragraph" rule; currentComposites keeps
     // only the operable subset (exactly what getEnabledCompositeBlockRules
     // alone would match — matchCompositeBlocks gives adjacent-sequence
     // composites the same `composite-N` ids either way), so every move /
@@ -1681,7 +1681,7 @@ export class OutlineTreeView extends ItemView {
         node.complexKind === "table" ||
         node.complexKind === "fenced-code");
     let dragHandleEl: HTMLElement | null = null;
-    // v1.0.4: a tree-read-only composite ("List item + Paragraph") gets no
+    // v1.0.4: a tree-read-only composite ("List + Paragraph") gets no
     // drag handle — see OutlineTreeCompositeNode.allowsStructuralOps.
     const isOperableComposite = isComposite && node.allowsStructuralOps;
     // v1.0.4: set for a tree-read-only composite's own row AND each of its
@@ -2049,7 +2049,7 @@ export class OutlineTreeView extends ItemView {
     // complex-member rows, and none for a list row currently inside a
     // composite either (readOnly covers all three).
     if (readOnlyCompositeId !== null) {
-      // v1.0.4: a tree-read-only composite ("List item + Paragraph") row or
+      // v1.0.4: a tree-read-only composite ("List + Paragraph") row or
       // one of its member rows — no structural menu at all; the only item
       // is "Open in Partial Edit" for the composite (see
       // showReadOnlyCompositeMenu). Checked FIRST so the member rows never

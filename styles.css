@@ -130,6 +130,39 @@ settings:
         opacity: true
         default-light: '#5b57d159'
         default-dark: '#a29bfe59'
+    -
+        id: uo-partial-edit-editors-heading
+        title: Partial Edit Pane – Editor Backgrounds
+        type: heading
+        level: 2
+        collapsed: true
+    -
+        id: uo-partial-edit-list-bg
+        title: Extended Block List Row Background
+        description: Always-on background of the list row editor shown when an extended block (List + Callout / List + Quote / List + Paragraph) is open in the Partial Edit Pane. Follows Background Color above until set.
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#ffffff'
+        default-dark: '#1e1e22'
+    -
+        id: uo-partial-edit-blockid-bg
+        title: Block ID Field Background
+        description: Background of the Partial Edit Pane's Block ID field. Follows Body Editor Background (then Background Color) until set.
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#ffffff'
+        default-dark: '#1e1e22'
+    -
+        id: uo-partial-edit-body-bg
+        title: Body Editor Background
+        description: Always-on background of the Partial Edit Pane's main text editor (the callout / quote / paragraph editor of an extended block, and the editor of every other block). Follows Background Color above until set.
+        type: variable-themed-color
+        format: hex
+        opacity: true
+        default-light: '#ffffff'
+        default-dark: '#1e1e22'
 
 */
 
@@ -673,6 +706,7 @@ settings:
 .unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-table-mode-tab-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-table-mode-grid[style*="visibility: hidden"],
+.unified-outliner-partial-edit-textarea-grip[style*="visibility: hidden"],
 .unified-outliner-partial-edit-textarea[style*="visibility: hidden"] {
   display: none;
 }
@@ -1158,8 +1192,102 @@ settings:
   box-shadow: none;
 }
 
+/* 1.0.6: the list row editor always has the same white/editor background
+ * as the body editor below — not only while focused — and its own Style
+ * Settings variable (--uo-partial-edit-list-bg), falling back to the pane
+ * Background Color. :hover/:focus are listed so Obsidian's own form-field
+ * hover/focus backgrounds never replace it. */
+.unified-outliner-partial-edit-composite-list-input,
+.unified-outliner-partial-edit-composite-list-input:hover,
+.unified-outliner-partial-edit-composite-list-input:focus {
+  background-color: var(--uo-partial-edit-list-bg, var(--uo-bg-color));
+}
+
+.unified-outliner-partial-edit-composite-list-input {
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.unified-outliner-partial-edit-textarea:hover,
+.unified-outliner-partial-edit-textarea:focus {
+  background-color: var(--uo-partial-edit-body-bg, var(--uo-bg-color));
+}
+
 .unified-outliner-partial-edit-composite-list-input:disabled {
   opacity: 0.6;
+}
+
+/* 1.0.6: the list member's editor is a wrapping textarea (was a one-line
+ * input) so a long list line is shown in full. Height is set by
+ * PartialEditView.ts (fitted to the text, or dragged with the grip); the
+ * native resize handle is replaced by the plugin's own grip, which also
+ * works on iPad. */
+.unified-outliner-partial-edit-composite-list-row {
+  position: relative;
+  align-items: flex-start;
+  padding-bottom: 14px;
+}
+
+.unified-outliner-partial-edit-composite-list-input {
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
+}
+
+/* 1.0.6: an extended-block session's body textarea is sized to its text
+ * (see renderCompositeEditorSizing) instead of filling the pane. */
+.unified-outliner-partial-edit-textarea.unified-outliner-partial-edit-textarea-fit {
+  flex: 0 0 auto;
+  min-height: 0;
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+/* 1.0.6: bottom-right resize grip (list row and body textarea). */
+.unified-outliner-partial-edit-resize-grip {
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  cursor: ns-resize;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.unified-outliner-partial-edit-resize-grip:hover {
+  color: var(--text-muted);
+}
+
+.unified-outliner-partial-edit-resize-grip svg {
+  width: 12px;
+  height: 12px;
+}
+
+.unified-outliner-partial-edit-composite-list-row > .unified-outliner-partial-edit-resize-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+}
+
+/* The body textarea's grip sits on the textarea's own bottom-right corner
+ * (pulled up over it, past the pane's 6px flex gap). */
+/* 1.0.6: the grip follows its textarea (created right after it) — hidden
+ * whenever the textarea is, e.g. on a table's Table Mode tab. */
+.unified-outliner-partial-edit-textarea[style*="visibility: hidden"] + .unified-outliner-partial-edit-textarea-grip {
+  display: none;
+}
+
+.unified-outliner-partial-edit-textarea-grip {
+  align-self: flex-end;
+  margin-top: -24px;
+  margin-right: 3px;
+  position: relative;
+  z-index: 1;
 }
 
 /* Phase 5L-2 ("Task List Marker-Free Partial Edit"): the standalone
@@ -1483,7 +1611,9 @@ settings:
   min-height: 200px;
   resize: none;
   box-sizing: border-box;
-  background-color: var(--uo-bg-color);
+  /* 1.0.6: own Style Settings variable (--uo-partial-edit-body-bg); falls
+   * back to the pane Background Color until the user sets it. */
+  background-color: var(--uo-partial-edit-body-bg, var(--uo-bg-color));
   color: var(--uo-text-color);
   font-size: var(--uo-font-size, 14px);
   font-family: var(--font-monospace, monospace);
@@ -2741,4 +2871,35 @@ settings:
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-monospace);
+}
+
+/* 1.0.6: the Block ID field gets the plugin's own look on every platform
+ * instead of Obsidian's native form-field style (which differs between
+ * desktop and mobile — on iPad it is a grey rounded pill). It matches the
+ * body editor above (same border, radius and background) and has its own
+ * Style Settings color (--uo-partial-edit-blockid-bg), falling back to the
+ * Body Editor Background and then to the pane Background Color. The
+ * `body … input.…` selector out-ranks Obsidian's `.is-mobile input[type=…]`
+ * rules without !important; :hover/:focus/:active are listed so no state
+ * swaps the background. */
+body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input,
+body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input:hover,
+body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input:focus,
+body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input:active {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--uo-partial-edit-blockid-bg, var(--uo-partial-edit-body-bg, var(--uo-bg-color)));
+  color: var(--uo-text-color);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  box-shadow: none;
+  height: auto;
+  padding: 4px 8px;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  line-height: 1.5;
+}
+
+body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input:focus {
+  border-color: var(--uo-current-color);
+  outline: none;
 }

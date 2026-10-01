@@ -276,7 +276,7 @@ describe("view/PartialEditView.ts: onOpen wires the new composite list-member ro
       'this.compositeListRowEl = this.contentEl.createDiv({\n      cls: "unified-outliner-partial-edit-composite-list-row",\n    });'
     );
     expect(viewTs).toContain(
-      'this.compositeListInputEl = this.compositeListRowEl.createEl("input", {\n      type: "text",\n      cls: "unified-outliner-partial-edit-composite-list-input",\n    });'
+      'this.compositeListInputEl = this.compositeListRowEl.createEl("textarea", {\n      cls: "unified-outliner-partial-edit-composite-list-input",\n      attr: { rows: "1", spellcheck: "false" },\n    });'
     );
     expect(viewTs).toContain(
       'this.compositeListInputEl.addEventListener("input", () => this.updateDirtyState());'
@@ -318,7 +318,11 @@ describe("view/PartialEditView.ts: onOpen wires the new composite list-member ro
     // legitimately grew from 2 to 3. See newChildTextareaEl's own field
     // doc comment.)
     const textareaCreations = viewTs.split('createEl("textarea"').length - 1;
-    expect(textareaCreations).toBe(3);
+    // 1.0.6: a FOURTH <textarea> — the list member's own wrapping editor
+    // (compositeListInputEl, previously a one-line <input>). It edits the
+    // list member only, never the trailing member's body, so the trailing
+    // member still has exactly one editor: the reused textareaEl.
+    expect(textareaCreations).toBe(4);
   });
 });
 
@@ -415,7 +419,7 @@ describe("view/PartialEditView.ts: applyEdit's composite branch", () => {
     expect(branch).toContain('this.plugin.t("partialEdit.compositeUpdated")');
   });
 
-  it("re-fetches enabled composite rules fresh at Apply time via getEnabledTreeCompositeBlockRules (never cached; v1.0.4: the Tree rule set, so a List item + Paragraph snapshot re-resolves too)", () => {
+  it("re-fetches enabled composite rules fresh at Apply time via getEnabledTreeCompositeBlockRules (never cached; v1.0.4: the Tree rule set, so a List + Paragraph snapshot re-resolves too)", () => {
     const full = applyEditBody();
     const branchStart = full.indexOf("if (this.compositeAnchor) {");
     const branch = full.slice(branchStart, branchStart + 400);

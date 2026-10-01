@@ -217,7 +217,7 @@ describe("list-paragraph: rule definition and settings", () => {
     const expected: Record<string, string> = {
       "image-ocr": "List + Callout",
       "image-quote": "List + Quote",
-      "list-paragraph": "List item + Paragraph",
+      "list-paragraph": "List + Paragraph",
     };
     for (const locale of ["en", "ja"] as const) {
       const t = createTranslator(locale);
@@ -226,7 +226,7 @@ describe("list-paragraph: rule definition and settings", () => {
       }
       expect(t("settings.compositeBlockImageOcr.name")).toBe("List + Callout");
       expect(t("settings.compositeBlockImageQuote.name")).toBe("List + Quote");
-      expect(t("settings.compositeBlockListParagraph.name")).toBe("List item + Paragraph");
+      expect(t("settings.compositeBlockListParagraph.name")).toBe("List + Paragraph");
     }
   });
 
