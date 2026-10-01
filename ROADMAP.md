@@ -2,9 +2,9 @@
 
 Unified Outliner focuses on safe structural editing inside a single Markdown note. The roadmap prioritizes operations that help people rearrange, inspect, and refine meaningful blocks rather than duplicating Obsidian core features.
 
-## Current Release (1.0.0)
+## Current Release (1.0.6)
 
-**Released: 2026-09-25**
+**1.0.0 released: 2026-09-25 · current version 1.0.6 released: 2026-10-01**
 
 Unified Outliner 1.0 completes the plugin's core scope: safe structural editing inside a single Markdown note.
 
@@ -15,6 +15,13 @@ Unified Outliner 1.0 completes the plugin's core scope: safe structural editing 
 - **Block copy**: **Copy block**, **Duplicate below**, and **Paste block** (after, above, or as a child) for sections, list subtrees, standalone callouts/blockquotes/fenced code blocks/tables, and paragraphs, from the tree or the Command Palette, within the same note. A copy only ever inserts lines; it never rewrites an existing line.
 - **Same-note mirrors**: Obsidian embeds of a heading or block in the same note (`![[#Heading]]`, `![[#^block-id]]`) are shown as read-only mirror rows (flagged when not found or circular) — a click goes to the embed line, while a double click or **Go to mirror source** goes to the referenced block, and on mobile re-tapping the selected row switches between the two; created from the tree or the Command Palette with an automatically assigned `^uo-` block id and circular references refused; moved within their section; deleted without ever changing the referenced block; and counted in the Partial Edit Pane ("Mirrors referencing this block: N") with click-to-jump. The embed syntax itself is the only record — no database is kept.
 - **Settings**: a **General** tab grouped into Outline Tree contents, Outline Tree appearance, Move operations, and Editing & interaction, and an **Extended blocks** tab; English and Japanese UI.
+
+### Since 1.0.0 (1.0.1–1.0.6)
+
+- **1.0.1–1.0.3**: a separate Outline Tree font-size setting; reliable Outline Tree jumps (late-sizing widgets, tall Properties); desktop click toggling on mirror rows; for **List + Callout** blocks in the Partial Edit Pane, an ancestor breadcrumb and Previous / Next, with the body editor following pane navigation.
+- **1.0.4**: a third extended block, **List + Paragraph** — a single-line list item and its indented paragraph — shown read-only in the Outline Tree and edited in the Partial Edit Pane, with the paragraph's block ID always kept at the end of the paragraph.
+- **1.0.5**: extended-block rule names restored to **List + Callout** / **List + Quote**.
+- **1.0.6**: Partial Edit Pane editors sized to their text with a bottom-right resize grip on every editor (iPad included); always-on editor and Block ID field backgrounds with three new Style Settings colors; the List + Paragraph block ID editable in the Block ID field; the rule renamed **List + Paragraph** (was "List item + Paragraph").
 
 ## Next Focus
 
