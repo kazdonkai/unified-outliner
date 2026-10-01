@@ -72,6 +72,15 @@
  *      the highest-priority one (first in the caller's `rules` array) is
  *      used — enforced by trying rules in array order and stopping at the
  *      first full match.
+ *
+ * ---- v1.0.4: list + paragraph (list-child-continuation) ----
+ *
+ * The pass above only ever groups SIBLING blocks, so it can never see a
+ * paragraph that is a list item's CHILD (that paragraph lies inside the
+ * list item's own range). Rules with geometry "list-child-continuation"
+ * are therefore matched by a separate pass (matchListChildContinuation),
+ * run strictly AFTER the pass above and only over members it left unused.
+ * The candidate pool above still excludes paragraph, unchanged.
  */
 import { isListNode, LineRange, ListBlockNode, ParsedDocument } from "../model/block";
 import { isBlankLine } from "./parseDocument";
@@ -92,6 +101,7 @@ import {
   CompositeMemberKind,
 } from "../model/compositeBlock";
 import { isMirrorEmbedBlock } from "../mirror/isMirrorEmbedBlock";
+import { readBlockIdWithinRange } from "./blockIdInRange";
 
 interface Candidate {
   kind: CompositeMemberKind;
@@ -169,10 +179,52 @@ export function matchCompositeBlocks(
   complexScan: ComplexBlockScanResult,
   rules: CompositeBlockRule[]
 ): CompositeBlockInfo[] {
+  // v1.0.4: rules are split by geometry. Every "adjacent-sequence" rule (the
+  // original Phase 5D-0 shape — image-ocr / image-quote) is evaluated FIRST,
+  // exactly as before; "list-child-continuation" rules (list-paragraph) are
+  // evaluated only afterwards, against whatever members the first pass left
+  // unused — so an existing rule always wins any conflict.
+  const sequenceRules = rules.filter((r) => (r.geometry ?? "adjacent-sequence") === "adjacent-sequence");
+  const continuationRules = rules.filter((r) => r.geometry === "list-child-continuation");
+
+  // Adjacent-sequence composites keep the original `composite-N` ids, in
+  // their own document order — so matching the operable rules alone, or
+  // the operable rules plus any list-child-continuation rule, yields the
+  // SAME ids for every adjacent-sequence composite. Callers that hold both
+  // views (view/OutlineTreeView.ts: the Tree projection vs. the operable
+  // subset used by move/delete/drag) can therefore look ids up across them
+  // safely. Continuation composites get their own, never-colliding
+  // namespace: `composite-<ruleId>-N`.
+  const results: CompositeBlockInfo[] = matchAdjacentSequence(doc, complexScan, sequenceRules).map((c, seq) => ({
+    id: `composite-${seq}`,
+    ...c,
+  }));
+
+  if (continuationRules.length > 0) {
+    const usedMemberIds = new Set<string>();
+    for (const c of results) for (const m of c.members) usedMemberIds.add(m.id);
+    for (const rule of continuationRules) {
+      let seq = 0;
+      for (const c of matchListChildContinuation(doc, complexScan, rule, usedMemberIds)) {
+        for (const m of c.members) usedMemberIds.add(m.id);
+        results.push({ id: `composite-${rule.id}-${seq++}`, ...c });
+      }
+    }
+    results.sort((a, b) => a.range.startLine - b.range.startLine);
+  }
+
+  return results;
+}
+
+/** The original Phase 5D-0 single left-to-right pass (see this module's top doc comment). */
+function matchAdjacentSequence(
+  doc: ParsedDocument,
+  complexScan: ComplexBlockScanResult,
+  rules: CompositeBlockRule[]
+): Omit<CompositeBlockInfo, "id">[] {
   const candidates = collectCandidates(doc, complexScan);
   const consumed = new Set<number>();
-  const results: CompositeBlockInfo[] = [];
-  let seq = 0;
+  const results: Omit<CompositeBlockInfo, "id">[] = [];
 
   for (let i = 0; i < candidates.length; i++) {
     if (consumed.has(i)) continue;
@@ -227,7 +279,6 @@ export function matchCompositeBlocks(
       return { kind: c.kind, id: c.id, range: { startLine: c.startLine, endLine: c.endLine } };
     });
     results.push({
-      id: `composite-${seq++}`,
       ruleId: matched.rule.id,
       range: { startLine: members[0].range.startLine, endLine: members[members.length - 1].range.endLine },
       members,
@@ -236,6 +287,89 @@ export function matchCompositeBlocks(
   }
 
   return results;
+}
+
+function rangesOverlap(a: LineRange, b: LineRange): boolean {
+  return a.startLine <= b.endLine && b.startLine <= a.endLine;
+}
+
+/**
+ * v1.0.4: matches a "list-child-continuation" rule. Only the kindSequence
+ * ["single-line-list", "paragraph"] is supported; any other sequence
+ * matches nothing (no-op, never a guess).
+ *
+ * A list item L and a paragraph P form one composite only when ALL hold:
+ *   1. P is a confidently-bounded paragraph (ComplexBlockInfo kind
+ *      "paragraph", editability "supported" — i.e. not downgraded by an
+ *      overlap or an ambiguous boundary).
+ *   2. P.parentId === L.id — Phase 5P's own parent resolution says P is L's
+ *      child, which requires P's lines to be indented to L's content-start
+ *      column. A paragraph that merely FOLLOWS L but is under-indented is a
+ *      section/top-level sibling (or L's invisible continuation text) and
+ *      never qualifies.
+ *   3. P.range.startLine === L.range.startLine + 1 — L's own text is exactly
+ *      its marker line, and there is no blank line (or any other line)
+ *      between L and P.
+ *   4. P is the ONLY thing in L: P.range.endLine === L.range.endLine and L
+ *      has no child list items. A list item that also holds a blank-line-
+ *      separated second paragraph, a nested callout, a child list, etc. is
+ *      left alone (safe side; only the first paragraph is ever considered).
+ *   5. L.unsafeIndent is false (no mixed tab/space marker indent).
+ *   6. No other complex block of any editability overlaps L's range.
+ *   7. L and P resolve to the same enclosing section (never across a
+ *      heading).
+ *   8. Neither L nor P is already a member of an earlier composite
+ *      (`usedMemberIds` — earlier rules win).
+ * Member ranges: L's member range is its marker line only; P's is P.range —
+ * adjacent and non-overlapping by condition 3. The composite range equals
+ * L.range. P's existing block id (if any) is read from P's own range only.
+ */
+function matchListChildContinuation(
+  doc: ParsedDocument,
+  complexScan: ComplexBlockScanResult,
+  rule: CompositeBlockRule,
+  usedMemberIds: ReadonlySet<string>
+): Omit<CompositeBlockInfo, "id">[] {
+  const seq = rule.kindSequence;
+  if (seq.length !== 2 || seq[0] !== "single-line-list" || seq[1] !== "paragraph") return [];
+
+  const paragraphByStart = new Map<number, ComplexBlockInfo>();
+  for (const b of complexScan.blocks) {
+    if (b.kind === "paragraph" && b.editability === "supported") paragraphByStart.set(b.range.startLine, b);
+  }
+
+  const listNodes: ListBlockNode[] = [];
+  for (const node of doc.nodes.values()) if (isListNode(node)) listNodes.push(node);
+  listNodes.sort((a, b) => a.range.startLine - b.range.startLine);
+
+  const out: Omit<CompositeBlockInfo, "id">[] = [];
+  for (const list of listNodes) {
+    if (usedMemberIds.has(list.id)) continue;
+    if (list.unsafeIndent || list.childIds.length > 0) continue;
+    const para = paragraphByStart.get(list.range.startLine + 1);
+    if (!para || usedMemberIds.has(para.id)) continue;
+    if (para.parentId !== list.id) continue;
+    if (para.range.endLine !== list.range.endLine) continue;
+    if (complexScan.blocks.some((b) => b.id !== para.id && rangesOverlap(b.range, list.range))) continue;
+    const sectionId = resolveMemberSectionId(doc, list.range.startLine);
+    if (resolveMemberSectionId(doc, para.range.startLine) !== sectionId) continue;
+
+    out.push({
+      ruleId: rule.id,
+      range: { startLine: list.range.startLine, endLine: list.range.endLine },
+      members: [
+        { kind: "single-line-list", id: list.id, range: { startLine: list.range.startLine, endLine: list.range.startLine } },
+        {
+          kind: "paragraph",
+          id: para.id,
+          range: { startLine: para.range.startLine, endLine: para.range.endLine },
+          blockId: readBlockIdWithinRange(doc.lines, para.range),
+        },
+      ],
+      sectionId,
+    });
+  }
+  return out;
 }
 
 // ---- Phase 5C-1 ticket 1: CompositeBlock delete-eligibility ---------------

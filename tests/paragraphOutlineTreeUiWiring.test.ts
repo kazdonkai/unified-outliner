@@ -709,7 +709,7 @@ describe("Phase 5T-2: paragraph drag & drop wiring (narrow, plan-A-only exceptio
     expect(end).toBeGreaterThan(start);
     const generationBody = viewTs.slice(start, end);
     expect(generationBody).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+      "if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
   });
 

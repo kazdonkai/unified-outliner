@@ -158,7 +158,15 @@ function resolveComplexBlockCandidate(
   let best: { id: string; span: number } | null = null;
   for (const info of complexScan.blocks) {
     if (cursorLine < info.range.startLine || cursorLine > info.range.endLine) continue;
-    const id = candidateTreeId(info, paragraphOrdinalById);
+    let id = candidateTreeId(info, paragraphOrdinalById);
+    // v1.0.4: a paragraph that is a "List item + Paragraph" composite's
+    // member is projected as that composite's own complex-member row
+    // (keyed by the paragraph's ComplexBlockInfo id) instead of an ordinary
+    // paragraph row — highlight that member row, exactly like a callout
+    // member of a List + Callout composite.
+    if (info.kind === "paragraph" && (!id || !nodeById.has(id)) && nodeById.get(info.id)?.kind === "complex-member") {
+      id = info.id;
+    }
     if (!id || !nodeById.has(id)) continue;
     const span = info.range.endLine - info.range.startLine;
     if (!best || span < best.span) best = { id, span };

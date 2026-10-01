@@ -60,7 +60,7 @@ describe("Phase 5D-4C: CompositeBlock parent-row drag & drop wiring (narrow, des
     const chainEnd = viewTs.indexOf("\n    if (hasChildren && !isCollapsed) {", chainStart);
     expect(chainEnd).toBeGreaterThan(chainStart);
     const wholeChain = viewTs.slice(chainStart, chainEnd);
-    const startInChain = wholeChain.indexOf("} else if (isComposite) {");
+    const startInChain = wholeChain.indexOf("} else if (isOperableComposite) {");
     expect(startInChain).toBeGreaterThan(-1);
     const start = chainStart + startInChain;
     return viewTs.slice(start, chainEnd);
@@ -72,7 +72,7 @@ describe("Phase 5D-4C: CompositeBlock parent-row drag & drop wiring (narrow, des
     expect(chainStart).toBeGreaterThan(-1);
     const chainEnd = viewTs.indexOf("\n    if (hasChildren && !isCollapsed) {", chainStart);
     const wholeChain = viewTs.slice(chainStart, chainEnd);
-    const compositeStart = chainStart + wholeChain.indexOf("} else if (isComposite) {");
+    const compositeStart = chainStart + wholeChain.indexOf("} else if (isOperableComposite) {");
     expect(compositeStart).toBeGreaterThan(chainStart);
     return viewTs.slice(chainStart, compositeStart);
   }
@@ -175,7 +175,7 @@ describe("Phase 5D-4C: CompositeBlock parent-row drag & drop wiring (narrow, des
     expect(end).toBeGreaterThan(start);
     const body = viewTs.slice(start, end);
     expect(body).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+      "if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
     expect(body).not.toContain("if (!readOnly) {\n      dragHandleEl = selfEl.createDiv");
   });

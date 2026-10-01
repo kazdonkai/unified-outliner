@@ -237,7 +237,7 @@ describe("Phase 5D-3C: callout/blockquote drag & drop wiring (narrow, v1-scope-o
     // widened this condition once more, to also admit `isParagraph`; the
     // condition text checked here is updated to match.
     expect(generationBody).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+      "if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
 
     const constStart = viewTs.lastIndexOf(

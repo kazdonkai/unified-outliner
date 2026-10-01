@@ -17,7 +17,11 @@
  * file and settings.ts needs to know the split exists.
  */
 import { isValidPluginLanguage, PluginLanguage } from "./i18n";
-import { CompositeBlockRule, DEFAULT_COMPOSITE_BLOCK_RULES } from "./model/compositeBlock";
+import {
+  BUILTIN_COMPOSITE_BLOCK_RULES,
+  CompositeBlockRule,
+  DEFAULT_COMPOSITE_BLOCK_RULES,
+} from "./model/compositeBlock";
 
 export interface UnifiedOutlinerSettings {
   /**
@@ -267,11 +271,19 @@ export function isValidOutlineTreeSidebarPosition(
 export interface CompositeBlockSettings {
   imageOcr: boolean;
   imageQuote: boolean;
+  /**
+   * v1.0.4: the tree-read-only "list-paragraph" rule
+   * (model/compositeBlock.ts's STRUCTURAL_COMPOSITE_BLOCK_RULES). Read only
+   * by getEnabledTreeCompositeBlockRules (Outline Tree projection + Partial
+   * Edit); it never affects any move / drag / delete path.
+   */
+  listParagraph: boolean;
 }
 
 export const DEFAULT_COMPOSITE_BLOCK_SETTINGS: CompositeBlockSettings = {
   imageOcr: true,
   imageQuote: true,
+  listParagraph: true,
 };
 
 /**
@@ -285,11 +297,30 @@ export const DEFAULT_COMPOSITE_BLOCK_SETTINGS: CompositeBlockSettings = {
  * participates in matching rather than silently vanishing.
  */
 export function getEnabledCompositeBlockRules(settings: CompositeBlockSettings): CompositeBlockRule[] {
-  const flagByRuleId: Record<string, boolean> = {
+  const flagByRuleId = compositeRuleFlags(settings);
+  return DEFAULT_COMPOSITE_BLOCK_RULES.filter((rule) => flagByRuleId[rule.id] ?? true);
+}
+
+function compositeRuleFlags(settings: CompositeBlockSettings): Record<string, boolean> {
+  return {
     "image-ocr": settings.imageOcr,
     "image-quote": settings.imageQuote,
+    "list-paragraph": settings.listParagraph,
   };
-  return DEFAULT_COMPOSITE_BLOCK_RULES.filter((rule) => flagByRuleId[rule.id] ?? true);
+}
+
+/**
+ * v1.0.4: every enabled BUILT-IN rule — the operable rules of
+ * getEnabledCompositeBlockRules (first, in their own priority order) plus
+ * the enabled tree-read-only rules (afterwards; see CompositeBlockRule
+ * .treeReadOnly). Used ONLY for Outline Tree projection, the Partial Edit
+ * Pane's composite sessions and read-only structural queries. Never pass
+ * its result to a move / drag & drop / delete / copy / insert path or an
+ * editor command — those keep using getEnabledCompositeBlockRules.
+ */
+export function getEnabledTreeCompositeBlockRules(settings: CompositeBlockSettings): CompositeBlockRule[] {
+  const flagByRuleId = compositeRuleFlags(settings);
+  return BUILTIN_COMPOSITE_BLOCK_RULES.filter((rule) => flagByRuleId[rule.id] ?? true);
 }
 
 /**

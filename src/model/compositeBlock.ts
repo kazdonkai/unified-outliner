@@ -100,14 +100,60 @@ export interface CompositeBlockRule {
    * ever populated for any given rule.
    */
   customLabel?: string;
+  /**
+   * v1.0.4 (list + paragraph): HOW the members relate to each other in the
+   * note. Omitted / "adjacent-sequence" is the original Phase 5D-0 shape —
+   * members are consecutive, zero-gap, independently-bounded blocks that
+   * share one enclosing section (e.g. a one-line list item followed by a
+   * column-0 callout). "list-child-continuation" is the v1.0.4 shape: the
+   * FIRST member is a list item and the second member is a paragraph that
+   * Phase 5P's scanner itself resolved as that list item's CHILD
+   * (ComplexBlockInfo.parentId === the list item's id, i.e. indented to the
+   * item's content-start column). See parser/compositeBlocks.ts's
+   * matchListChildContinuation for the exact condition list.
+   */
+  geometry?: CompositeRuleGeometry;
+  /**
+   * v1.0.4 / v1.0.4 Tree+Partial Edit phase: when true, composites of this
+   * rule are projected into the Outline Tree and can be opened and edited
+   * as one unit in the Partial Edit Pane, but are NEVER moved, dragged,
+   * dropped onto, deleted, indented/outdented or copied as a unit — their
+   * parent row and every member row stay strictly read-only in the Tree
+   * (the parent row's context menu / long-press offers "Open in Partial
+   * Edit" only). Such rules are therefore kept OUT of
+   * settingsDefaults.ts's getEnabledCompositeBlockRules — the rule set every
+   * structural operation and editor command uses — and appear only in
+   * getEnabledTreeCompositeBlockRules (Tree projection + Partial Edit).
+   * Omitted = false.
+   */
+  treeReadOnly?: boolean;
 }
+
+/** See CompositeBlockRule.geometry. */
+export type CompositeRuleGeometry = "adjacent-sequence" | "list-child-continuation";
 
 /** One matched member inside a CompositeBlockInfo. */
 export interface CompositeBlockMember {
   kind: CompositeMemberKind;
   /** The underlying BlockNode.id or ComplexBlockInfo.id — never a CompositeBlockInfo id. */
   id: string;
+  /**
+   * The member's OWN lines. For a "list-child-continuation" composite's
+   * list member this is the list item's marker line only (the item's own
+   * one-line text) — NOT the underlying ListBlockNode.range, which also
+   * spans the child paragraph — so member ranges never overlap.
+   */
   range: LineRange;
+  /**
+   * v1.0.4: the Obsidian block id (`^id`, stored WITHOUT the caret) already
+   * written inside a "paragraph" member's own range — an inline ` ^id`
+   * suffix on its last line, or a lone `^id` last line of the paragraph.
+   * `null` when that paragraph has none. Absent (undefined) for every
+   * non-paragraph member. Read-only structural information: nothing in
+   * this layer ever issues or writes a block id. See
+   * parser/blockIdInRange.ts's readBlockIdWithinRange.
+   */
+  blockId?: string | null;
 }
 
 export interface CompositeBlockInfo {
@@ -246,6 +292,52 @@ export const DEFAULT_COMPOSITE_BLOCK_RULES: CompositeBlockRule[] = [
   },
 ];
 
+/**
+ * v1.0.4: built-in TREE-READ-ONLY rules (see CompositeBlockRule
+ * .treeReadOnly). Deliberately kept OUT of DEFAULT_COMPOSITE_BLOCK_RULES,
+ * which remains exactly the operable rule set (move, drag & drop, delete,
+ * copy, editor commands) — so none of those paths changes.
+ *
+ * "list-paragraph": a list item whose own text is one line (its marker
+ * line), followed with no blank line by a paragraph that is that item's
+ * child (indented to the item's content-start column). Only the FIRST such
+ * paragraph is taken, and only when the list item contains nothing else
+ * (no child list, no further block) — see parser/compositeBlocks.ts's
+ * matchListChildContinuation.
+ */
+export const STRUCTURAL_COMPOSITE_BLOCK_RULES: CompositeBlockRule[] = [
+  {
+    id: "list-paragraph",
+    kindSequence: ["single-line-list", "paragraph"],
+    // "≡" (U+2261): a plain, widely-available text glyph suggesting lines
+    // of text under a list item; deliberately unlike every other Tree
+    // prefix (◉ ❖ composite rules, ▣ ❝ ◫ ▦ ¶ ⧉ blocks/mirrors).
+    prefix: "≡",
+    geometry: "list-child-continuation",
+    treeReadOnly: true,
+  },
+];
+
+/**
+ * Every built-in rule in match-priority order: the existing operable rules
+ * FIRST, then the recognition-only rules — so an existing rule always wins
+ * any conflict and the v1.0.4 rule is evaluated only afterwards.
+ */
+export const BUILTIN_COMPOSITE_BLOCK_RULES: CompositeBlockRule[] = [
+  ...DEFAULT_COMPOSITE_BLOCK_RULES,
+  ...STRUCTURAL_COMPOSITE_BLOCK_RULES,
+];
+
+/**
+ * v1.0.4: the existing block id of the composite's FIRST paragraph member,
+ * or null when it has none or the composite has no paragraph member.
+ * Pure read of CompositeBlockMember.blockId — never issues an id.
+ */
+export function getCompositeParagraphBlockId(composite: CompositeBlockInfo): string | null {
+  const paragraph = composite.members.find((m) => m.kind === "paragraph");
+  return paragraph?.blockId ?? null;
+}
+
 /** O(1) lookup by rule id — used by matchCompositeBlocks callers and the Tree/settings display-label resolvers below. */
 export function getCompositeBlockRuleById(
   rules: CompositeBlockRule[],
@@ -265,6 +357,7 @@ export function getCompositeBlockRuleById(
 const BUILTIN_COMPOSITE_RULE_DISPLAY_NAME_KEYS: Record<string, TranslationKey> = {
   "image-ocr": "compositeBlock.imageOcr.displayName",
   "image-quote": "compositeBlock.imageQuote.displayName",
+  "list-paragraph": "compositeBlock.listParagraph.displayName",
 };
 
 /**

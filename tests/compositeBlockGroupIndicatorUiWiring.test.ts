@@ -130,7 +130,7 @@ describe("OutlineTreeView.ts CompositeBlock group indicator wiring (static sourc
     // dedicated coverage; this test only re-confirms the indicator itself
     // did not touch this condition further.
     expect(body).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+      "if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
     expect(body).toContain('dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });');
   });

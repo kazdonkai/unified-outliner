@@ -415,11 +415,11 @@ describe("view/PartialEditView.ts: applyEdit's composite branch", () => {
     expect(branch).toContain('this.plugin.t("partialEdit.compositeUpdated")');
   });
 
-  it("re-fetches enabled composite rules fresh at Apply time via getEnabledCompositeBlockRules (never cached)", () => {
+  it("re-fetches enabled composite rules fresh at Apply time via getEnabledTreeCompositeBlockRules (never cached; v1.0.4: the Tree rule set, so a List item + Paragraph snapshot re-resolves too)", () => {
     const full = applyEditBody();
     const branchStart = full.indexOf("if (this.compositeAnchor) {");
     const branch = full.slice(branchStart, branchStart + 400);
-    expect(branch).toContain("getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks)");
+    expect(branch).toContain("getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks)");
   });
 
   it("queues an Outline Tree selection follow after a successful composite Apply, mirroring the paragraph/node branches", () => {
@@ -554,15 +554,19 @@ describe("view/OutlineTreeView.ts: \"Open extended block in partial edit\" is sc
     );
   });
 
-  it("openCompositeInPartialEdit is used as a menu item exactly once in the whole file, and only inside showCompositeCommandMenu", () => {
+  it("openCompositeInPartialEdit is used as a menu item exactly twice in the whole file: showCompositeCommandMenu and (v1.0.4) showReadOnlyCompositeMenu", () => {
     const occurrences = treeTs.split('"tree.menu.openCompositeInPartialEdit"').length - 1;
-    expect(occurrences).toBe(1);
+    expect(occurrences).toBe(2);
     expect(showCompositeCommandMenuBody()).toContain("tree.menu.openCompositeInPartialEdit");
+    const roStart = treeTs.indexOf("private showReadOnlyCompositeMenu(evt: MouseEvent, compositeId: string): void {");
+    expect(roStart).toBeGreaterThan(-1);
+    const roBody = treeTs.slice(roStart, treeTs.indexOf("\n  }\n", roStart));
+    expect(roBody).toContain("tree.menu.openCompositeInPartialEdit");
   });
 
-  it("activatePartialEditViewForComposite is called exactly once in the whole file", () => {
+  it("activatePartialEditViewForComposite is called exactly twice in the whole file (showCompositeCommandMenu and, v1.0.4, showReadOnlyCompositeMenu)", () => {
     const occurrences = treeTs.split("activatePartialEditViewForComposite(").length - 1;
-    expect(occurrences).toBe(1);
+    expect(occurrences).toBe(2);
   });
 
   it("is NOT added to showStandaloneComplexBlockMenu, showListCommandMenu, or showStructureCommandMenu (the new entry point is composite-parent-only)", () => {
