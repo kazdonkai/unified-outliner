@@ -4,6 +4,22 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-01
+
+### Added
+
+- CompositeBlock: new built-in rule **List item + Paragraph** (`list-paragraph`, prefix `≡`, on by default, Settings → Composite blocks). A list item whose own text is one line, followed with no empty line by a paragraph that Phase 5P resolves as that item's child (indented to the item's content-start column), forms one CompositeBlock. Only the first paragraph is taken, and only when the list item holds nothing else (no child list, no further block); an under-indented paragraph, a blank line, a section boundary, an overlapping/ambiguous paragraph, mixed tab/space indentation, or a member already used by an earlier rule all leave it ungrouped. The existing rules are evaluated first and keep their `composite-N` ids; the new rule's composites use `composite-list-paragraph-N`.
+- The paragraph member's **existing** Obsidian block id (an inline ` ^id` on its last line, or a lone `^id` last line) is exposed as `CompositeBlockMember.blockId` (`null` when absent), with `getCompositeParagraphBlockId(composite)`. Detection never looks outside the paragraph's own range and never issues or writes an id. New pure module `src/parser/blockIdInRange.ts`.
+- Outline Tree: List item + Paragraph composites are projected like List + Callout / List + Quote — a `≡ List item + Paragraph` parent row with the list item and a `¶` paragraph member row (first meaningful text; a block-id-only line and the paragraph's own inline id are never shown; `Paragraph` when nothing remains). The rule is **tree-read-only** (`CompositeBlockRule.treeReadOnly`): its rows get no drag handle, no drag & drop, no rename, and their right-click / long-press menu offers **Open in Partial Edit** only. The composite disappears on the next refresh once its conditions no longer hold. A cursor on the paragraph highlights the paragraph member row.
+- Partial Edit Pane: a List item + Paragraph composite opens as one unit — the list line (marker-free, like a List + Callout list row; the marker is restored on Apply), the paragraph body (indentation and block id removed) and the paragraph's existing block id, read-only, in that order. Apply restores the paragraph indentation and re-attaches the id inside the paragraph in its original shape (inline suffix or lone last line); it never moves the id to the list line or out of the paragraph, and never creates one. An edit that would push the id out of the paragraph (empty body, last line turned into a list item / heading) is refused before anything is written; any other structural change is saved as typed and the composite simply dissolves. New pure module `src/edit/listParagraphCompositeProjection.ts`.
+- `getEnabledTreeCompositeBlockRules(settings)` (Tree projection + Partial Edit) and the plugin method `getStructuralCompositeBlocks(text)`. Move, drag & drop, delete, copy, insert and every editor command keep using `getEnabledCompositeBlockRules`, which does not include the new rule.
+
+### Changed
+
+- Composite rule names are English in every UI language, in the Outline Tree and in Settings: **Image + OCR** (`image-ocr`, was "List + Callout"), **Image + Quote** (`image-quote`, was "List + Quote") and **List item + Paragraph**. Because fold identity is label-based, a previously collapsed Image + OCR / Image + Quote row shows expanded once after updating.
+
+See `docs/v1.0.4_list-paragraph-composite-design-memo.md`.
+
 ## [1.0.3] - 2026-09-30
 
 ### Added
