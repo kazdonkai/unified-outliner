@@ -4,6 +4,24 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-10-01
+
+### Changed
+
+- The extended-block rule added in 1.0.4 is now named **List + Paragraph** (was "List item + Paragraph"), in line with List + Callout / List + Quote — in Settings, the Outline Tree and the Partial Edit Pane, in every interface language. UI name only; the rule id (`list-paragraph`), setting key and behavior are unchanged. A List + Paragraph row collapsed under the old name shows expanded once after updating (fold identity is label-based).
+- Partial Edit Pane, extended blocks (List + Callout / List + Quote / List + Paragraph): the list row is now a wrapping editor that shows the whole list text (at least two lines; Enter and pasted line breaks never split it), and the callout / quote / paragraph editor below is sized to its current text (plus one spare line) instead of filling the pane. Both editors have a resize grip at their bottom-right corner that can be dragged with a mouse or a finger (iPad included); a dragged height is kept until another block is opened.
+- Partial Edit Pane, single blocks (a standalone callout, blockquote, fenced code block, table in its Raw tab, or paragraph): the editor is likewise sized to its current text (at least three lines plus one spare line, at most 70% of the pane) and has the same bottom-right resize grip. Sections and list subtrees still open with the editor filling the pane, and now also have the grip; once dragged, the editor keeps the dragged height until another block is opened.
+- Partial Edit Pane: the extended-block list row editor now always has the same editor background as the body editor below (it used to turn white only while focused). Two new Style Settings colors, under **Partial Edit Pane – Editor Backgrounds**, set the always-on background of each separately: **Extended Block List Row Background** (`--uo-partial-edit-list-bg`) and **Body Editor Background** (`--uo-partial-edit-body-bg`); until set, both follow the existing Background Color.
+- Partial Edit Pane: the **Block ID** field now has the plugin's own look on every platform (same border, corner radius and background as the editors above) instead of Obsidian's native form-field style, which on iPad showed it as a grey rounded pill. A third Style Settings color, **Block ID Field Background** (`--uo-partial-edit-blockid-bg`), sets its background; until set it follows Body Editor Background, then Background Color.
+
+### Fixed
+
+- Partial Edit Pane, List + Paragraph: the paragraph's block ID is now edited in the ordinary **Block ID** field (it was read-only), like any other block — rename it or clear it, and Apply writes it back at the end of the paragraph in its original form (inline ` ^id` or a lone `^id` last line). Renaming also updates same-note mirror embeds and warns about references from other notes, exactly as for other blocks. An invalid ID, or an edit that would move the ID out of the paragraph, is refused.
+- Partial Edit Pane, extended blocks: Enter in the list row editor is no longer blocked while a Japanese (or other) input method is committing a conversion, including on iPad.
+- Partial Edit Pane, Block ID field: Apply is shown as soon as the ID is changed on iPad too (the field now also re-checks on change / keyup / composition end, not only on input).
+
+See `docs/v1.0.6_partial-edit-editors-design-memo.md`.
+
 ## [1.0.5] - 2026-10-01
 
 ### Fixed
