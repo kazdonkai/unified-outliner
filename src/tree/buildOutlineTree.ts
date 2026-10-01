@@ -124,7 +124,7 @@ export interface OutlineTreeCompositeNode {
   prefix: string;
   /**
    * v1.0.4: false for a composite whose rule is tree-read-only
-   * (CompositeBlockRule.treeReadOnly — "List item + Paragraph"), and for a
+   * (CompositeBlockRule.treeReadOnly — "List + Paragraph"), and for a
    * composite whose rule cannot be resolved; true for the operable rules
    * (image-ocr / image-quote). view/OutlineTreeView.ts attaches the
    * composite drag handle, drag & drop and the Move / Delete / Copy menu
@@ -755,7 +755,7 @@ export function complexMemberDisplayLabel(
  */
 export const STANDALONE_CALLOUT_PREFIX = "▣ ";
 /**
- * v1.0.4: prefix for a "List item + Paragraph" composite's paragraph member
+ * v1.0.4: prefix for a "List + Paragraph" composite's paragraph member
  * row — the same "¶" glyph view/OutlineTreeView.ts already draws in front
  * of an ordinary paragraph row, so the paragraph reads as the same kind of
  * thing whether shown on its own or inside the composite.

@@ -225,8 +225,10 @@ describe("i18n and view wiring", () => {
     const body = viewTs.slice(i, viewTs.indexOf("\n  }\n", i));
     expect(body).toContain("const blockIdRename = this.prepareBlockIdRename(this.loadedBlockId, this.blockIdForApply(), liveText);");
     expect(body).toContain("const doc = parseDocument(blockIdRename.renamedText);");
-    expect(body.split("this.notifyBlockIdRename(blockIdRename);").length - 1).toBe(2);
-    expect(body.split("liveLines,").length - 1).toBe(2);
+    // 1.0.6: three branches — paragraph, node, and (new) the composite
+    // branch used by a List + Paragraph session's paragraph id.
+    expect(body.split("this.notifyBlockIdRename(blockIdRename);").length - 1).toBe(3);
+    expect(body.split("liveLines,").length - 1).toBe(3);
   });
 
   it("prepareBlockIdRename only acts on an actual change and never blocks Apply", () => {

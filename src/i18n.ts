@@ -184,7 +184,7 @@ const en = {
   // en/ja deliberately share the identical English string — see
   // compositeBlock.imageOcr.displayName's own doc comment below for why.
   // v1.0.4: rule names are English in every UI language (the composite
-  // rule names "List + Callout" / "List + Quote" / "List item + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
+  // rule names "List + Callout" / "List + Quote" / "List + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
   // the Tree composite row label and the Settings toggle name share them).
   "settings.compositeBlockImageOcr.name": "List + Callout",
   // 2026-09-09 (Settings タブ i18n リソース改善): adds a concrete,
@@ -217,8 +217,8 @@ const en = {
   "compositeBlock.imageQuote.displayName": "List + Quote",
   // v1.0.4: recognition-only rule (model/compositeBlock.ts's
   // STRUCTURAL_COMPOSITE_BLOCK_RULES) — never shown as an Outline Tree row.
-  "compositeBlock.listParagraph.displayName": "List item + Paragraph",
-  "settings.compositeBlockListParagraph.name": "List item + Paragraph",
+  "compositeBlock.listParagraph.displayName": "List + Paragraph",
+  "settings.compositeBlockListParagraph.name": "List + Paragraph",
   "settings.compositeBlockListParagraph.desc":
     "Groups a single-line list item followed, with no empty line, by a paragraph indented as that item's own content. The group is shown read-only in the Outline Tree and can be opened in the Partial Edit Pane, which keeps the paragraph's existing block ID in place. It cannot be moved, dragged or deleted as a unit, and no block ID is ever created.",
 
@@ -281,7 +281,7 @@ const en = {
   "tree.emptyComplexMember": "(empty)",
   "tree.complexMember.calloutFallback": "Callout",
   "tree.complexMember.blockquoteFallback": "Quote",
-  // v1.0.4: a List item + Paragraph composite's paragraph member row with no usable text (English in every UI language, like the rule names).
+  // v1.0.4: a List + Paragraph composite's paragraph member row with no usable text (English in every UI language, like the rule names).
   "tree.complexMember.paragraphFallback": "Paragraph",
   "tree.complexMember.fencedCodeFallback": "Code block",
   "tree.complexMember.tableFallback": "Table",
@@ -337,7 +337,7 @@ const en = {
   "partialEdit.mirrorReferences": "Mirrors referencing this block: {count}",
   "partialEdit.blockIdLabel": "Block ID:",
   "partialEdit.blockIdPlaceholder": "none",
-  // v1.0.4: List item + Paragraph sessions — the paragraph's existing block ID is shown read-only and always written back inside the paragraph.
+  // v1.0.4: List + Paragraph sessions — the paragraph's existing block ID is shown read-only and always written back inside the paragraph.
   "partialEdit.listParagraphBlockIdProtected": "The paragraph's block ID is kept at the end of the paragraph and cannot be changed here.",
   "partialEdit.listParagraphBlockIdWouldMove":
     "Unified Outliner: Not applied — the block ID ^{id} must stay at the end of the paragraph. Keep the paragraph body non-empty and do not turn its last line into a list item, heading or other block.",
@@ -1599,7 +1599,7 @@ const ja: Record<TranslationKey, string> = {
   // en辞書と同一の英語文字列 "List + Callout" / "List + Quote" を採用
   // （ユーザー承認済み）。
   // v1.0.4: rule names are English in every UI language (the composite
-  // rule names "List + Callout" / "List + Quote" / "List item + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
+  // rule names "List + Callout" / "List + Quote" / "List + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
   // the Tree composite row label and the Settings toggle name share them).
   "settings.compositeBlockImageOcr.name": "List + Callout",
   // 2026-09-09（Settings タブ i18n リソース改善）: 具体的な利用シーン
@@ -1623,8 +1623,8 @@ const ja: Record<TranslationKey, string> = {
     "1行で完結するリスト項目の直後に空行を挟まず引用（blockquote）が続く場合にまとめて表示する。（例: リスト行に出典・書誌情報を記入し、引用ブロックに引用本文を記入する場合など）",
   "compositeBlock.imageOcr.displayName": "List + Callout",
   "compositeBlock.imageQuote.displayName": "List + Quote",
-  "compositeBlock.listParagraph.displayName": "List item + Paragraph",
-  "settings.compositeBlockListParagraph.name": "List item + Paragraph",
+  "compositeBlock.listParagraph.displayName": "List + Paragraph",
+  "settings.compositeBlockListParagraph.name": "List + Paragraph",
   "settings.compositeBlockListParagraph.desc":
     "1行で完結するリスト項目の直後に、空行を挟まず、その項目の本文開始位置まで字下げされた段落が続く場合にまとめて表示する。Outline Tree上では読み取り専用で、Partial Edit Paneで開いて編集でき、その際に段落の既存のブロックIDは段落内に保持される。まとまりとしての移動・ドラッグ・削除はできず、ブロックIDを新たに作成することもない。",
 

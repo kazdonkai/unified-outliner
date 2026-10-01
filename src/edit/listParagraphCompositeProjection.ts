@@ -1,5 +1,5 @@
 /**
- * v1.0.4: pure, Obsidian-free projection of a "List item + Paragraph"
+ * v1.0.4: pure, Obsidian-free projection of a "List + Paragraph"
  * CompositeBlock (model/compositeBlock.ts — rule "list-paragraph") for the
  * Partial Edit Pane, and its exact inverse.
  *
@@ -62,7 +62,7 @@ export type BuildListParagraphProjectionOutcome =
   | { ok: true; projection: ListParagraphProjection }
   | { ok: false; reason: "not-list-paragraph" | "range-invalid" | "body-empty" };
 
-/** True when `snapshot` has the "List item + Paragraph" member shape. */
+/** True when `snapshot` has the "List + Paragraph" member shape. */
 export function isListParagraphSnapshot(snapshot: CompositeBlockSnapshot): boolean {
   return (
     snapshot.members.length === 2 &&
@@ -151,22 +151,40 @@ export type ComposeListParagraphOutcome =
 export function composeListParagraphText(
   projection: ListParagraphProjection,
   editedListLine: string,
-  editedBody: string
+  editedBody: string,
+  newBlockId?: string | null
 ): ComposeListParagraphOutcome {
   if (editedListLine.includes("\n")) return { ok: false, reason: "list-line-newline" };
+  // 1.0.6: the Block ID field may rename or clear the paragraph's id
+  // (undefined = keep it as it is). A new id keeps the original SHAPE and
+  // spacing; a paragraph that had no id never reaches here with one (the
+  // field is only shown for a paragraph that has an id).
+  const targetId = newBlockId === undefined ? projection.blockId : newBlockId;
+  let idText = projection.idText;
+  if (targetId !== null && targetId !== projection.blockId) {
+    if (projection.idShape === "standalone") {
+      idText = projection.idText.replace(/\^[A-Za-z0-9-]+/, `^${targetId}`);
+    } else if (projection.idShape === "inline") {
+      idText = projection.idText.replace(/\^[A-Za-z0-9-]+/, `^${targetId}`);
+    } else {
+      idText = ` ^${targetId}`;
+    }
+  }
+  const idShape: ListParagraphBlockIdShape | null =
+    targetId === null ? null : projection.idShape ?? "inline";
   let bodyLines = editedBody.split("\n");
-  if (projection.blockId !== null) {
+  if (targetId !== null) {
     // Trailing blank lines would push the id below the paragraph.
     while (bodyLines.length > 0 && bodyLines[bodyLines.length - 1].trim() === "") bodyLines.pop();
     if (bodyLines.length === 0) return { ok: false, reason: "body-empty-with-block-id" };
   }
   const indented = bodyLines.map((l) => (l.trim() === "" ? "" : projection.indent + l));
   let idLineOffset: number | null = null;
-  if (projection.blockId !== null) {
-    if (projection.idShape === "standalone") {
-      indented.push(projection.idText);
+  if (targetId !== null) {
+    if (idShape === "standalone") {
+      indented.push(idText);
     } else {
-      indented[indented.length - 1] = indented[indented.length - 1] + projection.idText;
+      indented[indented.length - 1] = indented[indented.length - 1] + idText;
     }
     idLineOffset = indented.length; // +1 for the list line, -1 for 0-based
   }
@@ -188,7 +206,7 @@ export function verifyBlockIdStaysInParagraph(lines: readonly string[], idLine: 
 }
 
 /**
- * Raw-fallback guard (a "List item + Paragraph" session that could not be
+ * Raw-fallback guard (a "List + Paragraph" session that could not be
  * projected and is edited as raw text): `blockId` must still be the own
  * block id of some confidently-bounded paragraph that lies entirely within
  * `startLine..endLine` of the whole note `lines`.

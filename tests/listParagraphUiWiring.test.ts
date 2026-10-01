@@ -1,6 +1,6 @@
 /**
  * v1.0.4 (Tree + Partial Edit phase): static source checks for the
- * "List item + Paragraph" wiring in OutlineTreeView / PartialEditView /
+ * "List + Paragraph" wiring in OutlineTreeView / PartialEditView /
  * settings — the read-only contract (no drag handle, no drag & drop, no
  * structural menu, no rename) and the single "Open in Partial Edit" entry.
  */
@@ -70,17 +70,30 @@ describe("OutlineTreeView: tree-read-only composite rows", () => {
   });
 });
 
-describe("PartialEditView: List item + Paragraph session", () => {
+describe("PartialEditView: List + Paragraph session", () => {
   it("composite sessions resolve against the Tree rule set everywhere", () => {
     expect(paneTs).not.toContain("getEnabledCompositeBlockRules(");
     expect(paneTs.split("getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks)").length - 1).toBe(5);
   });
 
-  it("the textarea shows the paragraph body and the Block ID row shows the id read-only", () => {
+  it("the textarea shows the paragraph body and the paragraph's block id is edited in the ordinary Block ID field (1.0.6)", () => {
     expect(paneTs).toContain("if (this.listParagraphProjection) return this.listParagraphProjection.body;");
-    const body = methodBody(paneTs, "  private renderBlockIdRow(");
-    expect(body).toContain("this.blockIdInputEl.readOnly = true;");
-    expect(body).toContain("this.blockIdInputEl.readOnly = false;");
+    const install = methodBody(paneTs, "  private installListParagraphProjection(");
+    expect(install).toContain("this.blockIdFieldEligible = projection !== null;");
+    expect(install).toContain("this.loadedBlockId = projection ? projection.blockId : null;");
+    const row = methodBody(paneTs, "  private renderBlockIdRow(");
+    expect(row).not.toContain("readOnly = true");
+    const apply = paneTs.slice(paneTs.indexOf("if (this.listParagraphProjection && this.compositeListOriginalText !== null) {"));
+    expect(apply).toContain("const requestedId = this.blockIdForApply();");
+    expect(apply).toContain('new Notice(this.plugin.t("reason.invalid-block-id"));');
+    expect(apply).toContain("composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value, newBlockId)");
+  });
+
+  it("a renamed id also rewrites same-note mirror embeds: the composite Apply diffs against the live lines and notifies", () => {
+    const branch = paneTs.slice(paneTs.indexOf("const outcome = applyCompositeBlockEdit("));
+    const upto = branch.slice(0, branch.indexOf("// Phase 5D-2A: re-anchor from outcome.resolvedSnapshot"));
+    expect(upto).toContain("this.notifyBlockIdRename(blockIdRename);");
+    expect(upto).toContain("liveLines,");
   });
 
   it("the list row is shown marker-free via buildCompositeListMemberProjection and inverted back on Apply", () => {
@@ -89,7 +102,7 @@ describe("PartialEditView: List item + Paragraph session", () => {
     expect(body).toContain("this.listMarkerProjection ? this.listMarkerProjection.body : projection.listLine");
     const apply = paneTs.slice(paneTs.indexOf("if (this.listParagraphProjection && this.compositeListOriginalText !== null) {"));
     const invert = apply.indexOf("invertListMarkerProjection(this.listMarkerProjection, this.compositeListInputEl.value)");
-    const compose = apply.indexOf("composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value)");
+    const compose = apply.indexOf("composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value, newBlockId)");
     expect(invert).toBeGreaterThan(-1);
     expect(compose).toBeGreaterThan(invert);
   });
@@ -105,7 +118,7 @@ describe("PartialEditView: List item + Paragraph session", () => {
   });
 });
 
-describe("settings: List item + Paragraph toggle", () => {
+describe("settings: List + Paragraph toggle", () => {
   it("refreshes open Outline Trees, like the two other rule toggles", () => {
     const start = settingsTs.indexOf('this.plugin.t("settings.compositeBlockListParagraph.name")');
     expect(start).toBeGreaterThan(-1);

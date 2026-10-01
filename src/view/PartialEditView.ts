@@ -848,7 +848,7 @@ export class PartialEditView extends ItemView {
    */
   private compositeListOriginalText: string | null = null;
   /**
-   * v1.0.4: set only for a "List item + Paragraph" composite session
+   * v1.0.4: set only for a "List + Paragraph" composite session
    * (edit/listParagraphCompositeProjection.ts). The list row input then
    * holds the list line marker-free (compositeListOriginalText, via
    * listMarkerProjection — see installListParagraphProjection), the textarea the
@@ -1224,7 +1224,19 @@ export class PartialEditView extends ItemView {
    * full record of this follow-up.
    */
   private compositeListRowEl!: HTMLElement;
-  private compositeListInputEl!: HTMLInputElement;
+  // 1.0.6: a wrapping, auto-fitting <textarea> (was a one-line <input>) so
+  // a long list line is shown in full; Enter / pasted newlines never enter
+  // it (a list member is always exactly one line — see the listeners in
+  // onOpen). Resizable through compositeListGripEl.
+  private compositeListInputEl!: HTMLTextAreaElement;
+  // 1.0.6: bottom-right resize grips for an extended-block (composite)
+  // session — one for the list row, one for the shared body textarea —
+  // and whether the user dragged them since the target was loaded (a
+  // user-chosen height is then kept instead of re-fitting to the text).
+  private compositeListGripEl!: HTMLElement;
+  private textareaGripEl!: HTMLElement;
+  private compositeListUserSized = false;
+  private textareaUserSized = false;
   /**
    * Phase 5L-2 ("Task List Marker-Free Partial Edit"): the standalone
    * task-list item's own checkbox row — created once in onOpen (like
@@ -1643,9 +1655,44 @@ export class PartialEditView extends ItemView {
     this.compositeListRowEl = this.contentEl.createDiv({
       cls: "unified-outliner-partial-edit-composite-list-row",
     });
-    this.compositeListInputEl = this.compositeListRowEl.createEl("input", {
-      type: "text",
+    this.compositeListInputEl = this.compositeListRowEl.createEl("textarea", {
       cls: "unified-outliner-partial-edit-composite-list-input",
+      attr: { rows: "1", spellcheck: "false" },
+    });
+    // 1.0.6: the list member stays ONE line — Enter is swallowed (IME
+    // composition excepted) and a pasted / typed newline becomes a space —
+    // so invertListMarkerProjection never sees a multi-line body.
+    let listImeComposing = false;
+    this.compositeListInputEl.addEventListener("keydown", (evt) => {
+      // Never swallow an Enter an IME (e.g. Japanese) is still using to
+      // commit a conversion: isComposing, plus our own composition flag,
+      // which stays set one tick past compositionend because Safari/iPadOS
+      // fires the committing Enter's keydown after compositionend.
+      if (evt.key === "Enter" && !evt.isComposing && !listImeComposing) evt.preventDefault();
+    });
+    this.compositeListInputEl.addEventListener("compositionstart", () => {
+      listImeComposing = true;
+    });
+    this.compositeListInputEl.addEventListener("compositionend", () => {
+      window.setTimeout(() => {
+        listImeComposing = false;
+      }, 0);
+    });
+    this.compositeListInputEl.addEventListener("input", () => {
+      const el = this.compositeListInputEl;
+      if (/[\r\n]/.test(el.value)) {
+        const caret = el.selectionStart ?? el.value.length;
+        el.value = el.value.replace(/\r?\n|\r/g, " ");
+        el.setSelectionRange(caret, caret);
+      }
+      if (!this.compositeListUserSized) fitTextareaToContent(el, 2, 1);
+    });
+    this.compositeListGripEl = this.compositeListRowEl.createDiv({
+      cls: "unified-outliner-partial-edit-resize-grip",
+      attr: { "aria-hidden": "true" },
+    });
+    attachResizeGrip(this.compositeListGripEl, this.compositeListInputEl, () => {
+      this.compositeListUserSized = true;
     });
     // Same dirty-tracking policy as quoteTitleInputEl/textareaEl's own
     // listeners further below — every keystroke here must also re-check
@@ -1895,6 +1942,23 @@ export class PartialEditView extends ItemView {
     // (originalText, or — Phase 5D-0.5 — the projected displayText for a
     // projecting callout/blockquote; see isDirty/currentDisplayText).
     this.textareaEl.addEventListener("input", () => this.updateDirtyState());
+    // 1.0.6: in an extended-block session the body textarea is sized to its
+    // text (plus one spare line) instead of filling the pane, keeps growing
+    // with the text until the user resizes it, and gets its own grip.
+    this.textareaEl.addEventListener("input", () => {
+      if (this.isBodyFitActive() && !this.textareaUserSized) this.fitBodyTextarea();
+    });
+    this.textareaGripEl = this.contentEl.createDiv({
+      cls: "unified-outliner-partial-edit-resize-grip unified-outliner-partial-edit-textarea-grip",
+      attr: { "aria-hidden": "true" },
+    });
+    this.textareaGripEl.toggleVisibility(false);
+    attachResizeGrip(this.textareaGripEl, this.textareaEl, () => {
+      this.textareaUserSized = true;
+      // A section / list subtree editor fills the pane until it is dragged;
+      // from then on it keeps the dragged height (fit class = no flex-grow).
+      this.textareaEl.addClass("unified-outliner-partial-edit-textarea-fit");
+    });
 
     // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
     // Mode B"): the "add a first child" row for a STANDALONE leaf item —
@@ -2064,7 +2128,12 @@ export class PartialEditView extends ItemView {
     });
     this.blockIdInputEl.setAttribute("placeholder", this.plugin.t("partialEdit.blockIdPlaceholder"));
     this.blockIdInputEl.setAttribute("spellcheck", "false");
-    this.blockIdInputEl.addEventListener("input", () => this.updateDirtyState());
+    // 1.0.6: also re-check on change / keyup / compositionend — on iPad an
+    // IME commit or a keyboard suggestion does not always fire "input",
+    // which left Apply hidden after editing the id.
+    for (const type of ["input", "change", "keyup", "compositionend"]) {
+      this.blockIdInputEl.addEventListener(type, () => this.updateDirtyState());
+    }
     this.blockIdRowEl.toggleVisibility(false);
 
     // Phase 5M-2: display-only mirror-reference link row, last in the pane.
@@ -2663,6 +2732,9 @@ export class PartialEditView extends ItemView {
     // changes nothing observable.
     this.nodeId = nodeId;
     this.nodeKind = extracted.kind;
+    // 1.0.6: a newly loaded block starts fitted to its own text.
+    this.compositeListUserSized = false;
+    this.textareaUserSized = false;
     // Phase 5P-2/5D-2A: clear any previously-loaded paragraph/composite
     // identity — exactly one of nodeId/paragraphAnchor/compositeAnchor is
     // ever active at a time (see this class's own doc comment).
@@ -2783,6 +2855,9 @@ export class PartialEditView extends ItemView {
     this.compositeAnchor = null;
     this.imageOcrSiblingState = { previous: null, next: null };
     this.nodeKind = "paragraph";
+    // 1.0.6: a newly loaded block starts fitted to its own text.
+    this.compositeListUserSized = false;
+    this.textareaUserSized = false;
     this.originalText = paragraph.text;
     // Block ID field: paragraph.text is the body; the id comes separately.
     this.blockIdFieldEligible = true;
@@ -2924,6 +2999,9 @@ export class PartialEditView extends ItemView {
     this.paragraphAnchor = null;
     this.compositeAnchor = extracted.resolvedSnapshot;
     this.nodeKind = "composite";
+    // 1.0.6: a newly loaded extended block starts fitted to its own text.
+    this.compositeListUserSized = false;
+    this.textareaUserSized = false;
     this.blockIdFieldEligible = false;
     this.loadedBlockId = null;
     this.loadedBlockIdIsStandaloneLine = false;
@@ -2990,7 +3068,7 @@ export class PartialEditView extends ItemView {
     // Phase 5D-2C: reset alongside compositeListOriginalText above — see
     // this field's own doc comment for why the two are never independent.
     this.listMarkerProjection = null;
-    // v1.0.4: a "List item + Paragraph" composite gets its own structured
+    // v1.0.4: a "List + Paragraph" composite gets its own structured
     // session (raw list line + paragraph body + read-only block id). When
     // the projection is refused, the session falls back to the same raw
     // whole-range textarea every other unsplittable composite uses.
@@ -3314,20 +3392,10 @@ export class PartialEditView extends ItemView {
    * Apply, never while the user is typing.
    */
   private renderBlockIdRow(): void {
-    // v1.0.4: a "List item + Paragraph" session shows the paragraph's
-    // existing id READ-ONLY (it is re-attached inside the paragraph on
-    // Apply and can never be changed, moved or removed from here). The
-    // Block ID field itself stays inactive (blockIdFieldEligible is false),
-    // so it is never dirty and never handed to Apply.
-    const protectedId = this.listParagraphProjection?.blockId ?? null;
-    if (protectedId !== null) {
-      this.blockIdInputEl.value = protectedId;
-      this.blockIdInputEl.readOnly = true;
-      this.blockIdInputEl.setAttribute("aria-readonly", "true");
-      this.blockIdInputEl.setAttribute("title", this.plugin.t("partialEdit.listParagraphBlockIdProtected"));
-      this.blockIdRowEl.toggleVisibility(true);
-      return;
-    }
+    // 1.0.6: the List + Paragraph read-only display was removed — that
+    // session now uses the ordinary, editable Block ID field (see
+    // installListParagraphProjection). These resets undo any read-only
+    // state an older build could have left on the shared input.
     this.blockIdInputEl.readOnly = false;
     this.blockIdInputEl.removeAttribute("aria-readonly");
     this.blockIdInputEl.removeAttribute("title");
@@ -4998,7 +5066,7 @@ export class PartialEditView extends ItemView {
    * own field doc comment for why both member labels were redundant.
    */
   /**
-   * v1.0.4: installs a "List item + Paragraph" session (or clears it for
+   * v1.0.4: installs a "List + Paragraph" session (or clears it for
    * null). The list row is shown MARKER-FREE exactly like a List + Callout
    * list row — the same buildCompositeListMemberProjection (only the list
    * marker is stripped; a task checkbox / ordered number stays in the
@@ -5006,6 +5074,12 @@ export class PartialEditView extends ItemView {
    */
   private installListParagraphProjection(projection: ListParagraphProjection | null): void {
     this.listParagraphProjection = projection;
+    // 1.0.6: the paragraph's existing block id is edited in the ordinary
+    // Block ID field (shown only when the paragraph has an id, like every
+    // other block); Apply writes it back inside the paragraph.
+    this.blockIdFieldEligible = projection !== null;
+    this.loadedBlockId = projection ? projection.blockId : null;
+    this.loadedBlockIdIsStandaloneLine = projection ? projection.idShape === "standalone" : false;
     if (!projection) {
       this.listMarkerProjection = null;
       this.compositeListOriginalText = null;
@@ -5021,6 +5095,67 @@ export class PartialEditView extends ItemView {
     this.compositeListRowEl.toggleVisibility(active);
     this.compositeListInputEl.value = active ? this.compositeListOriginalText! : "";
     this.compositeListInputEl.disabled = !active;
+    this.renderCompositeEditorSizing();
+  }
+
+  /** 1.0.6: true while an extended-block (composite) session is loaded. */
+  private isCompositeFitActive(): boolean {
+    return this.nodeKind === "composite";
+  }
+
+  /**
+   * 1.0.6: true when the body textarea is sized to its text with a resize
+   * grip — an extended block, or a single block (standalone callout,
+   * blockquote, fenced code block, table in its Raw tab, paragraph).
+   * Sections and list subtrees keep the pane-filling editor.
+   */
+  private isBodyFitActive(): boolean {
+    const k = this.nodeKind;
+    return (
+      k === "composite" ||
+      k === "callout" ||
+      k === "blockquote" ||
+      k === "fenced-code" ||
+      k === "table" ||
+      k === "paragraph"
+    );
+  }
+
+  /** 1.0.6: fits the body textarea to its text (min 3 lines, 1 spare), never taller than 70% of the pane. */
+  private fitBodyTextarea(): void {
+    const cap = Math.round(this.contentEl.clientHeight * 0.7);
+    fitTextareaToContent(this.textareaEl, 3, 1, cap > 0 ? cap : undefined);
+  }
+
+  /**
+   * 1.0.6: extended-block session sizing. The list row and the body
+   * textarea are fitted to their current text (one spare line each; at
+   * least 2 / 3 lines), unless the user already resized them for this
+   * target; outside a composite session the body textarea goes back to its
+   * ordinary pane-filling layout (class removed, inline height cleared).
+   * Deferred one frame so it measures the value the caller sets right
+   * after this (renderLoadedState / Apply / auto-reload).
+   */
+  private renderCompositeEditorSizing(): void {
+    const composite = this.isCompositeFitActive();
+    const bodyFit = this.isBodyFitActive();
+    // 1.0.6: the grip is shown for every loaded block. A section / list
+    // subtree editor still fills the pane until the user drags the grip
+    // (textareaUserSized), then keeps the dragged height.
+    const keepUserHeight = this.nodeKind !== null && this.textareaUserSized;
+    this.textareaEl.toggleClass("unified-outliner-partial-edit-textarea-fit", bodyFit || keepUserHeight);
+    this.textareaGripEl.toggleVisibility(this.nodeKind !== null);
+    if (!composite) this.compositeListInputEl.style.removeProperty("height");
+    if (!bodyFit) {
+      if (!keepUserHeight) this.textareaEl.style.removeProperty("height");
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      if (this.isCompositeFitActive() && !this.compositeListUserSized) {
+        fitTextareaToContent(this.compositeListInputEl, 2, 1);
+      }
+      if (this.isBodyFitActive() && !this.textareaUserSized) this.fitBodyTextarea();
+    });
   }
 
   /**
@@ -6159,7 +6294,17 @@ export class PartialEditView extends ItemView {
           }
           rawListLine = invertedList.rawLine;
         }
-        const composed = composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value);
+        const requestedId = this.blockIdForApply();
+        let newBlockId: string | null | undefined = undefined;
+        if (requestedId !== undefined) {
+          const normalizedId = normalizeBlockIdInput(requestedId);
+          if (!normalizedId.ok) {
+            new Notice(this.plugin.t("reason.invalid-block-id"));
+            return false;
+          }
+          newBlockId = normalizedId.blockId;
+        }
+        const composed = composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value, newBlockId);
         if (!composed.ok) {
           new Notice(
             this.plugin.t("partialEdit.listParagraphBlockIdWouldMove", { id: this.listParagraphProjection.blockId ?? "" })
@@ -6167,7 +6312,7 @@ export class PartialEditView extends ItemView {
           return false;
         }
         newCompositeText = composed.text;
-        protectedBlockId = this.listParagraphProjection.blockId;
+        protectedBlockId = newBlockId === undefined ? this.listParagraphProjection.blockId : newBlockId;
         protectedIdLineOffset = composed.idLineOffset;
         composedListParagraphLine = rawListLine;
       } else if (this.quoteProjection && this.compositeListOriginalText !== null) {
@@ -6270,7 +6415,7 @@ export class PartialEditView extends ItemView {
       // v1.0.4: the paragraph's existing block id must stay at the end of
       // a paragraph — refused BEFORE anything is written. A structured
       // session knows the exact id line; a raw-fallback session of a
-      // "List item + Paragraph" composite whose paragraph had an id only
+      // "List + Paragraph" composite whose paragraph had an id only
       // requires that id to remain some paragraph's own id inside the
       // edited range.
       const anchorRangeText = doc.lines
@@ -6333,12 +6478,17 @@ export class PartialEditView extends ItemView {
       // Phase 5A-1 hardening §1: same self-Apply suppression span as the
       // paragraph branch above — see isApplyingOwnEdit's own doc comment.
       this.isApplyingOwnEdit = true;
+      // 1.0.6: a List + Paragraph session may rename its paragraph's id —
+      // same-note mirror embeds were already rewritten into `doc`, so the
+      // diff base is the untouched live text (identical to doc.lines when
+      // nothing was renamed), exactly like the node / paragraph branches.
+      this.notifyBlockIdRename(blockIdRename);
       try {
         applyLineEditOutcome(
           editor,
           { line: outcome.newStartLine, ch: 0 },
           outcome.newStartLine,
-          doc.lines,
+          liveLines,
           outcome,
           () => {}
         );
@@ -6372,7 +6522,7 @@ export class PartialEditView extends ItemView {
         // (composedListLine/composedTrailingText both null) stays raw,
         // unaffected.
         if (composedListParagraphLine !== null) {
-          // v1.0.4: rebuild the "List item + Paragraph" session from the
+          // v1.0.4: rebuild the "List + Paragraph" session from the
           // just-written note when the composite still matches; otherwise
           // the session ends exactly like any composite whose rule stopped
           // matching (compositeAnchor is null — no further Apply).
@@ -8982,4 +9132,61 @@ class ChildDeleteConfirmModal extends Modal {
       this.onChoice(false);
     }
   }
+}
+
+/**
+ * 1.0.6: sets `el`'s height to fit its current text — at least `minLines`
+ * lines, plus `spareLines` extra lines of room. Measured from scrollHeight
+ * after collapsing the height, so it also shrinks.
+ */
+function fitTextareaToContent(el: HTMLTextAreaElement, minLines: number, spareLines: number, maxPx?: number): void {
+  const style = window.getComputedStyle(el);
+  const fontSize = parseFloat(style.fontSize) || 14;
+  const lineHeight = parseFloat(style.lineHeight) || fontSize * 1.5;
+  const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  const border = (parseFloat(style.borderTopWidth) || 0) + (parseFloat(style.borderBottomWidth) || 0);
+  el.setCssProps({ height: "0px" });
+  const content = el.scrollHeight - padding;
+  const lines = Math.max(minLines, Math.round(content / lineHeight) + spareLines);
+  const minPx = Math.ceil(minLines * lineHeight + padding + border);
+  let px = Math.ceil(lines * lineHeight + padding + border);
+  if (maxPx !== undefined) px = Math.min(px, Math.max(maxPx, minPx));
+  el.setCssProps({ height: `${px}px` });
+}
+
+/**
+ * 1.0.6: a bottom-right drag grip that resizes `target`'s height (pointer
+ * events, so mouse, pen and touch — iPad included, where the native
+ * textarea resize handle is not available). Calls `onResized` once a drag
+ * actually starts so the caller stops auto-fitting.
+ */
+function attachResizeGrip(grip: HTMLElement, target: HTMLTextAreaElement, onResized: () => void): void {
+  setIcon(grip, "move-diagonal-2");
+  grip.addEventListener("pointerdown", (evt: PointerEvent) => {
+    if (target.disabled) return;
+    evt.preventDefault();
+    evt.stopPropagation();
+    const startY = evt.clientY;
+    const startHeight = target.getBoundingClientRect().height;
+    try {
+      grip.setPointerCapture(evt.pointerId);
+    } catch {
+      // Capture can be refused (e.g. a pointer that already ended); the
+      // grip's own move/up listeners still work while over the grip.
+    }
+    onResized();
+    const move = (e: PointerEvent): void => {
+      const next = Math.max(28, startHeight + (e.clientY - startY));
+      target.setCssProps({ height: `${Math.round(next)}px` });
+    };
+    const end = (e: PointerEvent): void => {
+      if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", end);
+      grip.removeEventListener("pointercancel", end);
+    };
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", end);
+    grip.addEventListener("pointercancel", end);
+  });
 }

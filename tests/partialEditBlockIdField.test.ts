@@ -551,7 +551,7 @@ describe("i18n and view wiring", () => {
     const refs = viewTs.indexOf('this.mirrorRefsEl = this.contentEl.createDiv({ cls: "unified-outliner-partial-edit-mirror-refs" });');
     expect(row).toBeGreaterThan(-1);
     expect(refs).toBeGreaterThan(row);
-    expect(viewTs).toContain('this.blockIdInputEl.addEventListener("input", () => this.updateDirtyState());');
+    expect(viewTs).toContain('for (const type of ["input", "change", "keyup", "compositionend"]) {\n      this.blockIdInputEl.addEventListener(type, () => this.updateDirtyState());');
     expect(css).toContain(".unified-outliner-partial-edit-block-id-row");
   });
 
