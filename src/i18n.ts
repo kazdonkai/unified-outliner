@@ -176,14 +176,17 @@ const en = {
   // illustrative case among many (a to-do item + its own note, a heading-
   // less quote source + its citation, etc.).
   "settings.compositeBlocksIntro":
-    "Built-in rules that group an immediately-adjacent, single-line list item and a callout or blockquote — with no blank line between them — into one collapsible unit in the Outline Tree. Disabling a rule here stops it from being recognized and shown as a group; your Markdown is never changed, and its member list item / callout / blockquote simply appear ungrouped again, following their own normal display settings.",
+    "Built-in rules that group an immediately-adjacent, single-line list item and a callout, a blockquote or its own indented paragraph — with no blank line between them — into one collapsible unit in the Outline Tree. Disabling a rule here stops it from being recognized and shown as a group; your Markdown is never changed, and its member list item / callout / blockquote / paragraph simply appear ungrouped again, following their own normal display settings.",
   // Phase 5D-1L: generalized from "Image + OCR" / "Image + Quote" — the
   // rule has never actually required an image (see this key's own doc
   // comment above); the label now names the STRUCTURE it matches
   // (list + callout / list + blockquote) instead of one example use case.
   // en/ja deliberately share the identical English string — see
   // compositeBlock.imageOcr.displayName's own doc comment below for why.
-  "settings.compositeBlockImageOcr.name": "List + Callout",
+  // v1.0.4: rule names are English in every UI language (the composite
+  // rule names "Image + OCR" / "Image + Quote" / "List item + Paragraph" —
+  // the Tree composite row label and the Settings toggle name share them).
+  "settings.compositeBlockImageOcr.name": "Image + OCR",
   // 2026-09-09 (Settings タブ i18n リソース改善): adds a concrete,
   // illustrative use case back into the description. This is a deliberate
   // reversal of Phase 5D-1L's own removal of the "image + its OCR
@@ -196,7 +199,7 @@ const en = {
   // (see model/compositeBlock.ts's DEFAULT_COMPOSITE_BLOCK_RULES).
   "settings.compositeBlockImageOcr.desc":
     "Groups a single-line list item followed immediately by a callout without empty lines. (e.g. embedding an image/PDF in the list item and writing OCR text/notes in the callout)",
-  "settings.compositeBlockImageQuote.name": "List + Quote",
+  "settings.compositeBlockImageQuote.name": "Image + Quote",
   // 2026-09-09: same rationale as compositeBlockImageOcr.desc above.
   "settings.compositeBlockImageQuote.desc":
     "Groups a single-line list item followed immediately by a blockquote without empty lines. (e.g. writing source/citation in the list item and quoted text in the blockquote)",
@@ -210,8 +213,14 @@ const en = {
   // internal identifiers, not renamed by this ticket). The ja dictionary
   // deliberately keeps the same English string here (not a Japanese
   // translation) per this ticket's explicit approval.
-  "compositeBlock.imageOcr.displayName": "List + Callout",
-  "compositeBlock.imageQuote.displayName": "List + Quote",
+  "compositeBlock.imageOcr.displayName": "Image + OCR",
+  "compositeBlock.imageQuote.displayName": "Image + Quote",
+  // v1.0.4: recognition-only rule (model/compositeBlock.ts's
+  // STRUCTURAL_COMPOSITE_BLOCK_RULES) — never shown as an Outline Tree row.
+  "compositeBlock.listParagraph.displayName": "List item + Paragraph",
+  "settings.compositeBlockListParagraph.name": "List item + Paragraph",
+  "settings.compositeBlockListParagraph.desc":
+    "Groups a single-line list item followed, with no empty line, by a paragraph indented as that item's own content. The group is shown read-only in the Outline Tree and can be opened in the Partial Edit Pane, which keeps the paragraph's existing block ID in place. It cannot be moved, dragged or deleted as a unit, and no block ID is ever created.",
 
   // ---- Commands (Command Palette names) ---------------------------------
   "command.moveBlockUp": "Move block up (minimal safe unit at cursor)",
@@ -272,6 +281,8 @@ const en = {
   "tree.emptyComplexMember": "(empty)",
   "tree.complexMember.calloutFallback": "Callout",
   "tree.complexMember.blockquoteFallback": "Quote",
+  // v1.0.4: a List item + Paragraph composite's paragraph member row with no usable text (English in every UI language, like the rule names).
+  "tree.complexMember.paragraphFallback": "Paragraph",
   "tree.complexMember.fencedCodeFallback": "Code block",
   "tree.complexMember.tableFallback": "Table",
   // Phase 5P-3 (design doc §4 priority tier 3): fallback label for a
@@ -326,6 +337,10 @@ const en = {
   "partialEdit.mirrorReferences": "Mirrors referencing this block: {count}",
   "partialEdit.blockIdLabel": "Block ID:",
   "partialEdit.blockIdPlaceholder": "none",
+  // v1.0.4: List item + Paragraph sessions — the paragraph's existing block ID is shown read-only and always written back inside the paragraph.
+  "partialEdit.listParagraphBlockIdProtected": "The paragraph's block ID is kept at the end of the paragraph and cannot be changed here.",
+  "partialEdit.listParagraphBlockIdWouldMove":
+    "Unified Outliner: Not applied — the block ID ^{id} must stay at the end of the paragraph. Keep the paragraph body non-empty and do not turn its last line into a list item, heading or other block.",
   "partialEdit.blockIdCrossFileWarning":
     "Unified Outliner: this block ID is referenced from other files. Those references may now be broken.",
   "partialEdit.blockIdSameFileRenamed":
@@ -1579,11 +1594,14 @@ const ja: Record<TranslationKey, string> = {
   // 文と揃える形で「である調」へ統一した。文面の意味・内容は変更していな
   // い。
   "settings.compositeBlocksIntro":
-    "空行を挟まず隣接する1行で完結する list item と callout または blockquote を、Outline Tree上で1つの折りたたみ可能な単位としてまとめる規則である。この設定を無効にしてもMarkdown本文は変更されない。対象となるlist item、callout、blockquoteは、それぞれ通常の表示規則に従って個別に表示される。",
+    "空行を挟まず隣接する1行で完結する list item と、callout・blockquote・その項目の字下げされた段落のいずれかを、Outline Tree上で1つの折りたたみ可能な単位としてまとめる規則である。この設定を無効にしてもMarkdown本文は変更されない。対象となるlist item、callout、blockquote、段落は、それぞれ通常の表示規則に従って個別に表示される。",
   // Phase 5D-1L: 「画像+OCR」/「画像+引用」から汎用化。日本語訳ではなく
   // en辞書と同一の英語文字列 "List + Callout" / "List + Quote" を採用
   // （ユーザー承認済み）。
-  "settings.compositeBlockImageOcr.name": "List + Callout",
+  // v1.0.4: rule names are English in every UI language (the composite
+  // rule names "Image + OCR" / "Image + Quote" / "List item + Paragraph" —
+  // the Tree composite row label and the Settings toggle name share them).
+  "settings.compositeBlockImageOcr.name": "Image + OCR",
   // 2026-09-09（Settings タブ i18n リソース改善）: 具体的な利用シーン
   // （ユースケース）の例示を説明文に追加した。これは Phase 5D-1L が
   // 「画像 + その OCR 転記」という例示を意図的に除去した判断（上記
@@ -1599,12 +1617,16 @@ const ja: Record<TranslationKey, string> = {
   // を図るため、続報の指示によりである調（表示する。）へ変更した。
   "settings.compositeBlockImageOcr.desc":
     "1行で完結するリスト項目の直後に空行を挟まずコールアウトが続く場合にまとめて表示する。（例: リスト行に画像やPDFを埋め込み、コールアウトにOCRテキストや解説を記入する場合など）",
-  "settings.compositeBlockImageQuote.name": "List + Quote",
+  "settings.compositeBlockImageQuote.name": "Image + Quote",
   // 2026-09-09: 上記 compositeBlockImageOcr.desc と同様の理由による変更。
   "settings.compositeBlockImageQuote.desc":
     "1行で完結するリスト項目の直後に空行を挟まず引用（blockquote）が続く場合にまとめて表示する。（例: リスト行に出典・書誌情報を記入し、引用ブロックに引用本文を記入する場合など）",
-  "compositeBlock.imageOcr.displayName": "List + Callout",
-  "compositeBlock.imageQuote.displayName": "List + Quote",
+  "compositeBlock.imageOcr.displayName": "Image + OCR",
+  "compositeBlock.imageQuote.displayName": "Image + Quote",
+  "compositeBlock.listParagraph.displayName": "List item + Paragraph",
+  "settings.compositeBlockListParagraph.name": "List item + Paragraph",
+  "settings.compositeBlockListParagraph.desc":
+    "1行で完結するリスト項目の直後に、空行を挟まず、その項目の本文開始位置まで字下げされた段落が続く場合にまとめて表示する。Outline Tree上では読み取り専用で、Partial Edit Paneで開いて編集でき、その際に段落の既存のブロックIDは段落内に保持される。まとまりとしての移動・ドラッグ・削除はできず、ブロックIDを新たに作成することもない。",
 
   // ---- コマンド（コマンドパレットの表示名） ------------------------------
   "command.moveBlockUp": "ブロックを上へ移動（カーソル位置の最小安全単位）",
@@ -1661,6 +1683,7 @@ const ja: Record<TranslationKey, string> = {
   "tree.emptyComplexMember": "（空）",
   "tree.complexMember.calloutFallback": "コールアウト",
   "tree.complexMember.blockquoteFallback": "引用",
+  "tree.complexMember.paragraphFallback": "Paragraph",
   "tree.complexMember.fencedCodeFallback": "コードブロック",
   "tree.complexMember.tableFallback": "テーブル",
   "tree.paragraphFallback": "段落 {n}",
@@ -1709,6 +1732,9 @@ const ja: Record<TranslationKey, string> = {
   "partialEdit.mirrorReferences": "このブロックを参照しているミラー: {count} 件",
   "partialEdit.blockIdLabel": "Block ID:",
   "partialEdit.blockIdPlaceholder": "なし",
+  "partialEdit.listParagraphBlockIdProtected": "段落のブロックIDは段落末尾に保持され、ここでは変更できない。",
+  "partialEdit.listParagraphBlockIdWouldMove":
+    "Unified Outliner: 適用しなかった。ブロックID ^{id} は段落の末尾に残す必要がある。段落本文を空にせず、最終行をリスト項目・見出しなど別のブロックにしないこと。",
   "partialEdit.blockIdCrossFileWarning":
     "Unified Outliner: このブロック ID は他のファイルから参照されています。Block ID を変更したため、それらの参照が壊れている可能性があります。",
   "partialEdit.blockIdSameFileRenamed": "Unified Outliner: 同一ファイル内の {count} 件のミラー参照を自動更新しました。",

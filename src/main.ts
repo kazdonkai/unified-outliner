@@ -9,6 +9,7 @@ import { moveNodeOnly } from "./move/moveNodeOnly";
 import { indentBlock } from "./move/indentBlock";
 import { scanComplexBlocks } from "./parser/complexBlocks";
 import { matchCompositeBlocks } from "./parser/compositeBlocks";
+import type { CompositeBlockInfo } from "./model/compositeBlock";
 import { buildCompositeBlockSnapshot, CompositeBlockSnapshot } from "./edit/deleteCompositeBlock";
 import { compositeMoveReasonText, moveCompositeBlock } from "./edit/moveCompositeBlock";
 import { CompositeMoveDirection } from "./move/findCompositeMoveTarget";
@@ -59,7 +60,7 @@ import {
   UnifiedOutlinerSettings,
   UnifiedOutlinerSettingTab,
 } from "./settings";
-import { getEnabledCompositeBlockRules, mergeSettings } from "./settingsDefaults";
+import { getEnabledCompositeBlockRules, getEnabledTreeCompositeBlockRules, mergeSettings } from "./settingsDefaults";
 import {
   createTranslator,
   SupportedLocale,
@@ -646,6 +647,24 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * appear to do nothing until the user happened to trigger a refresh some
    * other way.
    */
+  /**
+   * v1.0.4: read-only structural CompositeBlock information for `text` —
+   * every enabled built-in rule, INCLUDING tree-read-only ones such as
+   * "list-paragraph" (whose paragraph member carries that paragraph's
+   * existing block id in `blockId`). Pure: parses `text` and returns, never
+   * touches the editor, the vault, the Outline Tree or any block id.
+   * Intended for later features that need structural units; not used by
+   * any UI in this version.
+   */
+  getStructuralCompositeBlocks(text: string): CompositeBlockInfo[] {
+    const doc = parseDocument(text);
+    return matchCompositeBlocks(
+      doc,
+      scanComplexBlocks(doc),
+      getEnabledTreeCompositeBlockRules(this.settings.compositeBlocks)
+    );
+  }
+
   refreshOutlineTreeViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(OUTLINE_TREE_VIEW_TYPE)) {
       if (leaf.view instanceof OutlineTreeView) leaf.view.refresh();

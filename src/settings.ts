@@ -506,5 +506,22 @@ export class UnifiedOutlinerSettingTab extends PluginSettingTab {
             this.plugin.refreshOutlineTreeViews();
           })
       );
+
+    // v1.0.4: tree-read-only rule (projected into the Outline Tree and
+    // editable through the Partial Edit Pane only — see
+    // settingsDefaults.ts's getEnabledTreeCompositeBlockRules), so toggling
+    // it refreshes open Trees exactly like the two rules above.
+    new Setting(containerEl)
+      .setName(this.plugin.t("settings.compositeBlockListParagraph.name"))
+      .setDesc(this.plugin.t("settings.compositeBlockListParagraph.desc"))
+      .addToggle((t) =>
+        t
+          .setValue(this.plugin.settings.compositeBlocks.listParagraph)
+          .onChange(async (v) => {
+            this.plugin.settings.compositeBlocks.listParagraph = v;
+            await this.plugin.saveSettings();
+            this.plugin.refreshOutlineTreeViews();
+          })
+      );
   }
 }

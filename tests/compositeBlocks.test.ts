@@ -204,13 +204,13 @@ describe("getEnabledCompositeBlockRules", () => {
   });
 
   it("excludes a rule whose settings flag is false", () => {
-    const rules = getEnabledCompositeBlockRules({ imageOcr: false, imageQuote: true });
+    const rules = getEnabledCompositeBlockRules({ imageOcr: false, imageQuote: true, listParagraph: true });
     expect(rules.map((r) => r.id)).toEqual(["image-quote"]);
   });
 
   it("a disabled rule never matches even when its shape is present in the document", () => {
     const text = ["- one", "> [!note]", "> body"].join("\n");
-    const rules = getEnabledCompositeBlockRules({ imageOcr: false, imageQuote: true });
+    const rules = getEnabledCompositeBlockRules({ imageOcr: false, imageQuote: true, listParagraph: true });
     const composites = match(text, rules);
     expect(composites).toHaveLength(0);
   });
@@ -223,8 +223,8 @@ describe("compositeBlockDisplayLabel / getCompositeBlockRuleById", () => {
     // structural label "List + Callout" — deliberately the SAME English
     // string in both locales (no Japanese translation), per this ticket's
     // explicit approval.
-    expect(compositeBlockDisplayLabel(rule, createTranslator("en"))).toBe("List + Callout");
-    expect(compositeBlockDisplayLabel(rule, createTranslator("ja"))).toBe("List + Callout");
+    expect(compositeBlockDisplayLabel(rule, createTranslator("en"))).toBe("Image + OCR");
+    expect(compositeBlockDisplayLabel(rule, createTranslator("ja"))).toBe("Image + OCR");
   });
 
   it("a customLabel always wins over the built-in i18n lookup, in every locale", () => {

@@ -48,7 +48,7 @@ describe("Phase 5D-4D: CompositeBlock parent-row mobile drag handle (additive UI
   function compositeBranchBody(): string {
     const { start: chainStart, end: chainEnd } = dragWiringChainRange();
     const wholeChain = viewTs.slice(chainStart, chainEnd);
-    const startInChain = wholeChain.indexOf("} else if (isComposite) {");
+    const startInChain = wholeChain.indexOf("} else if (isOperableComposite) {");
     expect(startInChain).toBeGreaterThan(-1);
     return viewTs.slice(chainStart + startInChain, chainEnd);
   }
@@ -72,7 +72,7 @@ describe("Phase 5D-4D: CompositeBlock parent-row mobile drag handle (additive UI
   it("dragHandleEl generation admits isComposite alongside !readOnly (Phase 5D-4D), isEligibleStandaloneComplexMember (2026-09-24 mobile follow-up fix), and isParagraph (a SECOND 2026-09-24 mobile follow-up fix) — but nothing else — a plain composite-member row that is neither an eligible standalone complex-member kind nor a paragraph still gets no handle at all", () => {
     const body = dragHandleGenerationBody();
     expect(body).toContain(
-      "if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {"
+      "if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {"
     );
     // Defense in depth: no OTHER kind flag was added to this condition —
     // widening it any further than `isComposite`/

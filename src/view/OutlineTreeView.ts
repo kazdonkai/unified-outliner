@@ -268,7 +268,7 @@ import {
 } from "../edit/insertParagraph";
 import { ConfirmParagraphDeleteModal } from "./ConfirmParagraphDeleteModal";
 import { findComplexSiblingTarget, ResolvedMoveUnit } from "../move/resolveMoveTarget";
-import { getEnabledCompositeBlockRules } from "../settingsDefaults";
+import { getEnabledCompositeBlockRules, getEnabledTreeCompositeBlockRules } from "../settingsDefaults";
 import { resolveCurrentPositionNodeId } from "../tree/resolveCurrentPositionNodeId";
 import {
   buildNodeByIdMap,
@@ -552,6 +552,18 @@ export class OutlineTreeView extends ItemView {
   // that function's own doc comment for why a composite-N id cannot be
   // trusted to survive a re-parse.
   private currentComposites: CompositeBlockInfo[] = [];
+  // v1.0.4: EVERY composite projected into this refresh's Tree, including
+  // tree-read-only ones ("List item + Paragraph") that currentComposites
+  // (the operable subset — the only one move / delete / drag / copy logic
+  // ever sees) deliberately leaves out. Used solely to build the snapshot
+  // for a tree-read-only composite's "Open in Partial Edit" item.
+  private currentTreeComposites: CompositeBlockInfo[] = [];
+  // v1.0.4: member row id -> parent composite id, for tree-read-only
+  // composites only (see buildOutlineTree.ts's
+  // OutlineTreeCompositeNode.allowsStructuralOps). Lets a member row's
+  // context menu / long-press offer that composite's "Open in Partial
+  // Edit" — and nothing else.
+  private readOnlyCompositeIdByMemberId: Map<string, string> = new Map();
   private currentComplexScan: ComplexBlockScanResult | null = null;
   // Phase 4E: fold-state persistence. currentFilePath is the vault-
   // relative path of the note this refresh's tree was built from (null
@@ -968,6 +980,8 @@ export class OutlineTreeView extends ItemView {
       this.nodeIdentityById = new Map();
       this.collapsedIds = new Set();
       this.currentComposites = [];
+      this.currentTreeComposites = [];
+      this.readOnlyCompositeIdByMemberId = new Map();
       this.currentComplexScan = null;
       this.pendingCopySourceNodeId = null;
       this.renderCopyBanner();
@@ -1000,7 +1014,17 @@ export class OutlineTreeView extends ItemView {
     // rule is disabled this still skips matchCompositeBlocks itself (the
     // pattern-matching step, more work than the scan above) rather than
     // paying its cost for users who don't use the feature at all.
-    const enabledRules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    // v1.0.4: the Tree projects every enabled built-in rule, including the
+    // tree-read-only "List item + Paragraph" rule; currentComposites keeps
+    // only the operable subset (exactly what getEnabledCompositeBlockRules
+    // alone would match — matchCompositeBlocks gives adjacent-sequence
+    // composites the same `composite-N` ids either way), so every move /
+    // delete / drag / copy path below keeps seeing exactly what it saw
+    // before this rule existed.
+    const enabledRules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const operableRuleIds = new Set(
+      getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks).map((r) => r.id)
+    );
     let composites: BuildOutlineTreeOptions["composites"];
     if (enabledRules.length > 0) {
       const infos = matchCompositeBlocks(doc, complexScan, enabledRules);
@@ -1009,7 +1033,8 @@ export class OutlineTreeView extends ItemView {
       // Phase 5C-1 ticket 3b: menu-build-time-only reference — see this
       // class's own doc comment on currentComposites/currentComplexScan for
       // why this is never treated as a source of delete-time safety.
-      this.currentComposites = infos;
+      this.currentComposites = infos.filter((c) => operableRuleIds.has(c.ruleId));
+      this.currentTreeComposites = infos;
     } else {
       // matchCompositeBlocks(doc, complexScan, []) would also always
       // return [] here (an empty rule list can never match anything) —
@@ -1018,6 +1043,7 @@ export class OutlineTreeView extends ItemView {
       // preserving the original "skip the more expensive matching step
       // entirely when unused" optimization this branch has always had.
       this.currentComposites = [];
+      this.currentTreeComposites = [];
     }
     // Phase 5C-3: cached UNCONDITIONALLY now (previously only inside the
     // `enabledRules.length > 0` branch above). showStandaloneComplexBlockMenu
@@ -1089,6 +1115,13 @@ export class OutlineTreeView extends ItemView {
     // doc comment — a separate derived Set from readOnlyNodeIds above,
     // display-only, never consulted for edit-capability decisions.
     this.compositeGroupInfo = collectCompositeGroupInfo(this.currentTree);
+    // v1.0.4: see readOnlyCompositeIdByMemberId's own field doc comment.
+    this.readOnlyCompositeIdByMemberId = new Map();
+    for (const n of this.nodeById.values()) {
+      if (isOutlineCompositeNode(n) && !n.allowsStructuralOps) {
+        for (const child of n.children) this.readOnlyCompositeIdByMemberId.set(child.id, n.id);
+      }
+    }
 
     // Phase 4E: file path is the fold-state persistence key; null (no
     // backing file — practically never for a MarkdownView, but Editor
@@ -1648,7 +1681,14 @@ export class OutlineTreeView extends ItemView {
         node.complexKind === "table" ||
         node.complexKind === "fenced-code");
     let dragHandleEl: HTMLElement | null = null;
-    if (!readOnly || isComposite || isEligibleStandaloneComplexMember || isParagraph) {
+    // v1.0.4: a tree-read-only composite ("List item + Paragraph") gets no
+    // drag handle — see OutlineTreeCompositeNode.allowsStructuralOps.
+    const isOperableComposite = isComposite && node.allowsStructuralOps;
+    // v1.0.4: set for a tree-read-only composite's own row AND each of its
+    // member rows — the one composite those rows may open in Partial Edit.
+    const readOnlyCompositeId =
+      isComposite && !node.allowsStructuralOps ? node.id : this.readOnlyCompositeIdByMemberId.get(node.id) ?? null;
+    if (!readOnly || isOperableComposite || isEligibleStandaloneComplexMember || isParagraph) {
       dragHandleEl = selfEl.createDiv({ cls: "unified-outliner-drag-handle" });
       setIcon(dragHandleEl, "grip-vertical");
       dragHandleEl.setAttribute("aria-hidden", "true");
@@ -2008,7 +2048,17 @@ export class OutlineTreeView extends ItemView {
     // Phase 5D-0.3 approval §1: no structure context menu for composite/
     // complex-member rows, and none for a list row currently inside a
     // composite either (readOnly covers all three).
-    if (!readOnly && isOutlineSectionNode(node)) {
+    if (readOnlyCompositeId !== null) {
+      // v1.0.4: a tree-read-only composite ("List item + Paragraph") row or
+      // one of its member rows — no structural menu at all; the only item
+      // is "Open in Partial Edit" for the composite (see
+      // showReadOnlyCompositeMenu). Checked FIRST so the member rows never
+      // reach the complex-member / list menus below.
+      selfEl.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        this.showReadOnlyCompositeMenu(evt, readOnlyCompositeId);
+      });
+    } else if (!readOnly && isOutlineSectionNode(node)) {
       selfEl.addEventListener("contextmenu", (evt) => {
         evt.preventDefault();
         this.showStructureCommandMenu(evt, node.id);
@@ -2353,7 +2403,8 @@ export class OutlineTreeView extends ItemView {
           longPressStart = null;
           this.suppressNextTapClick = true;
           const menuEvt = { clientX: menuX, clientY: menuY } as unknown as MouseEvent;
-          this.showCompositeCommandMenu(menuEvt, node.id);
+          if (readOnlyCompositeId !== null) this.showReadOnlyCompositeMenu(menuEvt, readOnlyCompositeId);
+          else this.showCompositeCommandMenu(menuEvt, node.id);
         }, LONG_PRESS_DURATION_MS);
       });
 
@@ -2650,7 +2701,7 @@ export class OutlineTreeView extends ItemView {
         this.handleCalloutDropNode(session, evt, node, selfEl);
       });
       selfEl.addEventListener("dragend", () => this.handleDragEnd());
-    } else if (isComposite) {
+    } else if (isOperableComposite) {
       // Phase 5D-4C ("CompositeBlock Atomic Drag-and-Drop 最小実装", Phase
       // 5D-4B design approved): an EIGHTH, entirely new drag-wiring branch
       // — for a CompositeBlock PARENT row (isComposite).
@@ -3522,6 +3573,30 @@ export class OutlineTreeView extends ItemView {
    * independently-re-derived judgments (see
    * evaluateCompositeBlockMovability's own doc comment).
    */
+  /**
+   * v1.0.4: the whole menu of a tree-read-only composite ("List item +
+   * Paragraph") — its parent row and every member row. ONE item, "Open in
+   * Partial Edit", built from this refresh's projected composite; no move,
+   * delete, copy, rename, indent or insert item is ever offered. The pane
+   * re-resolves the snapshot against the note's current text on load, so
+   * a stale row simply reports a refusal Notice there.
+   */
+  private showReadOnlyCompositeMenu(evt: MouseEvent, compositeId: string): void {
+    const node = this.nodeById.get(compositeId);
+    if (!node || !isOutlineCompositeNode(node) || node.allowsStructuralOps) return;
+    const composite = this.currentTreeComposites.find((c) => c.id === compositeId);
+    if (!composite) return;
+    const snapshot = buildCompositeBlockSnapshot(composite);
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(this.plugin.t("tree.menu.openCompositeInPartialEdit"))
+        .setIcon("edit-3")
+        .onClick(() => void this.plugin.activatePartialEditViewForComposite(snapshot))
+    );
+    this.showTrackedMenu(menu, evt);
+  }
+
   private showCompositeCommandMenu(evt: MouseEvent, compositeId: string): void {
     const node = this.nodeById.get(compositeId);
     if (!node || !isOutlineCompositeNode(node)) return;

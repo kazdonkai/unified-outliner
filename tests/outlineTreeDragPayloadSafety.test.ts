@@ -184,7 +184,7 @@ describe("OutlineTreeView.ts drag payload safety (static source check, Phase 5T-
     // it) — so the search is scoped to [chainStart, chainEnd), the drag-
     // wiring chain's own range, where it IS unique.
     const wholeChain = viewTs.slice(chainStart, chainEnd);
-    const branchStartInChain = wholeChain.indexOf("} else if (isComposite) {");
+    const branchStartInChain = wholeChain.indexOf("} else if (isOperableComposite) {");
     if (branchStartInChain === -1) {
       throw new Error("isComposite drag-wiring branch not found — has renderNode's branch chain changed?");
     }
@@ -367,7 +367,7 @@ describe("OutlineTreeView.ts drag payload safety (static source check, Phase 5T-
     // getCompositeDragWiringBranchBody's own comment), so this is scoped
     // to the chain's own range exactly like that helper.
     const wholeChain = viewTs.slice(chainStart, chainEnd);
-    const branchStart = chainStart + wholeChain.indexOf("} else if (isComposite) {");
+    const branchStart = chainStart + wholeChain.indexOf("} else if (isOperableComposite) {");
     expect(branchStart).toBeGreaterThan(chainStart);
     expect(branchStart).toBeLessThan(chainEnd);
 

@@ -312,7 +312,16 @@ import {
   buildPendingLeafFirstChild,
 } from "../edit/parentChildInlineEditSession";
 import { CompositeBlockInfo, compositeBlockDisplayLabel, getCompositeBlockRuleById } from "../model/compositeBlock";
-import { getEnabledCompositeBlockRules } from "../settingsDefaults";
+import { getEnabledTreeCompositeBlockRules } from "../settingsDefaults";
+import {
+  buildListParagraphProjection,
+  composeListParagraphText,
+  isListParagraphSnapshot,
+  ListParagraphProjection,
+  verifyBlockIdStaysInParagraph,
+  blockIdKeptInParagraphWithin,
+} from "../edit/listParagraphCompositeProjection";
+import { readBlockIdWithinRange } from "../parser/blockIdInRange";
 // Phase 5E-3c ("軽量 Table Mode"): the pure Markdown table parser/
 // serializer foundation (Phase 5E-3b, unmodified) and the pure Table Mode
 // cell/row/column operations built on top of it (this phase) — see both
@@ -838,6 +847,16 @@ export class PartialEditView extends ItemView {
    * callers never need to know WHICH of the two states produced it.
    */
   private compositeListOriginalText: string | null = null;
+  /**
+   * v1.0.4: set only for a "List item + Paragraph" composite session
+   * (edit/listParagraphCompositeProjection.ts). The list row input then
+   * holds the list line marker-free (compositeListOriginalText, via
+   * listMarkerProjection — see installListParagraphProjection), the textarea the
+   * paragraph body (indent and block id removed), and the Block ID row
+   * shows the paragraph's existing id read-only; Apply re-attaches it
+   * inside the paragraph in its original shape.
+   */
+  private listParagraphProjection: ListParagraphProjection | null = null;
   /**
    * Phase 5D-2C ("CompositeBlock single-line-list member marker-free
    * projection"): the structured composite session's own split of the
@@ -2310,6 +2329,7 @@ export class PartialEditView extends ItemView {
     this.childAddDeleteSession = null;
     this.pendingLeafFirstChild = null;
     this.compositeListOriginalText = null;
+    this.listParagraphProjection = null;
     // Phase 5D-2C: reset alongside compositeListOriginalText above — see
     // this field's own doc comment for why the two are never independent.
     this.listMarkerProjection = null;
@@ -2706,6 +2726,7 @@ export class PartialEditView extends ItemView {
     // being reset here — compositeListOriginalText was missed when
     // Phase 5D-2B added it (see loadParagraphInternal's identical fix).
     this.compositeListOriginalText = null;
+    this.listParagraphProjection = null;
     // Phase 5D-2C: reset alongside compositeListOriginalText above — see
     // this field's own doc comment for why the two are never independent.
     this.listMarkerProjection = null;
@@ -2817,6 +2838,7 @@ export class PartialEditView extends ItemView {
     // a prior composite session, or isDirty() reads dirty with zero edits
     // after switching away from a composite.
     this.compositeListOriginalText = null;
+    this.listParagraphProjection = null;
     // Phase 5D-2C: reset alongside compositeListOriginalText above — see
     // this field's own doc comment for why the two are never independent.
     this.listMarkerProjection = null;
@@ -2879,7 +2901,7 @@ export class PartialEditView extends ItemView {
     }
 
     const doc = parseDocument(view.editor.getValue());
-    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const rules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
     const extracted = extractCompositeBlockText(doc, snapshot, rules);
     if (!extracted.ok || !extracted.resolvedSnapshot) {
       // Phase 5D-2A: see the Apply-time branch's identical use of
@@ -2964,9 +2986,18 @@ export class PartialEditView extends ItemView {
     this.childAddDeleteSession = null;
     this.pendingLeafFirstChild = null;
     this.compositeListOriginalText = null;
+    this.listParagraphProjection = null;
     // Phase 5D-2C: reset alongside compositeListOriginalText above — see
     // this field's own doc comment for why the two are never independent.
     this.listMarkerProjection = null;
+    // v1.0.4: a "List item + Paragraph" composite gets its own structured
+    // session (raw list line + paragraph body + read-only block id). When
+    // the projection is refused, the session falls back to the same raw
+    // whole-range textarea every other unsplittable composite uses.
+    if (isListParagraphSnapshot(extracted.resolvedSnapshot)) {
+      const lp = buildListParagraphProjection(doc.lines, extracted.resolvedSnapshot);
+      if (lp.ok) this.installListParagraphProjection(lp.projection);
+    }
     const memberSplit = splitCompositeBlockMembers(doc.lines, extracted.resolvedSnapshot);
     if (memberSplit.ok) {
       const built = buildQuotePrefixProjection(
@@ -3072,7 +3103,7 @@ export class PartialEditView extends ItemView {
    * non-image-ocr anchor — findCompositeSiblingTargets' own gate.
    */
   private imageOcrSiblingTargets(doc: ParsedDocument, anchor: CompositeBlockSnapshot): CompositeSiblingTargets {
-    const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+    const rules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
     return findCompositeSiblingTargets(anchor, matchCompositeBlocks(doc, scanComplexBlocks(doc), rules));
   }
 
@@ -3283,6 +3314,23 @@ export class PartialEditView extends ItemView {
    * Apply, never while the user is typing.
    */
   private renderBlockIdRow(): void {
+    // v1.0.4: a "List item + Paragraph" session shows the paragraph's
+    // existing id READ-ONLY (it is re-attached inside the paragraph on
+    // Apply and can never be changed, moved or removed from here). The
+    // Block ID field itself stays inactive (blockIdFieldEligible is false),
+    // so it is never dirty and never handed to Apply.
+    const protectedId = this.listParagraphProjection?.blockId ?? null;
+    if (protectedId !== null) {
+      this.blockIdInputEl.value = protectedId;
+      this.blockIdInputEl.readOnly = true;
+      this.blockIdInputEl.setAttribute("aria-readonly", "true");
+      this.blockIdInputEl.setAttribute("title", this.plugin.t("partialEdit.listParagraphBlockIdProtected"));
+      this.blockIdRowEl.toggleVisibility(true);
+      return;
+    }
+    this.blockIdInputEl.readOnly = false;
+    this.blockIdInputEl.removeAttribute("aria-readonly");
+    this.blockIdInputEl.removeAttribute("title");
     const show = this.isBlockIdFieldActive();
     this.blockIdInputEl.value = show ? (this.loadedBlockId ?? "") : "";
     this.blockIdRowEl.toggleVisibility(show);
@@ -4591,6 +4639,7 @@ export class PartialEditView extends ItemView {
    * exactly as this pane always has.
    */
   private currentDisplayText(): string {
+    if (this.listParagraphProjection) return this.listParagraphProjection.body;
     if (this.quoteProjection) return projectedDisplayText(this.quoteProjection);
     // Phase 5L-1: standaloneListMarkerProjection is only ever set for a
     // standalone list node (nodeId branch, nodeKind === "list") — a
@@ -4948,6 +4997,25 @@ export class PartialEditView extends ItemView {
    * textareaEl pair ("Callout"/"Quote"). Removed — see compositeListRowEl's
    * own field doc comment for why both member labels were redundant.
    */
+  /**
+   * v1.0.4: installs a "List item + Paragraph" session (or clears it for
+   * null). The list row is shown MARKER-FREE exactly like a List + Callout
+   * list row — the same buildCompositeListMemberProjection (only the list
+   * marker is stripped; a task checkbox / ordered number stays in the
+   * body) — and falls back to the raw line when that projection refuses.
+   */
+  private installListParagraphProjection(projection: ListParagraphProjection | null): void {
+    this.listParagraphProjection = projection;
+    if (!projection) {
+      this.listMarkerProjection = null;
+      this.compositeListOriginalText = null;
+      return;
+    }
+    const built = buildCompositeListMemberProjection(projection.listLine);
+    this.listMarkerProjection = built.ok ? built.projection : null;
+    this.compositeListOriginalText = this.listMarkerProjection ? this.listMarkerProjection.body : projection.listLine;
+  }
+
   private renderCompositeListSlot(): void {
     const active = this.nodeKind === "composite" && this.compositeListOriginalText !== null;
     this.compositeListRowEl.toggleVisibility(active);
@@ -6064,7 +6132,7 @@ export class PartialEditView extends ItemView {
     // always — this ticket only changes what candidate text is offered to
     // it, never how it is verified or applied.
     if (this.compositeAnchor) {
-      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      const rules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
 
       let newCompositeText: string;
       // Set only for a STRUCTURED session, and only once composition below
@@ -6073,7 +6141,36 @@ export class PartialEditView extends ItemView {
       // further below rebuilds its own quoteProjection after Apply.
       let composedListLine: string | null = null;
       let composedTrailingText: string | null = null;
-      if (this.quoteProjection && this.compositeListOriginalText !== null) {
+      // v1.0.4: block id to verify after composing ("List item +
+      // Paragraph" sessions only) — see the check right after this if/else.
+      let protectedBlockId: string | null = null;
+      let protectedIdLineOffset: number | null = null;
+      let composedListParagraphLine: string | null = null;
+      if (this.listParagraphProjection && this.compositeListOriginalText !== null) {
+        // The list row is edited marker-free (like a List + Callout list
+        // row) whenever its line could be projected; invert it back to the
+        // raw line with the same edit/listMarkerProjection.ts machinery.
+        let rawListLine = this.compositeListInputEl.value;
+        if (this.listMarkerProjection) {
+          const invertedList = invertListMarkerProjection(this.listMarkerProjection, this.compositeListInputEl.value);
+          if (!invertedList.ok) {
+            new Notice(this.plugin.t("partialEdit.listBodyNewlineUnsupported"));
+            return false;
+          }
+          rawListLine = invertedList.rawLine;
+        }
+        const composed = composeListParagraphText(this.listParagraphProjection, rawListLine, this.textareaEl.value);
+        if (!composed.ok) {
+          new Notice(
+            this.plugin.t("partialEdit.listParagraphBlockIdWouldMove", { id: this.listParagraphProjection.blockId ?? "" })
+          );
+          return false;
+        }
+        newCompositeText = composed.text;
+        protectedBlockId = this.listParagraphProjection.blockId;
+        protectedIdLineOffset = composed.idLineOffset;
+        composedListParagraphLine = rawListLine;
+      } else if (this.quoteProjection && this.compositeListOriginalText !== null) {
         // Phase 5D-1.5 parity: invert the trailing member's body back to
         // raw Markdown via the exact same, UNMODIFIED
         // edit/quotePrefixProjection.ts machinery the standalone branch
@@ -6170,6 +6267,52 @@ export class PartialEditView extends ItemView {
         newCompositeText = this.textareaEl.value;
       }
 
+      // v1.0.4: the paragraph's existing block id must stay at the end of
+      // a paragraph — refused BEFORE anything is written. A structured
+      // session knows the exact id line; a raw-fallback session of a
+      // "List item + Paragraph" composite whose paragraph had an id only
+      // requires that id to remain some paragraph's own id inside the
+      // edited range.
+      const anchorRangeText = doc.lines
+        .slice(this.compositeAnchor.range.startLine, this.compositeAnchor.range.endLine + 1)
+        .join("\n");
+      // Only when the anchor still describes exactly what was loaded — a
+      // stale anchor is refused by applyCompositeBlockEdit below with its
+      // own, accurate reason.
+      if (anchorRangeText === this.originalText) {
+        const startLine = this.compositeAnchor.range.startLine;
+        const candidateLines = [
+          ...doc.lines.slice(0, startLine),
+          ...newCompositeText.split("\n"),
+          ...doc.lines.slice(this.compositeAnchor.range.endLine + 1),
+        ];
+        let rawProtectedId: string | null = null;
+        if (protectedBlockId === null && isListParagraphSnapshot(this.compositeAnchor)) {
+          const para = this.compositeAnchor.members[1];
+          rawProtectedId = readBlockIdWithinRange(this.originalText.split("\n"), {
+            startLine: para.range.startLine - startLine,
+            endLine: para.range.endLine - startLine,
+          });
+        }
+        const ok =
+          protectedBlockId !== null && protectedIdLineOffset !== null
+            ? verifyBlockIdStaysInParagraph(candidateLines, startLine + protectedIdLineOffset, protectedBlockId)
+            : rawProtectedId !== null
+              ? blockIdKeptInParagraphWithin(
+                  candidateLines,
+                  startLine,
+                  startLine + newCompositeText.split("\n").length - 1,
+                  rawProtectedId
+                )
+              : true;
+        if (!ok) {
+          new Notice(
+            this.plugin.t("partialEdit.listParagraphBlockIdWouldMove", { id: protectedBlockId ?? rawProtectedId ?? "" })
+          );
+          return false;
+        }
+      }
+
       const outcome = applyCompositeBlockEdit(
         doc,
         this.compositeAnchor,
@@ -6228,7 +6371,16 @@ export class PartialEditView extends ItemView {
         // starts from a fully current basis. A raw-fallback session
         // (composedListLine/composedTrailingText both null) stays raw,
         // unaffected.
-        if (composedListLine !== null && composedTrailingText !== null) {
+        if (composedListParagraphLine !== null) {
+          // v1.0.4: rebuild the "List item + Paragraph" session from the
+          // just-written note when the composite still matches; otherwise
+          // the session ends exactly like any composite whose rule stopped
+          // matching (compositeAnchor is null — no further Apply).
+          const freshLines = editor.getValue().split("\n");
+          const lp = this.compositeAnchor ? buildListParagraphProjection(freshLines, this.compositeAnchor) : null;
+          this.installListParagraphProjection(lp && lp.ok ? lp.projection : null);
+          this.renderBlockIdRow();
+        } else if (composedListLine !== null && composedTrailingText !== null) {
           const kind = this.quoteProjection!.kind;
           const rebuilt = buildQuotePrefixProjection(composedTrailingText, kind);
           this.quoteProjection = rebuilt.ok ? rebuilt.projection : null;
@@ -6251,6 +6403,7 @@ export class PartialEditView extends ItemView {
           } else {
             this.listMarkerProjection = null;
             this.compositeListOriginalText = null;
+            this.listParagraphProjection = null;
           }
         }
         // Phase 5A-1 hardening §1: see the paragraph branch's identical
@@ -8260,7 +8413,7 @@ export class PartialEditView extends ItemView {
     }
 
     if (this.compositeAnchor) {
-      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      const rules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
       const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
       return { ok: extracted.ok, text: extracted.ok ? extracted.text : null, ambiguous: false };
     }
@@ -8445,7 +8598,7 @@ export class PartialEditView extends ItemView {
       };
     }
     if (this.compositeAnchor) {
-      const rules = getEnabledCompositeBlockRules(this.plugin.settings.compositeBlocks);
+      const rules = getEnabledTreeCompositeBlockRules(this.plugin.settings.compositeBlocks);
       const extracted = extractCompositeBlockText(doc, this.compositeAnchor, rules);
       // 2026-09-30 (image-ocr breadcrumb + Previous/Next): re-derived
       // from the same fresh `doc` on every clean-pane auto-reload; a
@@ -8468,9 +8621,15 @@ export class PartialEditView extends ItemView {
         // at initial load.
         this.quoteProjection = null;
         this.compositeListOriginalText = null;
+        this.listParagraphProjection = null;
         // Phase 5D-2C: reset alongside compositeListOriginalText above —
         // see this field's own doc comment.
         this.listMarkerProjection = null;
+        this.listParagraphProjection = null;
+        if (isListParagraphSnapshot(extracted.resolvedSnapshot)) {
+          const lp = buildListParagraphProjection(doc.lines, extracted.resolvedSnapshot);
+          if (lp.ok) this.installListParagraphProjection(lp.projection);
+        }
         const memberSplit = splitCompositeBlockMembers(doc.lines, extracted.resolvedSnapshot);
         if (memberSplit.ok) {
           const built = buildQuotePrefixProjection(

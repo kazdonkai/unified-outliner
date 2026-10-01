@@ -80,10 +80,11 @@ describe("OutlineTreeView.ts list prefix rendering (static source check, UXP-04)
     const listBranchStart = body.indexOf(startLandmark);
     expect(listBranchStart).toBeGreaterThan(-1);
 
-    // Similarly, this fuller landmark recurs 3 times within renderNode's
+    // Similarly, this fuller landmark recurs 2 times within renderNode's
     // own body (the composite-block LABEL-rendering branch targeted here,
-    // the desktop contextmenu chain's own composite branch, and the
-    // drag-wiring chain's composite branch, in that order) — searching
+    // and the desktop contextmenu chain's own composite branch, in that
+    // order; v1.0.4: the drag-wiring chain's branch is now gated by
+    // `isOperableComposite` instead) — searching
     // from listBranchStart onward and taking the nearest one is the
     // deliberate, correct choice (it is renderNode's own next sibling
     // branch immediately after the list branch). Asserted explicitly for
@@ -95,7 +96,7 @@ describe("OutlineTreeView.ts list prefix rendering (static source check, UXP-04)
         `composite-block label-rendering branch landmark ${JSON.stringify(endLandmark)} not found in renderNode() — has it been renamed, removed, or reordered? Update this test's bounding logic.`
       );
     }
-    expect(endOccurrences).toBe(3);
+    expect(endOccurrences).toBe(2);
     const compositeBranchStart = body.indexOf(endLandmark, listBranchStart);
     if (compositeBranchStart === -1) {
       throw new Error(

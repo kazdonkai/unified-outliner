@@ -33,6 +33,7 @@ import {
 } from "../model/block";
 import { ComplexBlockInfo, ComplexBlockKind } from "../model/complexBlock";
 import { complexBlockDepth } from "../parser/complexBlocks";
+import { readBlockIdWithinRange } from "../parser/blockIdInRange";
 import { MirrorNode } from "../mirror/mirrorTypes";
 import { mirrorTargetLabel, MirrorProjection, scanMirrorEmbeds } from "../mirror/scanMirrorEmbeds";
 import {
@@ -121,6 +122,16 @@ export interface OutlineTreeCompositeNode {
   label: string;
   /** Decorative symbol (e.g. "◉"); "" means no prefix — renderers must not emit an empty decorative element for that case. */
   prefix: string;
+  /**
+   * v1.0.4: false for a composite whose rule is tree-read-only
+   * (CompositeBlockRule.treeReadOnly — "List item + Paragraph"), and for a
+   * composite whose rule cannot be resolved; true for the operable rules
+   * (image-ocr / image-quote). view/OutlineTreeView.ts attaches the
+   * composite drag handle, drag & drop and the Move / Delete / Copy menu
+   * ONLY when this is true; a false row's menu offers "Open in Partial
+   * Edit" alone.
+   */
+  allowsStructuralOps: boolean;
   /** 0-based line of the FIRST member's own first line (jump target). */
   line: number;
   /** The composite's members, each projected via buildMemberNode below — never empty (a CompositeBlockInfo always has >= 2 members). */
@@ -702,6 +713,7 @@ export function complexMemberDisplayLabel(
   info: ComplexBlockInfo,
   t: Translator = defaultTranslator
 ): string {
+  if (info.kind === "paragraph") return paragraphMemberDisplayLabel(doc, info, t);
   const firstLine = doc.lines[info.range.startLine] ?? "";
   // A callout's own header line (`> [!type] title`) has already been fully
   // considered by the title check above — its remainder is either a real
@@ -742,6 +754,43 @@ export function complexMemberDisplayLabel(
  * place to redirect.
  */
 export const STANDALONE_CALLOUT_PREFIX = "▣ ";
+/**
+ * v1.0.4: prefix for a "List item + Paragraph" composite's paragraph member
+ * row — the same "¶" glyph view/OutlineTreeView.ts already draws in front
+ * of an ordinary paragraph row, so the paragraph reads as the same kind of
+ * thing whether shown on its own or inside the composite.
+ */
+export const PARAGRAPH_MEMBER_PREFIX = "¶ ";
+
+const LONE_BLOCK_ID_LINE_RE = /^\s*\^[A-Za-z0-9-]+\s*$/;
+
+/**
+ * v1.0.4: display label for a paragraph composite member — the first
+ * meaningful text of the paragraph. A line that holds only a block id
+ * (`^id`) is skipped, and the paragraph's own existing block id (inline
+ * ` ^id` on its last line — parser/blockIdInRange.ts) is removed from the
+ * text, so a label never shows the anchor itself. Falls back to the
+ * English "Paragraph" when no text remains. Truncated like a standalone
+ * complex-block label.
+ */
+export function paragraphMemberDisplayLabel(
+  doc: ParsedDocument,
+  info: ComplexBlockInfo,
+  t: Translator = defaultTranslator
+): string {
+  const ownId = readBlockIdWithinRange(doc.lines, info.range);
+  for (let l = info.range.startLine; l <= info.range.endLine; l++) {
+    let text = doc.lines[l] ?? "";
+    if (LONE_BLOCK_ID_LINE_RE.test(text)) continue;
+    if (l === info.range.endLine && ownId !== null) {
+      const suffix = new RegExp(`\\s\\^${ownId}\\s*$`);
+      text = text.replace(suffix, "");
+    }
+    text = text.trim();
+    if (text.length > 0) return truncateStandaloneLabel(text);
+  }
+  return t("tree.complexMember.paragraphFallback");
+}
 export const STANDALONE_BLOCKQUOTE_PREFIX = "❝ ";
 /**
  * Phase 5E-0 ("Fenced Code Block / Markdown Table 読み取り専用 Outline
@@ -1412,7 +1461,9 @@ function buildMemberNode(
       ? STANDALONE_CALLOUT_PREFIX
       : member.kind === "blockquote"
         ? STANDALONE_BLOCKQUOTE_PREFIX
-        : undefined;
+        : member.kind === "paragraph"
+          ? PARAGRAPH_MEMBER_PREFIX
+          : undefined;
   return {
     kind: "complex-member",
     id: member.id,
@@ -1461,6 +1512,7 @@ function buildCompositeNode(
     ruleId: composite.ruleId,
     label: rule ? compositeBlockDisplayLabel(rule, ctx.t) : composite.ruleId,
     prefix: rule?.prefix ?? "",
+    allowsStructuralOps: !!rule && rule.treeReadOnly !== true,
     line: composite.range.startLine,
     children: composite.members.map((m) =>
       buildMemberNode(doc, m, ctx, standaloneByParentId, listPrefixStyle, paragraphByParentId)
@@ -1764,6 +1816,7 @@ export function buildOutlineTree(
   // below — this set only needs to know "which ids are SPOKEN FOR", not
   // "which composites are RENDERABLE".
   const consumedComplexBlockIds = new Set<string>();
+  const compositeParagraphIds = new Set<string>();
   if (options?.composites) {
     for (const info of options.composites.infos) {
       for (const member of info.members) {
@@ -1780,6 +1833,14 @@ export function buildOutlineTree(
       if (!isCompositeSafelyProjectable(doc, info, complexBlocksById, rules)) continue;
       const first = info.members[0];
       firstMemberIdToComposite.set(first.id, info);
+      // v1.0.4: a projected composite's paragraph member is shown as the
+      // composite's own read-only member row — never ALSO as an ordinary
+      // paragraph row (e.g. under its list item). Only PROJECTED composites
+      // claim their paragraph: one that fails the safety check above leaves
+      // its paragraph to the ordinary paragraph projection.
+      for (const member of info.members) {
+        if (member.kind === "paragraph") compositeParagraphIds.add(member.id);
+      }
     }
     ctx = {
       firstMemberIdToComposite,
@@ -1822,7 +1883,7 @@ export function buildOutlineTree(
         options.paragraphs.blocks,
         buildParagraphOrdinals(options.paragraphs.blocks),
         t,
-        new Set(mirrorProjections.map((p) => p.paragraphBlockId))
+        new Set([...mirrorProjections.map((p) => p.paragraphBlockId), ...compositeParagraphIds])
       )
     : undefined;
   return buildChildren(

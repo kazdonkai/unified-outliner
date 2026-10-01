@@ -433,7 +433,7 @@ describe("buildOutlineTree (Phase 5D-0.3: CompositeBlock projection)", () => {
     expect(composite.ruleId).toBe("image-ocr");
     // Phase 5D-1L: generalized from "Image + OCR" — the label now names
     // the structure the rule matches, not one illustrative use case.
-    expect(composite.label).toBe("List + Callout");
+    expect(composite.label).toBe("Image + OCR");
     expect(composite.prefix).toBe("◉");
     expect(composite.line).toBe(0);
     expect(composite.children).toHaveLength(2);
@@ -894,6 +894,7 @@ describe("collectReadOnlyOutlineNodeIds (Phase 5D-0.3)", () => {
       ruleId: "image-ocr",
       label: "Image + OCR",
       prefix: "◉",
+      allowsStructuralOps: true,
       line: 1,
       children: [memberList],
     };
@@ -1656,6 +1657,7 @@ describe("collectCompositeGroupInfo (UI-only follow-up, 2026-09-08: Outline Tree
       ruleId: "image-ocr",
       label: "test",
       prefix: "",
+      allowsStructuralOps: true,
       line: 1,
       children: [memberList],
     };
@@ -1676,6 +1678,7 @@ describe("collectCompositeGroupInfo (UI-only follow-up, 2026-09-08: Outline Tree
       ruleId: "image-ocr",
       label: "test",
       prefix: "",
+      allowsStructuralOps: true,
       line: 3,
       children: [
         { kind: "list", id: "li-composite-first", text: "img", prefix: null, indentDepth: 2, line: 3, children: [] },
