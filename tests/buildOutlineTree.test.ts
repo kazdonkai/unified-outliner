@@ -433,7 +433,7 @@ describe("buildOutlineTree (Phase 5D-0.3: CompositeBlock projection)", () => {
     expect(composite.ruleId).toBe("image-ocr");
     // Phase 5D-1L: generalized from "Image + OCR" — the label now names
     // the structure the rule matches, not one illustrative use case.
-    expect(composite.label).toBe("Image + OCR");
+    expect(composite.label).toBe("List + Callout");
     expect(composite.prefix).toBe("◉");
     expect(composite.line).toBe(0);
     expect(composite.children).toHaveLength(2);

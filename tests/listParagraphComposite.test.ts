@@ -215,8 +215,8 @@ describe("list-paragraph: rule definition and settings", () => {
 
   it("all three rule names are English in both UI languages (Tree label and Settings name)", () => {
     const expected: Record<string, string> = {
-      "image-ocr": "Image + OCR",
-      "image-quote": "Image + Quote",
+      "image-ocr": "List + Callout",
+      "image-quote": "List + Quote",
       "list-paragraph": "List item + Paragraph",
     };
     for (const locale of ["en", "ja"] as const) {
@@ -224,8 +224,8 @@ describe("list-paragraph: rule definition and settings", () => {
       for (const rule of BUILTIN_COMPOSITE_BLOCK_RULES) {
         expect(compositeBlockDisplayLabel(rule, t)).toBe(expected[rule.id]);
       }
-      expect(t("settings.compositeBlockImageOcr.name")).toBe("Image + OCR");
-      expect(t("settings.compositeBlockImageQuote.name")).toBe("Image + Quote");
+      expect(t("settings.compositeBlockImageOcr.name")).toBe("List + Callout");
+      expect(t("settings.compositeBlockImageQuote.name")).toBe("List + Quote");
       expect(t("settings.compositeBlockListParagraph.name")).toBe("List item + Paragraph");
     }
   });
