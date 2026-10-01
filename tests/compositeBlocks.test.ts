@@ -223,8 +223,8 @@ describe("compositeBlockDisplayLabel / getCompositeBlockRuleById", () => {
     // structural label "List + Callout" — deliberately the SAME English
     // string in both locales (no Japanese translation), per this ticket's
     // explicit approval.
-    expect(compositeBlockDisplayLabel(rule, createTranslator("en"))).toBe("Image + OCR");
-    expect(compositeBlockDisplayLabel(rule, createTranslator("ja"))).toBe("Image + OCR");
+    expect(compositeBlockDisplayLabel(rule, createTranslator("en"))).toBe("List + Callout");
+    expect(compositeBlockDisplayLabel(rule, createTranslator("ja"))).toBe("List + Callout");
   });
 
   it("a customLabel always wins over the built-in i18n lookup, in every locale", () => {

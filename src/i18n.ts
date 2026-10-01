@@ -184,9 +184,9 @@ const en = {
   // en/ja deliberately share the identical English string — see
   // compositeBlock.imageOcr.displayName's own doc comment below for why.
   // v1.0.4: rule names are English in every UI language (the composite
-  // rule names "Image + OCR" / "Image + Quote" / "List item + Paragraph" —
+  // rule names "List + Callout" / "List + Quote" / "List item + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
   // the Tree composite row label and the Settings toggle name share them).
-  "settings.compositeBlockImageOcr.name": "Image + OCR",
+  "settings.compositeBlockImageOcr.name": "List + Callout",
   // 2026-09-09 (Settings タブ i18n リソース改善): adds a concrete,
   // illustrative use case back into the description. This is a deliberate
   // reversal of Phase 5D-1L's own removal of the "image + its OCR
@@ -199,7 +199,7 @@ const en = {
   // (see model/compositeBlock.ts's DEFAULT_COMPOSITE_BLOCK_RULES).
   "settings.compositeBlockImageOcr.desc":
     "Groups a single-line list item followed immediately by a callout without empty lines. (e.g. embedding an image/PDF in the list item and writing OCR text/notes in the callout)",
-  "settings.compositeBlockImageQuote.name": "Image + Quote",
+  "settings.compositeBlockImageQuote.name": "List + Quote",
   // 2026-09-09: same rationale as compositeBlockImageOcr.desc above.
   "settings.compositeBlockImageQuote.desc":
     "Groups a single-line list item followed immediately by a blockquote without empty lines. (e.g. writing source/citation in the list item and quoted text in the blockquote)",
@@ -213,8 +213,8 @@ const en = {
   // internal identifiers, not renamed by this ticket). The ja dictionary
   // deliberately keeps the same English string here (not a Japanese
   // translation) per this ticket's explicit approval.
-  "compositeBlock.imageOcr.displayName": "Image + OCR",
-  "compositeBlock.imageQuote.displayName": "Image + Quote",
+  "compositeBlock.imageOcr.displayName": "List + Callout",
+  "compositeBlock.imageQuote.displayName": "List + Quote",
   // v1.0.4: recognition-only rule (model/compositeBlock.ts's
   // STRUCTURAL_COMPOSITE_BLOCK_RULES) — never shown as an Outline Tree row.
   "compositeBlock.listParagraph.displayName": "List item + Paragraph",
@@ -1599,9 +1599,9 @@ const ja: Record<TranslationKey, string> = {
   // en辞書と同一の英語文字列 "List + Callout" / "List + Quote" を採用
   // （ユーザー承認済み）。
   // v1.0.4: rule names are English in every UI language (the composite
-  // rule names "Image + OCR" / "Image + Quote" / "List item + Paragraph" —
+  // rule names "List + Callout" / "List + Quote" / "List item + Paragraph" (1.0.5: back to the structural "List + …" names of Phase 5D-1L; 1.0.4 had shown "Image + …" by mistake) —
   // the Tree composite row label and the Settings toggle name share them).
-  "settings.compositeBlockImageOcr.name": "Image + OCR",
+  "settings.compositeBlockImageOcr.name": "List + Callout",
   // 2026-09-09（Settings タブ i18n リソース改善）: 具体的な利用シーン
   // （ユースケース）の例示を説明文に追加した。これは Phase 5D-1L が
   // 「画像 + その OCR 転記」という例示を意図的に除去した判断（上記
@@ -1617,12 +1617,12 @@ const ja: Record<TranslationKey, string> = {
   // を図るため、続報の指示によりである調（表示する。）へ変更した。
   "settings.compositeBlockImageOcr.desc":
     "1行で完結するリスト項目の直後に空行を挟まずコールアウトが続く場合にまとめて表示する。（例: リスト行に画像やPDFを埋め込み、コールアウトにOCRテキストや解説を記入する場合など）",
-  "settings.compositeBlockImageQuote.name": "Image + Quote",
+  "settings.compositeBlockImageQuote.name": "List + Quote",
   // 2026-09-09: 上記 compositeBlockImageOcr.desc と同様の理由による変更。
   "settings.compositeBlockImageQuote.desc":
     "1行で完結するリスト項目の直後に空行を挟まず引用（blockquote）が続く場合にまとめて表示する。（例: リスト行に出典・書誌情報を記入し、引用ブロックに引用本文を記入する場合など）",
-  "compositeBlock.imageOcr.displayName": "Image + OCR",
-  "compositeBlock.imageQuote.displayName": "Image + Quote",
+  "compositeBlock.imageOcr.displayName": "List + Callout",
+  "compositeBlock.imageQuote.displayName": "List + Quote",
   "compositeBlock.listParagraph.displayName": "List item + Paragraph",
   "settings.compositeBlockListParagraph.name": "List item + Paragraph",
   "settings.compositeBlockListParagraph.desc":

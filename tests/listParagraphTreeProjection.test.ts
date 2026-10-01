@@ -92,8 +92,8 @@ describe("Outline Tree: List item + Paragraph composite row", () => {
     const b = build(t);
     expect(b.tree).toEqual(a.tree);
     expect(composites(b.flat).map((c) => [c.ruleId, c.label, c.prefix, c.allowsStructuralOps])).toEqual([
-      ["image-ocr", "Image + OCR", "◉", true],
-      ["image-quote", "Image + Quote", "❖", true],
+      ["image-ocr", "List + Callout", "◉", true],
+      ["image-quote", "List + Quote", "❖", true],
     ]);
   });
 });
