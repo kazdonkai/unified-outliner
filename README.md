@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, copy, inspect, and focus on heading sections, list subtrees, and body blocks through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block. Same-note embeds of a heading or block (`![[#Heading]]`, `![[#^block-id]]`) can also be created and managed from the tree as *mirrors*.
 
-**Current version:** 1.0.3 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
+**Current version:** 1.0.6 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -352,6 +352,7 @@ Structural changes alter Markdown text. Keep normal vault backups and review an 
 
 - Unified Outliner works within the active note only. It does not move or copy content between notes, and Paste works only in the note a block was copied from.
 - Frontmatter is excluded from all structural operations.
+- A **List + Paragraph** extended block (a single-line list item and its indented paragraph) is read-only in the Outline Tree — it cannot be moved, dragged, deleted, or renamed as a unit — and is edited only in the Partial Edit Pane, which always writes the paragraph's block ID back at the end of the paragraph and never creates one automatically.
 - A standalone callout or blockquote, and an extended block (**List + Callout**/**List + Quote**), can be moved, deleted, dragged and dropped (including across sections), and opened in the Partial Edit Pane directly from the Outline Tree View (see Visual guide and "Edit a focused subtree" above); an extended block's two members are edited together and saved in one Apply whenever their structure allows a clean split. A standalone fenced code block (including Mermaid) or Markdown table can be optionally shown in the Outline Tree as a read-only row, and from there moved up/down (same section only), deleted as one unit, dragged and dropped (including across sections), and opened in the Partial Edit Pane — a fenced code block's fence lines are hidden from the editable text, with a separate language selector above it; a table opens with Raw and Table tabs, the latter offering direct cell/row/column editing (Apply rejects an edit that breaks the table's structure, leaving the note unchanged). **Move block** can still move either kind as a whole when the cursor is inside it in the body editor, regardless of the Outline Tree setting.
 - Editing a parent list item's direct children from the Partial Edit Pane (add, delete, reorder, inline edit, indent/outdent) is limited to leaf children — one with grandchildren of its own must be opened as its own target — and to one level of indent/outdent at a time; see "Editing a parent item and its direct children" above for exactly what can combine in a single Apply.
 - Copy, Duplicate, and Paste only ever insert lines: no existing line — the original included — is rewritten, and ordered lists are not renumbered. A paste whose source has changed since it was copied, or whose position would land inside the source, an extended block, frontmatter, a code block, or a callout, is refused.

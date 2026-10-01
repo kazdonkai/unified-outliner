@@ -4,6 +4,10 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Documentation
+
+- README / README.ja: "Current version" updated from 1.0.3 to 1.0.6 (it had not been bumped in 1.0.4–1.0.6), and the "Safe use" boundaries now describe the read-only List + Paragraph extended block. ROADMAP / ROADMAP.ja: the current release is 1.0.6, with a "Since 1.0.0 (1.0.1–1.0.6)" summary.
+
 ## [1.0.6] - 2026-10-01
 
 ### Changed
