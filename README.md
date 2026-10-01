@@ -135,7 +135,7 @@ Place the cursor on a heading or list item, then use the Command Palette or assi
 | **Delete block** | Deletes the current heading section or list subtree. |
 | **Insert sibling after current block** | Inserts a new, empty heading section or list item after the current one. |
 | **Insert child list item** | Inserts a new, empty list item as a child of the current one. |
-| **Move extended block up / down** | Moves an **Image + OCR** or **Image + Quote** group (see Settings → Extended blocks) as one unit, when the cursor is inside it. |
+| **Move extended block up / down** | Moves a **List + Callout** or **List + Quote** group (see Settings → Extended blocks) as one unit, when the cursor is inside it. |
 
 The same actions are available from a node's context menu in Outline Tree View. Unavailable operations make no change. Enable **Show no-op notices** in the plugin settings to see the reason. A block that Move block / Move section just moved is briefly flash-highlighted in the tree, and, if enabled, a short notice names what moved.
 
@@ -164,7 +164,7 @@ Enable **Show body paragraphs in Outline Tree View** in the plugin settings to d
 
 A standalone callout or blockquote — one not grouped into an extended block below — appears in the tree as its own node, with a context menu offering **Move up/down**, **Delete**, and **Open in Partial Edit** (including a popout option), the same focused-editing experience available for sections and list subtrees. It can also be dragged and dropped to reorder it, including across section boundaries, on both desktop and mobile.
 
-**Image + OCR** and **Image + Quote** are two Outline Tree grouping rules (see Settings → Extended blocks). They group a single-line list item that is immediately followed, with no blank line, by a callout or blockquote, into one collapsible unit in the tree. These rules are structural — they do not require an image embed, OCR content, or any particular callout type. **Move extended block up/down** (Command Palette or the tree's context menu) moves the whole group together, and **Delete extended block** removes it as a unit. Opening an extended block's own row in the Partial Edit Pane edits its list member and its trailing callout/blockquote member together, in one Apply, whenever the block's shape allows a clean split (see "Structured, marker-free editing" below); disabling a grouping rule does not change the Markdown — the affected list item, callout, and blockquote are simply shown individually again, following their own normal Outline Tree display rules.
+**List + Callout** and **List + Quote** are two Outline Tree grouping rules (see Settings → Extended blocks). They group a single-line list item that is immediately followed, with no blank line, by a callout or blockquote, into one collapsible unit in the tree. These rules are structural — they do not require an image embed, OCR content, or any particular callout type. **Move extended block up/down** (Command Palette or the tree's context menu) moves the whole group together, and **Delete extended block** removes it as a unit. Opening an extended block's own row in the Partial Edit Pane edits its list member and its trailing callout/blockquote member together, in one Apply, whenever the block's shape allows a clean split (see "Structured, marker-free editing" below); disabling a grouping rule does not change the Markdown — the affected list item, callout, and blockquote are simply shown individually again, following their own normal Outline Tree display rules.
 
 **List item + Paragraph** is a third grouping rule. It groups a single-line list item that is immediately followed, with no blank line, by a paragraph indented to the item's own text (so that the paragraph belongs to that list item) — only when that paragraph is the item's only content. In the tree it appears as a `≡ List item + Paragraph` row holding the list item and a `¶` paragraph row; any block ID written at the end of the paragraph is not shown in the row. This group is **read-only in the tree**: it has no drag handle, cannot be renamed, moved, dragged, or deleted as a unit, and its right-click / long-press menu offers only **Open in Partial Edit**. In the Partial Edit Pane, the list item's text (marker hidden), the paragraph body, and the paragraph's existing block ID (read-only) are shown in that order; Apply keeps the paragraph's indentation and writes the block ID back at the end of the paragraph, in its original form — it is never moved to the list item, and no block ID is ever created. An edit that would push the block ID out of the paragraph is refused. If an edit breaks the grouping conditions (for example, a blank line), the Markdown is saved as typed and the group is simply no longer shown.
 
@@ -181,7 +181,7 @@ For example, this Markdown:
 is shown in the tree as:
 
 ```text
-◉ Image + OCR
+◉ List + Callout
   - Note on the source image
   ▣ Transcription note
 ```
@@ -196,7 +196,7 @@ And this Markdown:
 is shown in the tree as:
 
 ```text
-❖ Image + Quote
+❖ List + Quote
   - Quotation from the source text
   The boundary has stood at this point since ancient times.
 ```
@@ -258,7 +258,7 @@ For a paragraph, callout, blockquote, fenced code block, or table that has a blo
 
 An ancestor breadcrumb and a Subtree Navigator let you move up to a parent block or into a child block without leaving the pane. The pane can also be popped out into its own window from a node's context menu, and it asks for confirmation before navigating away from unsaved changes.
 
-An **Image + OCR** extended block opened in the pane also shows its ancestor breadcrumb and **Previous** / **Next** buttons that step through the note's Image + OCR blocks in document order, each opened as a whole extended block (Image + Quote blocks are not included). When you navigate from inside the pane — parent, child, sibling, breadcrumb, or Previous/Next — the body editor also moves to the same place, the same way clicking an Outline Tree row does; turn this off with **Follow Partial Edit Pane navigation in the editor**.
+A **List + Callout** extended block opened in the pane also shows its ancestor breadcrumb and **Previous** / **Next** buttons that step through the note's List + Callout blocks in document order, each opened as a whole extended block (List + Quote blocks are not included). When you navigate from inside the pane — parent, child, sibling, breadcrumb, or Previous/Next — the body editor also moves to the same place, the same way clicking an Outline Tree row does; turn this off with **Follow Partial Edit Pane navigation in the editor**.
 
 #### Structured, marker-free editing for list items
 
@@ -329,7 +329,7 @@ Open **Settings → Community plugins → Unified Outliner** to configure. The *
   Any node with something to fold gets a toggle — including a heading whose body is only text, a table or a code block, with no sub-heading under it. A heading with an empty body does not.
 - **Show no-op notices**: explains why an unavailable operation made no change.
 
-Settings are organized into two tabs, **General** (grouped above by category) and **Extended blocks** — the latter enables or disables the plugin's built-in **Image + OCR**, **Image + Quote**, and **List item + Paragraph** grouping rules (see "Work with callouts, blockquotes, and extended blocks" above); rule names are shown in English in every interface language. Turning a rule off only stops that grouping display; the underlying Markdown, and the list item and callout/blockquote/paragraph it contains, are never changed.
+Settings are organized into two tabs, **General** (grouped above by category) and **Extended blocks** — the latter enables or disables the plugin's built-in **List + Callout**, **List + Quote**, and **List item + Paragraph** grouping rules (see "Work with callouts, blockquotes, and extended blocks" above); rule names are shown in English in every interface language. Turning a rule off only stops that grouping display; the underlying Markdown, and the list item and callout/blockquote/paragraph it contains, are never changed.
 
 ### Customizing appearance with Style Settings
 
@@ -348,7 +348,7 @@ Structural changes alter Markdown text. Keep normal vault backups and review an 
 
 - Unified Outliner works within the active note only. It does not move or copy content between notes, and Paste works only in the note a block was copied from.
 - Frontmatter is excluded from all structural operations.
-- A standalone callout or blockquote, and an extended block (**Image + OCR**/**Image + Quote**), can be moved, deleted, dragged and dropped (including across sections), and opened in the Partial Edit Pane directly from the Outline Tree View (see Visual guide and "Edit a focused subtree" above); an extended block's two members are edited together and saved in one Apply whenever their structure allows a clean split. A standalone fenced code block (including Mermaid) or Markdown table can be optionally shown in the Outline Tree as a read-only row, and from there moved up/down (same section only), deleted as one unit, dragged and dropped (including across sections), and opened in the Partial Edit Pane — a fenced code block's fence lines are hidden from the editable text, with a separate language selector above it; a table opens with Raw and Table tabs, the latter offering direct cell/row/column editing (Apply rejects an edit that breaks the table's structure, leaving the note unchanged). **Move block** can still move either kind as a whole when the cursor is inside it in the body editor, regardless of the Outline Tree setting.
+- A standalone callout or blockquote, and an extended block (**List + Callout**/**List + Quote**), can be moved, deleted, dragged and dropped (including across sections), and opened in the Partial Edit Pane directly from the Outline Tree View (see Visual guide and "Edit a focused subtree" above); an extended block's two members are edited together and saved in one Apply whenever their structure allows a clean split. A standalone fenced code block (including Mermaid) or Markdown table can be optionally shown in the Outline Tree as a read-only row, and from there moved up/down (same section only), deleted as one unit, dragged and dropped (including across sections), and opened in the Partial Edit Pane — a fenced code block's fence lines are hidden from the editable text, with a separate language selector above it; a table opens with Raw and Table tabs, the latter offering direct cell/row/column editing (Apply rejects an edit that breaks the table's structure, leaving the note unchanged). **Move block** can still move either kind as a whole when the cursor is inside it in the body editor, regardless of the Outline Tree setting.
 - Editing a parent list item's direct children from the Partial Edit Pane (add, delete, reorder, inline edit, indent/outdent) is limited to leaf children — one with grandchildren of its own must be opened as its own target — and to one level of indent/outdent at a time; see "Editing a parent item and its direct children" above for exactly what can combine in a single Apply.
 - Copy, Duplicate, and Paste only ever insert lines: no existing line — the original included — is rewritten, and ordered lists are not renumbered. A paste whose source has changed since it was copied, or whose position would land inside the source, an extended block, frontmatter, a code block, or a callout, is refused.
 - Mirrors are plain Obsidian embeds of headings and blocks in the same note; no separate database is kept. Creating a mirror adds at most a block id (`^uo-…`) to the referenced block and the embed line itself, and is refused if it would create a circular reference. Deleting a mirror removes only its embed line (and the extra blank lines around it) — the referenced heading or block and its block id are never changed. Mirror rows are otherwise read-only: they cannot be renamed, dragged, copied, or edited through.

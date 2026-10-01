@@ -4,6 +4,12 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-10-01
+
+### Fixed
+
+- The extended-block rule names went back to the structural names chosen when the rules were generalized (they never require an image): **List + Callout** (`image-ocr`) and **List + Quote** (`image-quote`), in Settings, the Outline Tree and the Partial Edit Pane, in every interface language. 1.0.4 had shown them as "Image + OCR" / "Image + Quote" by mistake. **List item + Paragraph** is unchanged. UI names only — rule ids, setting keys and behavior are unchanged. Because fold identity is label-based, a List + Callout / List + Quote row collapsed under 1.0.4 shows expanded once after updating.
+
 ## [1.0.4] - 2026-10-01
 
 ### Added
