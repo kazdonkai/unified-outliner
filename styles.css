@@ -1252,11 +1252,24 @@ settings:
   width: 16px;
   height: 16px;
   color: var(--text-faint);
-  cursor: ns-resize;
+  /* 1.0.7: resizes height and width, like a native `resize: both` textarea
+   * — same diagonal resize cursor. */
+  cursor: nwse-resize;
   touch-action: none;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* A box whose width was set with its grip keeps that width (the list input
+ * stops growing to fill its row) but never overflows its container. */
+.unified-outliner-partial-edit-composite-list-input.unified-outliner-resize-user-width {
+  flex: 0 1 auto;
+}
+
+.unified-outliner-partial-edit-composite-list-input.unified-outliner-resize-user-width,
+.unified-outliner-partial-edit-textarea.unified-outliner-resize-user-width {
+  max-width: 100%;
 }
 
 .unified-outliner-partial-edit-resize-grip:hover {

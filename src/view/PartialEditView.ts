@@ -145,6 +145,8 @@ import {
   setTooltip,
 } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
+import { drawResizeGripMarker } from "./resizeGripMarker";
+import { resizeGripNextSize, resizeGripOffset } from "./resizeGripSizing";
 import { mirrorReferencesForTarget, nextMirrorJumpIndex, PartialEditMirrorTarget } from "../mirror/mirrorOps";
 import { parseDocument } from "../parser/parseDocument";
 import {
@@ -1691,9 +1693,16 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-resize-grip",
       attr: { "aria-hidden": "true" },
     });
-    attachResizeGrip(this.compositeListGripEl, this.compositeListInputEl, () => {
-      this.compositeListUserSized = true;
-    });
+    this.register(
+      attachResizeGrip(
+        this.compositeListGripEl,
+        this.compositeListInputEl,
+        () => {
+          this.compositeListUserSized = true;
+        },
+        COMPOSITE_LIST_GRIP_PLACEMENT
+      )
+    );
     // Same dirty-tracking policy as quoteTitleInputEl/textareaEl's own
     // listeners further below — every keystroke here must also re-check
     // isDirty(), since isDirty() now considers this input too (see
@@ -1953,12 +1962,19 @@ export class PartialEditView extends ItemView {
       attr: { "aria-hidden": "true" },
     });
     this.textareaGripEl.toggleVisibility(false);
-    attachResizeGrip(this.textareaGripEl, this.textareaEl, () => {
-      this.textareaUserSized = true;
-      // A section / list subtree editor fills the pane until it is dragged;
-      // from then on it keeps the dragged height (fit class = no flex-grow).
-      this.textareaEl.addClass("unified-outliner-partial-edit-textarea-fit");
-    });
+    this.register(
+      attachResizeGrip(
+        this.textareaGripEl,
+        this.textareaEl,
+        () => {
+          this.textareaUserSized = true;
+          // A section / list subtree editor fills the pane until it is dragged;
+          // from then on it keeps the dragged height (fit class = no flex-grow).
+          this.textareaEl.addClass("unified-outliner-partial-edit-textarea-fit");
+        },
+        BODY_TEXTAREA_GRIP_PLACEMENT
+      )
+    );
 
     // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
     // Mode B"): the "add a first child" row for a STANDALONE leaf item —
@@ -5145,6 +5161,11 @@ export class PartialEditView extends ItemView {
     const keepUserHeight = this.nodeKind !== null && this.textareaUserSized;
     this.textareaEl.toggleClass("unified-outliner-partial-edit-textarea-fit", bodyFit || keepUserHeight);
     this.textareaGripEl.toggleVisibility(this.nodeKind !== null);
+    // A newly loaded block (user-sized flags reset) starts at the full width again.
+    if (!this.textareaUserSized) clearResizeGripWidth(this.textareaGripEl, this.textareaEl, BODY_TEXTAREA_GRIP_PLACEMENT);
+    if (!composite || !this.compositeListUserSized) {
+      clearResizeGripWidth(this.compositeListGripEl, this.compositeListInputEl, COMPOSITE_LIST_GRIP_PLACEMENT);
+    }
     if (!composite) this.compositeListInputEl.style.removeProperty("height");
     if (!bodyFit) {
       if (!keepUserHeight) this.textareaEl.style.removeProperty("height");
@@ -9154,20 +9175,81 @@ function fitTextareaToContent(el: HTMLTextAreaElement, minLines: number, spareLi
   el.setCssProps({ height: `${px}px` });
 }
 
+/** The inner (content-box) right edge of `el` in viewport coordinates (padding, border and scrollbar excluded). */
+function innerRight(el: HTMLElement): number {
+  const rect = el.getBoundingClientRect();
+  const padding = parseFloat(el.win.getComputedStyle(el).paddingRight) || 0;
+  return rect.left + el.clientLeft + el.clientWidth - padding;
+}
+
+/** Grip placement of the list row input (absolute, `right: 2px` in styles.css) and of the body textarea (in flow, `margin-right: 3px`). */
+const COMPOSITE_LIST_GRIP_PLACEMENT: ResizeGripPlacement = { prop: "right", base: 2 };
+const BODY_TEXTAREA_GRIP_PLACEMENT: ResizeGripPlacement = { prop: "margin-right", base: 3 };
+
+/** Class on an edit box whose width the user has set with its grip (it then stops filling its row). */
+const USER_WIDTH_CLASS = "unified-outliner-resize-user-width";
+
+/** How the grip is kept on its box's bottom-right corner once the box is narrower than its container. */
+interface ResizeGripPlacement {
+  /** The grip's CSS property measured from the container's right edge ("margin-right" in flow, "right" when absolute). */
+  prop: "margin-right" | "right";
+  /** That property's value while the box fills its container (the stylesheet's own value). */
+  base: number;
+}
+
+/** Puts the grip back on its box's corner (or back to the stylesheet's place when the box has no user width). */
+function placeResizeGrip(grip: HTMLElement, target: HTMLTextAreaElement, placement: ResizeGripPlacement): void {
+  const container = target.parentElement;
+  if (!target.hasClass(USER_WIDTH_CLASS) || !container || target.offsetParent === null) {
+    grip.style.removeProperty(placement.prop);
+    return;
+  }
+  const offset = resizeGripOffset(placement.base, innerRight(container), target.getBoundingClientRect().right);
+  grip.setCssProps({ [placement.prop]: `${offset}px` });
+}
+
+/** Drops a user-set width (a newly loaded block starts at the container's full width again). */
+function clearResizeGripWidth(grip: HTMLElement, target: HTMLTextAreaElement, placement: ResizeGripPlacement): void {
+  target.removeClass(USER_WIDTH_CLASS);
+  target.style.removeProperty("width");
+  grip.style.removeProperty(placement.prop);
+}
+
 /**
- * 1.0.6: a bottom-right drag grip that resizes `target`'s height (pointer
- * events, so mouse, pen and touch — iPad included, where the native
- * textarea resize handle is not available). Calls `onResized` once a drag
- * actually starts so the caller stops auto-fitting.
+ * 1.0.6: a bottom-right drag grip that resizes `target` (pointer events, so
+ * mouse, pen and touch — iPad included, where the native textarea resize
+ * handle is not available). Calls `onResized` once a drag actually starts
+ * so the caller stops auto-fitting.
+ *
+ * 1.0.7: it resizes both height and width, like a native `resize: both`
+ * textarea (diagonal resize cursor in
+ * styles.css); see view/resizeGripSizing.ts for the rules. Returns a
+ * disposer for the observer that keeps the grip on the box's corner while
+ * the pane is resized.
  */
-function attachResizeGrip(grip: HTMLElement, target: HTMLTextAreaElement, onResized: () => void): void {
-  setIcon(grip, "move-diagonal-2");
+function attachResizeGrip(
+  grip: HTMLElement,
+  target: HTMLTextAreaElement,
+  onResized: () => void,
+  placement: ResizeGripPlacement
+): () => void {
+  // two parallel diagonal strokes (view/resizeGripMarker.ts)
+  drawResizeGripMarker(grip);
+  const place = (): void => placeResizeGrip(grip, target, placement);
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => place());
+  observer?.observe(target);
+  if (target.parentElement) observer?.observe(target.parentElement);
   grip.addEventListener("pointerdown", (evt: PointerEvent) => {
     if (target.disabled) return;
     evt.preventDefault();
     evt.stopPropagation();
+    const startX = evt.clientX;
     const startY = evt.clientY;
-    const startHeight = target.getBoundingClientRect().height;
+    const rect = target.getBoundingClientRect();
+    const container = target.parentElement;
+    const room = container ? Math.max(0, innerRight(container) - rect.right) : 0;
+    const start = { width: rect.width, height: rect.height, maxWidth: rect.width + room };
+    let widthEngaged = false;
     try {
       grip.setPointerCapture(evt.pointerId);
     } catch {
@@ -9176,8 +9258,14 @@ function attachResizeGrip(grip: HTMLElement, target: HTMLTextAreaElement, onResi
     }
     onResized();
     const move = (e: PointerEvent): void => {
-      const next = Math.max(28, startHeight + (e.clientY - startY));
-      target.setCssProps({ height: `${Math.round(next)}px` });
+      const next = resizeGripNextSize(start, e.clientX - startX, e.clientY - startY, widthEngaged);
+      target.setCssProps({ height: `${next.height}px` });
+      if (next.width !== null) {
+        widthEngaged = true;
+        target.addClass(USER_WIDTH_CLASS);
+        target.setCssProps({ width: `${next.width}px` });
+        place();
+      }
     };
     const end = (e: PointerEvent): void => {
       if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
@@ -9189,4 +9277,5 @@ function attachResizeGrip(grip: HTMLElement, target: HTMLTextAreaElement, onResi
     grip.addEventListener("pointerup", end);
     grip.addEventListener("pointercancel", end);
   });
+  return () => observer?.disconnect();
 }

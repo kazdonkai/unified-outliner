@@ -50,7 +50,7 @@ describe("fit-to-text sizing", () => {
 
   it("sections and list subtrees also get the grip; dragging it switches them to the dragged height", () => {
     expect(paneTs).toContain(
-      'this.textareaUserSized = true;\n      // A section / list subtree editor fills the pane until it is dragged;\n      // from then on it keeps the dragged height (fit class = no flex-grow).\n      this.textareaEl.addClass("unified-outliner-partial-edit-textarea-fit");'
+      'this.textareaUserSized = true;\n          // A section / list subtree editor fills the pane until it is dragged;\n          // from then on it keeps the dragged height (fit class = no flex-grow).\n          this.textareaEl.addClass("unified-outliner-partial-edit-textarea-fit");'
     );
     expect(body("  private renderCompositeEditorSizing(): void {")).toContain(
       "const keepUserHeight = this.nodeKind !== null && this.textareaUserSized;"
@@ -88,8 +88,12 @@ describe("fit-to-text sizing", () => {
 
 describe("resize grips", () => {
   it("both editors get a grip; dragging marks the editor as user-sized", () => {
-    expect(paneTs).toContain("attachResizeGrip(this.compositeListGripEl, this.compositeListInputEl, () => {\n      this.compositeListUserSized = true;");
-    expect(paneTs).toContain("attachResizeGrip(this.textareaGripEl, this.textareaEl, () => {\n      this.textareaUserSized = true;");
+    expect(paneTs).toContain(
+      "attachResizeGrip(\n        this.compositeListGripEl,\n        this.compositeListInputEl,\n        () => {\n          this.compositeListUserSized = true;"
+    );
+    expect(paneTs).toContain("attachResizeGrip(\n        this.textareaGripEl,\n        this.textareaEl,\n        () => {\n          this.textareaUserSized = true;");
+    // the observers that keep each grip on its box's corner are released with the view
+    expect(paneTs.match(/this\.register\(\n\s+attachResizeGrip\(/g)).toHaveLength(2);
     expect(body("  private renderCompositeEditorSizing(): void {")).toContain("this.textareaGripEl.toggleVisibility(this.nodeKind !== null);");
   });
 
