@@ -4,9 +4,19 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-10-16
+
+### Changed
+
+- Partial Edit Pane: the resize grip at the bottom-right corner of every editor (the body editor of any block and the list row of an extended block such as List + Paragraph) now behaves like a native resizable text box — hovering shows a diagonal double-arrow cursor, and dragging changes both the width and the height (it used to change the height only).
+- A purely vertical drag keeps the editor at the full pane width; the width follows only after a horizontal move of 4px or more. The width never exceeds the pane (minimum 120px); the minimum height is still 28px. Opening another block resets the width to the full pane width.
+- The grip stays attached to the editor's bottom-right corner when the width is reduced, and when the pane itself is resized.
+- The grip is drawn as two short parallel diagonal strokes (was a diagonal arrow icon). Its 16px size and touch operation on iPad are unchanged.
+
 ### Documentation
 
 - README / README.ja: "Current version" updated from 1.0.3 to 1.0.6 (it had not been bumped in 1.0.4–1.0.6), and the "Safe use" boundaries now describe the read-only List + Paragraph extended block. ROADMAP / ROADMAP.ja: the current release is 1.0.6, with a "Since 1.0.0 (1.0.1–1.0.6)" summary.
+- README / README.ja / ROADMAP / ROADMAP.ja: current version 1.0.7; the editor grip description covers width resizing.
 
 ## [1.0.6] - 2026-10-01
 
