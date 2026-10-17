@@ -4,6 +4,19 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-10-17
+
+### Fixed
+
+- Outline Tree: the first click on the tree while another pane (such as the editor) has focus is no longer lost — clicking a row selects it and jumps to it, and clicking a collapse arrow folds or unfolds it, on the first click (it used to take a second click). Giving the tree focus no longer rebuilds the whole tree; only the selected row's highlight is updated in place. ([#4](https://github.com/kazdonkai/unified-outliner/issues/4))
+- Outline Tree: a tree refresh (after an edit, a note switch, or a cursor move) that becomes due while a mouse button or finger is still pressed on the tree now waits until the press ends, so a slow click or a long press on a row is no longer lost either. Drag & drop, inline rename, and the mobile long-press menu are unchanged.
+
+### Documentation
+
+- README / README.ja / ROADMAP / ROADMAP.ja: current version 1.0.8.
+
+See `docs/issue4_tree_first_click_manual_acceptance_test.md`.
+
 ## [1.0.7] - 2026-10-16
 
 ### Changed
