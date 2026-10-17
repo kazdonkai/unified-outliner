@@ -329,6 +329,8 @@ import {
   isEligibleRowBodyPointerDown,
   RowPointerDownRecord,
 } from "./rowDoubleClickDetector";
+import { TREE_ROW_SELECTED_CLASSES, syncTreeSelectionDom, treeRowDomId } from "./treeSelectionDom";
+import { TreePointerRefreshGate } from "./treePointerRefreshGate";
 import { applyLineEditOutcome, LineEditOutcome } from "../commands/applyLineEditOutcome";
 import { applyParagraphEdit, paragraphEditTextContainsBlankLine } from "../edit/paragraphPartialEdit";
 import { evaluateRenameNoteIdentity } from "../edit/renameNoteIdentityGuard";
@@ -584,6 +586,16 @@ export class OutlineTreeView extends ItemView {
   // when the user's actual focus (and thus their next keypress) is
   // somewhere else entirely (the body editor, another pane, etc.).
   private hasFocus = false;
+
+  // Issue #4 (1.0.8): defers refresh() while a press that started inside
+  // the tree is still down, so the pressed row/chevron is never replaced
+  // between pointerdown and click — see view/treePointerRefreshGate.ts.
+  // The scheduler runs the owed refresh on a later task of the tree's own
+  // window (popout-safe), after the gesture's click has been dispatched.
+  private readonly pointerRefreshGate = new TreePointerRefreshGate(() => this.refresh(), {
+    schedule: (callback) => this.treeRootEl.win.setTimeout(callback, 0),
+    cancel: (handle) => this.treeRootEl.win.clearTimeout(handle),
+  });
 
   // Mobile gesture state (tap/long-press/menu — see renderNode's "Mobile
   // gesture" block for the full design). Set right before a long-press
@@ -842,7 +854,12 @@ export class OutlineTreeView extends ItemView {
       if (this.renameState) return;
       this.hasFocus = true;
       this.ensureSelection();
-      this.renderTree();
+      // Issue #4 (1.0.8): update the selection marks in place instead of
+      // renderTree(). This focus arrives in the middle of a mousedown on a
+      // row/chevron when the editor had focus; rebuilding the tree here
+      // replaced the pressed element before mouseup and the first click
+      // was lost. See syncSelectionHighlight.
+      this.syncSelectionHighlight();
     });
     this.registerDomEvent(this.treeRootEl, "blur", () => {
       // Inline rename guard: beginRename's inputEl.focus() call moves DOM
@@ -858,8 +875,37 @@ export class OutlineTreeView extends ItemView {
       // themselves once renameState is cleared.
       if (this.renameState) return;
       this.hasFocus = false;
-      this.renderTree();
+      // Issue #4 (1.0.8): hiding the selection highlight on blur (the
+      // hasFocus field's intent) needs no rebuild either.
+      this.syncSelectionHighlight();
     });
+
+    // Issue #4 (1.0.8): track presses that start inside the tree (primary
+    // button / touch / pen contact only — a right-click never produces the
+    // click this protects) so refresh() can defer while one is active. The
+    // press ends on pointerup/pointercancel/lostpointercapture anywhere in
+    // the tree's own document (a release outside the tree still ends it),
+    // on a native drag starting or ending (the press has become a drag;
+    // browsers also fire pointercancel then), and on window blur (a
+    // release we could not see). All registered through registerDomEvent,
+    // so they go away with the view; onClose also disposes the gate.
+    this.registerDomEvent(
+      this.treeRootEl,
+      "pointerdown",
+      (evt) => {
+        if (evt.button !== 0) return;
+        this.pointerRefreshGate.pointerDown(evt.pointerId, evt.isPrimary);
+      },
+      { capture: true }
+    );
+    const releasePointer = (evt: PointerEvent): void => this.pointerRefreshGate.pointerReleased(evt.pointerId);
+    const treeDoc = this.treeRootEl.doc;
+    this.registerDomEvent(treeDoc, "pointerup", releasePointer, { capture: true });
+    this.registerDomEvent(treeDoc, "pointercancel", releasePointer, { capture: true });
+    this.registerDomEvent(treeDoc, "lostpointercapture", releasePointer, { capture: true });
+    this.registerDomEvent(this.treeRootEl, "dragstart", () => this.pointerRefreshGate.releaseAll(), { capture: true });
+    this.registerDomEvent(this.treeRootEl, "dragend", () => this.pointerRefreshGate.releaseAll(), { capture: true });
+    this.registerDomEvent(this.treeRootEl.win, "blur", () => this.pointerRefreshGate.releaseAll());
 
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", this.scheduleRefresh)
@@ -882,6 +928,10 @@ export class OutlineTreeView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    // Issue #4 (1.0.8): drop any press state and owed refresh first, so no
+    // queued flush can call refresh() on this closed view. Disposed, the
+    // gate never defers again, so the teardown below behaves as before.
+    this.pointerRefreshGate.dispose();
     // Phase 5T-11A (docs/phase5t11_rename_session_teardown_design.md §8
     // 案A, §10 第1段階): an in-progress rename session must not survive
     // this view closing — cancelRename() is exactly the existing
@@ -935,6 +985,13 @@ export class OutlineTreeView extends ItemView {
    * this view's own internal refresh entry point.
    */
   refresh(): void {
+    // Issue #4 (1.0.8): a press that started inside the tree is still down
+    // — rebuilding now would replace the pressed row before its click.
+    // Nothing below runs (no drag-session cancel, no re-parse, no DOM
+    // change), so the state stays consistent with the rows on screen; the
+    // gate runs this refresh once after the press ends (see
+    // view/treePointerRefreshGate.ts).
+    if (this.pointerRefreshGate.deferRefreshIfPointerActive()) return;
     // Phase 5T-2 (design doc §4-1: "既存の section/list D&D は、この観点の
     // ガードを一切持っていない...paragraph の drag は...新しい保護を新設す
     // る必要がある"): unconditionally cancel any in-progress paragraph
@@ -1446,6 +1503,21 @@ export class OutlineTreeView extends ItemView {
     });
   }
 
+  /**
+   * Issue #4 (1.0.8): shows the selection highlight for the current
+   * hasFocus/selectedId on the rows already on screen (classes,
+   * aria-selected, aria-activedescendant — the only DOM renderNode derives
+   * from them; see view/treeSelectionDom.ts), without rebuilding the tree.
+   * The same on mobile: selection there adds or removes no element either
+   * (the drag handle is created independently of selection).
+   * Falls back to renderTree() only when the selected row is not rendered,
+   * i.e. the DOM is not the tree the selection refers to.
+   */
+  private syncSelectionHighlight(): void {
+    if (syncTreeSelectionDom(this.treeRootEl, this.hasFocus ? this.selectedId : null)) return;
+    this.renderTree();
+  }
+
   private renderTree(): void {
     this.treeRootEl.empty();
     // Cleared up front and re-set (at most once) inside renderNode below —
@@ -1527,13 +1599,13 @@ export class OutlineTreeView extends ItemView {
         "tree-item-self is-clickable" +
         (isSection ? "" : " unified-outliner-list-row") +
         (isHighlighted ? " is-active unified-outliner-current" : "") +
-        (isSelected ? " is-selected unified-outliner-selected" : "") +
+        (isSelected ? ` ${TREE_ROW_SELECTED_CLASSES.join(" ")}` : "") +
         (node.id === this.pendingCopySourceNodeId ? " unified-outliner-copy-source" : ""),
     });
     // DOM id + role/aria-* wiring so this row is addressable via
     // aria-activedescendant from the focus-holding treeRootEl (a roving
     // tabindex per row was considered and rejected — see onOpen's comment).
-    selfEl.id = `unified-outliner-row-${node.id}`;
+    selfEl.id = treeRowDomId(node.id);
     // 2026-08-11 ticket §5A: a stable, CSS-only hook for the section/list
     // always-on visual aids — see styles.css's
     // [data-section-highlight]/[data-list-highlight] rules on
