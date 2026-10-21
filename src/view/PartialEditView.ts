@@ -323,6 +323,11 @@ import {
   verifyBlockIdStaysInParagraph,
   blockIdKeptInParagraphWithin,
 } from "../edit/listParagraphCompositeProjection";
+import {
+  joinParentOwnTextParagraphSplit,
+  ParentOwnTextParagraphSplit,
+  resolveParentOwnTextParagraphSplit,
+} from "../edit/parentOwnTextParagraphSplit";
 import { readBlockIdWithinRange } from "../parser/blockIdInRange";
 // Phase 5E-3c ("軽量 Table Mode"): the pure Markdown table parser/
 // serializer foundation (Phase 5E-3b, unmodified) and the pure Table Mode
@@ -860,6 +865,15 @@ export class PartialEditView extends ItemView {
    */
   private listParagraphProjection: ListParagraphProjection | null = null;
   /**
+   * 1.0.8 follow-up: a parent list item (opened as a list, never a
+   * composite) whose own text is its marker line plus one child paragraph
+   * is edited in two boxes — the list line in the list row
+   * (compositeListInputEl) and the paragraph in textareaEl — joined back
+   * into the parent own-text body by bodyEditorText(). See
+   * edit/parentOwnTextParagraphSplit.ts. null = the single own-text box.
+   */
+  private parentOwnTextSplit: ParentOwnTextParagraphSplit | null = null;
+  /**
    * Phase 5D-2C ("CompositeBlock single-line-list member marker-free
    * projection"): the structured composite session's own split of the
    * list member's raw line into indent/marker/markerSpacing/body (edit/
@@ -1377,6 +1391,21 @@ export class PartialEditView extends ItemView {
   private childInlineOrderedNumberInputEl!: HTMLInputElement;
   private childInlineTextareaEl!: HTMLTextAreaElement;
   /**
+   * Bottom-right resize grip of childInlineTextareaEl — the same
+   * attachResizeGrip mechanism (pointer events, so iPad touch too) as the
+   * pane's own body textarea grip (textareaGripEl). Created once with the
+   * editor, so switching children never adds a second grip or listener.
+   */
+  private childInlineTextareaGripEl!: HTMLElement;
+  /**
+   * The child id childInlineTextareaEl's current (possibly user-dragged)
+   * size belongs to. renderChildInlineEditor drops a dragged size only
+   * when a DIFFERENT child (or no child) is shown — never on an ordinary
+   * re-render of the same child — mirroring how a newly loaded block's
+   * body textarea starts at its default size again.
+   */
+  private childInlineSizedChildId: string | null = null;
+  /**
    * Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
    * the small "Add child item" control — sits inside
    * parentChildPreviewLabelEl's own row (the child-preview HEADER, per
@@ -1687,7 +1716,7 @@ export class PartialEditView extends ItemView {
         el.value = el.value.replace(/\r?\n|\r/g, " ");
         el.setSelectionRange(caret, caret);
       }
-      if (!this.compositeListUserSized) fitTextareaToContent(el, 2, 1);
+      if (!this.compositeListUserSized) fitTextareaToContent(el, this.listRowMinLines(), 1);
     });
     this.compositeListGripEl = this.compositeListRowEl.createDiv({
       cls: "unified-outliner-partial-edit-resize-grip",
@@ -2092,6 +2121,21 @@ export class PartialEditView extends ItemView {
       cls: "unified-outliner-partial-edit-textarea unified-outliner-partial-edit-child-inline-textarea",
     });
     this.childInlineTextareaEl.addEventListener("input", () => this.updateDirtyState());
+    this.childInlineTextareaGripEl = this.childInlineEditorEl.createDiv({
+      cls: "unified-outliner-partial-edit-resize-grip unified-outliner-partial-edit-child-inline-textarea-grip",
+      attr: { "aria-hidden": "true" },
+    });
+    this.register(
+      attachResizeGrip(
+        this.childInlineTextareaGripEl,
+        this.childInlineTextareaEl,
+        () => {
+          // Display-only: the dragged size is kept until another child is
+          // shown (see childInlineSizedChildId); never touches the text.
+        },
+        BODY_TEXTAREA_GRIP_PLACEMENT
+      )
+    );
     this.childInlineEditorEl.toggleVisibility(false);
 
     // Phase 5L-9 ("Direct Child Add/Delete in Parent Partial Edit Pane"):
@@ -2394,6 +2438,7 @@ export class PartialEditView extends ItemView {
     // Phase 5L-6: reset alongside standaloneMultiLineListProjection above —
     // see this field's own doc comment.
     this.standaloneParentListItemProjection = null;
+    this.parentOwnTextSplit = null;
     // Phase 5E-3: reset alongside every projection field above — see this
     // field's own doc comment.
     this.fencedCodeMeta = null;
@@ -2915,6 +2960,7 @@ export class PartialEditView extends ItemView {
     // — see this field's own doc comment (a paragraph is never eligible
     // for parent structured projection either).
     this.standaloneParentListItemProjection = null;
+    this.parentOwnTextSplit = null;
     // Phase 5L-8: reset alongside standaloneParentListItemProjection above
     // — see this field's own doc comment.
     this.childInlineSession = null;
@@ -3071,6 +3117,7 @@ export class PartialEditView extends ItemView {
     // — see this field's own doc comment (same rationale — a
     // CompositeBlock session never uses this field either).
     this.standaloneParentListItemProjection = null;
+    this.parentOwnTextSplit = null;
     // Phase 5L-8: reset alongside standaloneParentListItemProjection above
     // — see this field's own doc comment.
     this.childInlineSession = null;
@@ -3383,6 +3430,7 @@ export class PartialEditView extends ItemView {
     // callout/blockquote that fell back to raw editing) — see that
     // method's own doc comment.
     this.textareaEl.value = this.currentDisplayText();
+    this.syncParentOwnTextSplitEditors();
     this.renderBreadcrumb();
     this.renderSiblingNav();
     this.renderSubtreeNavigator();
@@ -3886,6 +3934,124 @@ export class PartialEditView extends ItemView {
         });
       }
 
+      // Row action DOM order (= visual left-to-right order = keyboard
+      // focus order, since preview-row-actions lays its children out in
+      // plain flex row direction): indent/outdent → reorder (down, up) →
+      // edit (pencil) → delete (trash, rightmost). The blocks below are
+      // written in exactly that order; reordering them reorders the UI.
+      //
+      // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
+      // Edit Pane"): the indent affordance — appended into the SAME
+      // shared rowActionsEl group as reorder/edit/delete below (this
+      // ticket's own explicit "整合性を持たせて" precedent from Phase
+      // 5L-10's own real-device follow-up), rendered ONLY on an eligible
+      // DIRECT child's own first row, and only while canStartIndentOutdent
+      // (no other pending structural transformation for this parent
+      // right now — see that const's own doc comment above).
+      if (eligibleChildId && !isPendingDeletionRow && canStartIndentOutdent && indentEligibleIds.has(eligibleChildId)) {
+        const indentButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-indent-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(indentButtonEl, "indent");
+        setTooltip(indentButtonEl, this.plugin.t("partialEdit.parentChildIndentButtonLabel"));
+        const activateIndent = (evt: Event) => {
+          // Never a navigation, edit-start, delete, or reorder — see the
+          // comments above this row's own other affordances.
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleRequestIndentChild(eligibleChildId);
+        };
+        indentButtonEl.addEventListener("click", activateIndent);
+        indentButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateIndent(evt);
+          }
+        });
+      }
+
+      // Phase 5L-11: the outdent affordance — rendered on a NESTED
+      // (exactly-one-level-deep) child's own first row instead, a
+      // DIFFERENT population from every other affordance above (all of
+      // which are direct-children-only) — see
+      // outdentEligibleFirstRowById's own doc comment above for why this
+      // needs its own lookup rather than reusing `eligibleChildId`. Every
+      // row already owns its own (possibly empty) `rowActionsEl` from
+      // this row's own setup above, so a nested row that has neither an
+      // edit/delete/reorder affordance nor an indent one can still
+      // receive this one.
+      const outdentChildId = canStartIndentOutdent ? outdentEligibleFirstRowById.get(i) : undefined;
+      if (outdentChildId) {
+        const outdentButtonEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-outdent-button",
+          attr: { role: "button", tabindex: "0" },
+        });
+        setIcon(outdentButtonEl, "outdent");
+        setTooltip(outdentButtonEl, this.plugin.t("partialEdit.parentChildOutdentButtonLabel"));
+        const activateOutdent = (evt: Event) => {
+          evt.stopPropagation();
+          evt.preventDefault();
+          this.handleRequestOutdentChild(outdentChildId);
+        };
+        outdentButtonEl.addEventListener("click", activateOutdent);
+        outdentButtonEl.addEventListener("keydown", (evt) => {
+          if (evt.key === "Enter" || evt.key === " ") {
+            activateOutdent(evt);
+          }
+        });
+      }
+
+      // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
+      // Pane"): the up/down reorder affordance — a FOURTH genuinely
+      // separate control/code path from navigation, edit-start, and
+      // delete (this ticket's own explicit §7 "edit / delete /
+      // navigation / reorder の4操作をイベント上で明確に分ける"
+      // requirement). Rendered on every ELIGIBLE direct child's own first
+      // row (same population as the edit/delete affordances — never on a
+      // pending-deletion row), but ONLY while this parent's child subtree
+      // is reorder-eligible at all (`reorderAvailable`). Each button's
+      // own disabled state is computed via moveChildInPendingReorder's
+      // OWN predicate (never a second, independently-drifting "can this
+      // move" check) — see this ticket's own §2/§3 "先頭/末尾 disabled"
+      // and "non-eligible neighbor never crossed" requirements.
+      if (eligibleChildId && !isPendingDeletionRow && reorderAvailable && addDeleteSession) {
+        const excludedId = addDeleteSession.pendingDeletion?.childNodeId ?? null;
+        const currentOrder = addDeleteSession.pendingReorderOrder;
+        const reorderButtonsEl = rowActionsEl.createSpan({
+          cls: "unified-outliner-partial-edit-parent-child-reorder-buttons",
+        });
+        const makeReorderButton = (direction: ChildReorderDirection, icon: string, labelKey: TranslationKey) => {
+          const canMove = moveChildInPendingReorder(currentOrder, eligibleIds, excludedId, eligibleChildId, direction).ok;
+          const buttonEl = reorderButtonsEl.createSpan({
+            cls: "unified-outliner-partial-edit-parent-child-reorder-button",
+            attr: { role: "button", tabindex: canMove ? "0" : "-1", "aria-disabled": canMove ? "false" : "true" },
+          });
+          setIcon(buttonEl, icon);
+          setTooltip(buttonEl, this.plugin.t(labelKey));
+          buttonEl.toggleClass("unified-outliner-partial-edit-parent-child-reorder-button-disabled", !canMove);
+          if (canMove) {
+            const activateReorder = (evt: Event) => {
+              // Never a navigation, edit-start, or delete — see the
+              // comment immediately above.
+              evt.stopPropagation();
+              evt.preventDefault();
+              this.handleReorderChild(eligibleChildId, direction);
+            };
+            buttonEl.addEventListener("click", activateReorder);
+            buttonEl.addEventListener("keydown", (evt) => {
+              if (evt.key === "Enter" || evt.key === " ") {
+                activateReorder(evt);
+              }
+            });
+          }
+        };
+        // Down first, then up — appended left-to-right, so up renders
+        // to the right of down (and to the left of the edit-pencil/
+        // delete-trash pair appended after this group).
+        makeReorderButton("down", "arrow-down", "partialEdit.parentChildReorderDownLabel");
+        makeReorderButton("up", "arrow-up", "partialEdit.parentChildReorderUpLabel");
+      }
+
       // Phase 5L-8 ("Child Item Inline Structured Editing in Parent
       // Partial Edit Pane"): the inline-edit-start affordance — a
       // GENUINELY SEPARATE control/code path from the navigation
@@ -3947,119 +4113,6 @@ export class PartialEditView extends ItemView {
           }
         });
       }
-
-      // Phase 5L-10 ("Direct Child Leaf Reorder in Parent Partial Edit
-      // Pane"): the up/down reorder affordance — a FOURTH genuinely
-      // separate control/code path from navigation, edit-start, and
-      // delete (this ticket's own explicit §7 "edit / delete /
-      // navigation / reorder の4操作をイベント上で明確に分ける"
-      // requirement). Rendered on every ELIGIBLE direct child's own first
-      // row (same population as the edit/delete affordances — never on a
-      // pending-deletion row), but ONLY while this parent's child subtree
-      // is reorder-eligible at all (`reorderAvailable`). Each button's
-      // own disabled state is computed via moveChildInPendingReorder's
-      // OWN predicate (never a second, independently-drifting "can this
-      // move" check) — see this ticket's own §2/§3 "先頭/末尾 disabled"
-      // and "non-eligible neighbor never crossed" requirements.
-      if (eligibleChildId && !isPendingDeletionRow && reorderAvailable && addDeleteSession) {
-        const excludedId = addDeleteSession.pendingDeletion?.childNodeId ?? null;
-        const currentOrder = addDeleteSession.pendingReorderOrder;
-        const reorderButtonsEl = rowActionsEl.createSpan({
-          cls: "unified-outliner-partial-edit-parent-child-reorder-buttons",
-        });
-        const makeReorderButton = (direction: ChildReorderDirection, icon: string, labelKey: TranslationKey) => {
-          const canMove = moveChildInPendingReorder(currentOrder, eligibleIds, excludedId, eligibleChildId, direction).ok;
-          const buttonEl = reorderButtonsEl.createSpan({
-            cls: "unified-outliner-partial-edit-parent-child-reorder-button",
-            attr: { role: "button", tabindex: canMove ? "0" : "-1", "aria-disabled": canMove ? "false" : "true" },
-          });
-          setIcon(buttonEl, icon);
-          setTooltip(buttonEl, this.plugin.t(labelKey));
-          buttonEl.toggleClass("unified-outliner-partial-edit-parent-child-reorder-button-disabled", !canMove);
-          if (canMove) {
-            const activateReorder = (evt: Event) => {
-              // Never a navigation, edit-start, or delete — see the
-              // comment immediately above.
-              evt.stopPropagation();
-              evt.preventDefault();
-              this.handleReorderChild(eligibleChildId, direction);
-            };
-            buttonEl.addEventListener("click", activateReorder);
-            buttonEl.addEventListener("keydown", (evt) => {
-              if (evt.key === "Enter" || evt.key === " ") {
-                activateReorder(evt);
-              }
-            });
-          }
-        };
-        // Down first, then up — both float right (see styles.css), so
-        // DOM-appending down first makes up render as the RIGHTMOST
-        // (topmost-reading) control, mirroring the edit-pencil/delete-
-        // trash pair's own right-to-left append order above.
-        makeReorderButton("down", "arrow-down", "partialEdit.parentChildReorderDownLabel");
-        makeReorderButton("up", "arrow-up", "partialEdit.parentChildReorderUpLabel");
-      }
-
-      // Phase 5L-11 ("Direct Child Leaf Indent/Outdent in Parent Partial
-      // Edit Pane"): the indent affordance — appended into the SAME
-      // shared rowActionsEl group as edit/delete/reorder above (this
-      // ticket's own explicit "整合性を持たせて" precedent from Phase
-      // 5L-10's own real-device follow-up), rendered ONLY on an eligible
-      // DIRECT child's own first row, and only while canStartIndentOutdent
-      // (no other pending structural transformation for this parent
-      // right now — see that const's own doc comment above).
-      if (eligibleChildId && !isPendingDeletionRow && canStartIndentOutdent && indentEligibleIds.has(eligibleChildId)) {
-        const indentButtonEl = rowActionsEl.createSpan({
-          cls: "unified-outliner-partial-edit-parent-child-indent-button",
-          attr: { role: "button", tabindex: "0" },
-        });
-        setIcon(indentButtonEl, "indent");
-        setTooltip(indentButtonEl, this.plugin.t("partialEdit.parentChildIndentButtonLabel"));
-        const activateIndent = (evt: Event) => {
-          // Never a navigation, edit-start, delete, or reorder — see the
-          // comments above this row's own other affordances.
-          evt.stopPropagation();
-          evt.preventDefault();
-          this.handleRequestIndentChild(eligibleChildId);
-        };
-        indentButtonEl.addEventListener("click", activateIndent);
-        indentButtonEl.addEventListener("keydown", (evt) => {
-          if (evt.key === "Enter" || evt.key === " ") {
-            activateIndent(evt);
-          }
-        });
-      }
-
-      // Phase 5L-11: the outdent affordance — rendered on a NESTED
-      // (exactly-one-level-deep) child's own first row instead, a
-      // DIFFERENT population from every other affordance above (all of
-      // which are direct-children-only) — see
-      // outdentEligibleFirstRowById's own doc comment above for why this
-      // needs its own lookup rather than reusing `eligibleChildId`. Every
-      // row already owns its own (possibly empty) `rowActionsEl` from
-      // this row's own setup above, so a nested row that has neither an
-      // edit/delete/reorder affordance nor an indent one can still
-      // receive this one.
-      const outdentChildId = canStartIndentOutdent ? outdentEligibleFirstRowById.get(i) : undefined;
-      if (outdentChildId) {
-        const outdentButtonEl = rowActionsEl.createSpan({
-          cls: "unified-outliner-partial-edit-parent-child-outdent-button",
-          attr: { role: "button", tabindex: "0" },
-        });
-        setIcon(outdentButtonEl, "outdent");
-        setTooltip(outdentButtonEl, this.plugin.t("partialEdit.parentChildOutdentButtonLabel"));
-        const activateOutdent = (evt: Event) => {
-          evt.stopPropagation();
-          evt.preventDefault();
-          this.handleRequestOutdentChild(outdentChildId);
-        };
-        outdentButtonEl.addEventListener("click", activateOutdent);
-        outdentButtonEl.addEventListener("keydown", (evt) => {
-          if (evt.key === "Enter" || evt.key === " ") {
-            activateOutdent(evt);
-          }
-        });
-      }
     }
 
     const truncatedCount = allLines.length - visibleLines.length;
@@ -4093,9 +4146,16 @@ export class PartialEditView extends ItemView {
     const session = this.childInlineSession;
     if (!session) {
       this.childInlineEditorEl.toggleVisibility(false);
+      this.childInlineSizedChildId = null;
       return;
     }
     this.childInlineEditorEl.toggleVisibility(true);
+    if (session.childNodeId !== this.childInlineSizedChildId) {
+      // Another child: start at the default size again (no carry-over).
+      this.childInlineSizedChildId = session.childNodeId;
+      this.childInlineTextareaEl.style.removeProperty("height");
+      clearResizeGripWidth(this.childInlineTextareaGripEl, this.childInlineTextareaEl, BODY_TEXTAREA_GRIP_PLACEMENT);
+    }
     const firstLine = childProjectionRawText(session.childProjection).split("\n")[0].trim();
     this.childInlineEditorLabelEl.setText(
       this.plugin.t("partialEdit.parentChildInlineEditPanelLabel", { text: firstLine })
@@ -4912,6 +4972,7 @@ export class PartialEditView extends ItemView {
     this.standaloneOrderedListProjection = projections.ordered;
     this.standaloneMultiLineListProjection = projections.multiLine;
     this.standaloneParentListItemProjection = projections.parent;
+    this.parentOwnTextSplit = projections.parent ? resolveParentOwnTextParagraphSplit(doc, projections.parent) : null;
     this.childAddDeleteSession =
       projections.parent && node && isListNode(node)
         ? buildParentChildAddDeleteSession(doc, node, projections.parent)
@@ -5107,16 +5168,57 @@ export class PartialEditView extends ItemView {
   }
 
   private renderCompositeListSlot(): void {
-    const active = this.nodeKind === "composite" && this.compositeListOriginalText !== null;
+    // 1.0.8 follow-up: the same list row also holds a split parent list
+    // item's list line (see parentOwnTextSplit).
+    const split = this.activeParentOwnTextSplit();
+    const active = (this.nodeKind === "composite" && this.compositeListOriginalText !== null) || split !== null;
     this.compositeListRowEl.toggleVisibility(active);
-    this.compositeListInputEl.value = active ? this.compositeListOriginalText! : "";
+    this.compositeListInputEl.value = split ? split.listBody : active ? this.compositeListOriginalText! : "";
     this.compositeListInputEl.disabled = !active;
     this.renderCompositeEditorSizing();
   }
 
-  /** 1.0.6: true while an extended-block (composite) session is loaded. */
+  /** 1.0.8 follow-up: parentOwnTextSplit, only while a list node is the loaded target. */
+  private activeParentOwnTextSplit(): ParentOwnTextParagraphSplit | null {
+    return this.nodeKind === "list" && this.nodeId !== null && this.standaloneParentListItemProjection
+      ? this.parentOwnTextSplit
+      : null;
+  }
+
+  /**
+   * The body text the pane is editing: textareaEl's value, or — for a
+   * split parent list item — the list row and the paragraph box joined
+   * back into the parent own-text body (edit/parentOwnTextParagraphSplit.ts).
+   * Every dirty check and Apply path reads the body through this.
+   */
+  private bodyEditorText(): string {
+    if (this.activeParentOwnTextSplit()) {
+      return joinParentOwnTextParagraphSplit(this.compositeListInputEl.value, this.textareaEl.value);
+    }
+    return this.textareaEl.value;
+  }
+
+  /**
+   * Called right after every `textareaEl.value = currentDisplayText()`
+   * reset (load / Cancel / post-Apply / auto-reload): for a split parent
+   * list item, puts the loaded list line into the list row and only the
+   * paragraph into textareaEl. A no-op for every other kind.
+   */
+  private syncParentOwnTextSplitEditors(): void {
+    // A list node's split can appear or disappear across a reload / Apply
+    // (e.g. the paragraph was edited away), so its list row is re-rendered
+    // here too; every other kind is left exactly as the caller set it.
+    if (this.nodeKind !== "list") return;
+    this.renderCompositeListSlot();
+    const split = this.activeParentOwnTextSplit();
+    if (!split) return;
+    this.compositeListInputEl.value = split.listBody;
+    this.textareaEl.value = split.paragraphBody;
+  }
+
+  /** 1.0.6: true while an extended-block (composite) session is loaded — or (1.0.8 follow-up) a split parent list item, whose list row is fitted the same way. */
   private isCompositeFitActive(): boolean {
-    return this.nodeKind === "composite";
+    return this.nodeKind === "composite" || this.activeParentOwnTextSplit() !== null;
   }
 
   /**
@@ -5133,8 +5235,20 @@ export class PartialEditView extends ItemView {
       k === "blockquote" ||
       k === "fenced-code" ||
       k === "table" ||
-      k === "paragraph"
+      k === "paragraph" ||
+      // 1.0.8 follow-up: a split parent list item's paragraph box is sized
+      // to its text like a List + Paragraph composite's (see listRowMinLines).
+      this.activeParentOwnTextSplit() !== null
     );
+  }
+
+  /**
+   * Minimum height (lines) of the fitted list row: 2 for a composite's list
+   * member (1.0.6); 3 for a split parent list item's list box, whose list
+   * text is typically a longer sentence (1.0.8 follow-up, by request).
+   */
+  private listRowMinLines(): number {
+    return this.activeParentOwnTextSplit() !== null ? 3 : 2;
   }
 
   /** 1.0.6: fits the body textarea to its text (min 3 lines, 1 spare), never taller than 70% of the pane. */
@@ -5173,7 +5287,7 @@ export class PartialEditView extends ItemView {
     }
     window.requestAnimationFrame(() => {
       if (this.isCompositeFitActive() && !this.compositeListUserSized) {
-        fitTextareaToContent(this.compositeListInputEl, 2, 1);
+        fitTextareaToContent(this.compositeListInputEl, this.listRowMinLines(), 1);
       }
       if (this.isBodyFitActive() && !this.textareaUserSized) this.fitBodyTextarea();
     });
@@ -5959,6 +6073,7 @@ export class PartialEditView extends ItemView {
     // unaffected, since currentDisplayText falls through to originalText
     // verbatim whenever quoteProjection is null.
     this.textareaEl.value = this.currentDisplayText();
+    this.syncParentOwnTextSplitEditors();
     // Block ID field: back to the loaded id.
     this.renderBlockIdRow();
     // Phase 5D-1A: revert the title input to its loaded value too, when a
@@ -6586,6 +6701,7 @@ export class PartialEditView extends ItemView {
         this.renderQuoteHeader();
         this.renderCompositeListSlot();
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.updateDirtyState();
       } finally {
         this.isApplyingOwnEdit = false;
@@ -6947,7 +7063,7 @@ export class PartialEditView extends ItemView {
         this.standaloneParentListItemProjection,
         this.taskCheckboxInputEl.checked,
         this.orderedNumberInputEl.value,
-        this.textareaEl.value
+        this.bodyEditorText()
       );
       if (!invertedParent.ok) {
         new Notice(
@@ -7135,6 +7251,7 @@ export class PartialEditView extends ItemView {
         // raw text back should reproduce exactly what the textarea already
         // shows.
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
       } else if (this.standaloneListMarkerProjection) {
         // Phase 5L-1: rebuild fresh from the just-applied raw line, same
         // rationale as the quoteProjection rebuild immediately above — a
@@ -7154,6 +7271,7 @@ export class PartialEditView extends ItemView {
         const rebuilt = buildListMarkerProjection(newRawText);
         this.standaloneListMarkerProjection = rebuilt.ok ? rebuilt.projection : null;
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
       } else if (this.standaloneTaskListProjection) {
         // Phase 5L-2: rebuild fresh from the just-applied raw line, same
         // rationale as the standaloneListMarkerProjection rebuild
@@ -7168,6 +7286,7 @@ export class PartialEditView extends ItemView {
         const rebuilt = buildTaskListProjection(newRawText);
         this.standaloneTaskListProjection = rebuilt.ok ? rebuilt.projection : null;
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderTaskCheckboxRow();
       } else if (this.standaloneOrderedListProjection) {
         // Phase 5L-3: rebuild fresh from the just-applied raw line, same
@@ -7184,6 +7303,7 @@ export class PartialEditView extends ItemView {
         const rebuilt = buildOrderedListProjection(newRawText);
         this.standaloneOrderedListProjection = rebuilt.ok ? rebuilt.projection : null;
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderOrderedNumberRow();
       } else if (this.standaloneMultiLineListProjection) {
         // Phase 5L-4: rebuild fresh from the just-applied raw text, same
@@ -7205,6 +7325,7 @@ export class PartialEditView extends ItemView {
         const rebuilt = buildMultiLineListItemProjection(newRawText);
         this.standaloneMultiLineListProjection = rebuilt.ok ? rebuilt.projection : null;
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderTaskCheckboxRow();
         this.renderOrderedNumberRow();
       } else if (this.standaloneParentListItemProjection) {
@@ -7243,6 +7364,7 @@ export class PartialEditView extends ItemView {
           freshExtracted.ok ? freshExtracted.text : ""
         );
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderTaskCheckboxRow();
         this.renderOrderedNumberRow();
         this.renderParentChildPreview();
@@ -7267,6 +7389,7 @@ export class PartialEditView extends ItemView {
         this.fencedCodeMeta = { ...this.fencedCodeMeta, bodyText: newRawText, infoString: appliedInfoString };
         this.fencedCodeSelectedInfoString = appliedInfoString;
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderFencedCodeLanguageRow();
       } else if (this.nodeKind === "table") {
         // Phase 5E-3c: re-derive BOTH tabs fresh from the just-applied
@@ -7291,6 +7414,7 @@ export class PartialEditView extends ItemView {
         this.tableModeParseFailureReason = parsed.ok ? null : parsed.reason;
         if (!parsed.ok) this.tableModeActiveTab = "raw";
         this.textareaEl.value = this.currentDisplayText();
+        this.syncParentOwnTextSplitEditors();
         this.renderTableModeRow();
       }
       // Phase 5A-1 hardening §1: see the paragraph branch's identical
@@ -7354,7 +7478,7 @@ export class PartialEditView extends ItemView {
       return false;
     }
 
-    const parentDirty = this.textareaEl.value !== projectedParentBodyText(projection) ||
+    const parentDirty = this.bodyEditorText() !== projectedParentBodyText(projection) ||
       (projection.ownText.listKind === "task" &&
         this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
       (projection.ownText.listKind === "ordered" &&
@@ -7376,7 +7500,7 @@ export class PartialEditView extends ItemView {
       childDirty,
       editedParentChecked: this.taskCheckboxInputEl.checked,
       editedParentNumberText: this.orderedNumberInputEl.value,
-      editedParentBody: this.textareaEl.value,
+      editedParentBody: this.bodyEditorText(),
       editedChildChecked: this.childInlineTaskCheckboxInputEl.checked,
       editedChildNumberText: this.childInlineOrderedNumberInputEl.value,
       editedChildBody: this.childInlineTextareaEl.value,
@@ -7466,6 +7590,7 @@ export class PartialEditView extends ItemView {
         // carries.
       }
       this.textareaEl.value = this.currentDisplayText();
+      this.syncParentOwnTextSplitEditors();
       this.renderTaskCheckboxRow();
       this.renderOrderedNumberRow();
       this.renderParentChildPreview();
@@ -7513,7 +7638,7 @@ export class PartialEditView extends ItemView {
     const existingChildSession = this.childInlineSession;
 
     const parentDirty =
-      this.textareaEl.value !== projectedParentBodyText(projection) ||
+      this.bodyEditorText() !== projectedParentBodyText(projection) ||
       (projection.ownText.listKind === "task" &&
         this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
       (projection.ownText.listKind === "ordered" &&
@@ -7548,7 +7673,7 @@ export class PartialEditView extends ItemView {
       reorderDirty,
       editedParentChecked: this.taskCheckboxInputEl.checked,
       editedParentNumberText: this.orderedNumberInputEl.value,
-      editedParentBody: this.textareaEl.value,
+      editedParentBody: this.bodyEditorText(),
       editedExistingChildChecked: this.childInlineTaskCheckboxInputEl.checked,
       editedExistingChildNumberText: this.childInlineOrderedNumberInputEl.value,
       editedExistingChildBody: this.childInlineTextareaEl.value,
@@ -7671,6 +7796,7 @@ export class PartialEditView extends ItemView {
         // contract every sibling rebuild in this class already carries.
       }
       this.textareaEl.value = this.currentDisplayText();
+      this.syncParentOwnTextSplitEditors();
       this.renderTaskCheckboxRow();
       this.renderOrderedNumberRow();
       this.renderBreadcrumb();
@@ -7858,7 +7984,7 @@ export class PartialEditView extends ItemView {
     }
 
     const parentDirty =
-      this.textareaEl.value !== projectedParentBodyText(projection) ||
+      this.bodyEditorText() !== projectedParentBodyText(projection) ||
       (projection.ownText.listKind === "task" &&
         this.taskCheckboxInputEl.checked !== projectedParentChecked(projection)) ||
       (projection.ownText.listKind === "ordered" &&
@@ -7875,7 +8001,7 @@ export class PartialEditView extends ItemView {
         projection,
         this.taskCheckboxInputEl.checked,
         this.orderedNumberInputEl.value,
-        this.textareaEl.value
+        this.bodyEditorText()
       );
       if (!inverted.ok) {
         const reason: ParentChildCombinedApplyRejectReason =
@@ -7965,6 +8091,7 @@ export class PartialEditView extends ItemView {
         freshExtracted.ok ? freshExtracted.text : ""
       );
       this.textareaEl.value = this.currentDisplayText();
+      this.syncParentOwnTextSplitEditors();
       this.renderTaskCheckboxRow();
       this.renderOrderedNumberRow();
       this.renderBreadcrumb();
@@ -8236,7 +8363,7 @@ export class PartialEditView extends ItemView {
     if (this.isBlockIdDirty()) return true;
     return (
       (this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null) &&
-      (this.textareaEl.value !== this.currentDisplayText() ||
+      (this.bodyEditorText() !== this.currentDisplayText() ||
         titleDirty ||
         markerDirty ||
         typeDirty ||
@@ -8835,6 +8962,7 @@ export class PartialEditView extends ItemView {
     // where that logic now lives.
     this.syncState = "synced";
     this.textareaEl.value = this.currentDisplayText();
+    this.syncParentOwnTextSplitEditors();
     // Phase 5L-9b (bug fix, same real-device finding as the trio
     // recompute immediately above): rendered here for the first time in
     // this method, alongside the recompute that now keeps their own

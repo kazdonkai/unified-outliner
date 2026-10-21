@@ -2021,18 +2021,16 @@ settings:
  * exactly what guarantees they are ALWAYS laid out together on the
  * row's one line, in this same relative order, regardless of the child
  * line's own length or the pane's own width; only preview-row-text
- * above ever gives up width to make room. flex-direction: row-reverse
- * preserves this group's pre-existing visual order (reorder buttons
- * leftmost, then delete, then edit rightmost — the same right-to-left
- * stacking the three individual `float: right` rules used to produce)
- * while keeping DOM/tab order as edit → delete → reorder-down →
- * reorder-up, unchanged from before this fix. An empty actions span (a
- * row with none of the three controls) has zero visual footprint.
+ * above ever gives up width to make room. Plain (non-reversed) flex
+ * row direction: the visual left-to-right order is exactly the DOM
+ * append order in renderParentChildPreview (indent/outdent → reorder
+ * down/up → edit → delete rightmost), so keyboard tab order always
+ * matches what is on screen. An empty actions span (a row with none of
+ * the controls) has zero visual footprint.
  */
 .unified-outliner-partial-edit-parent-child-preview-row-actions {
   display: flex;
   align-items: center;
-  flex-direction: row-reverse;
   flex-shrink: 0;
   gap: 0.3em;
 }
@@ -2206,6 +2204,18 @@ settings:
 .unified-outliner-partial-edit-child-inline-textarea {
   min-height: 60px;
   font-size: calc(var(--uo-font-size, 14px) - 1px);
+}
+
+/* The child inline editor's own resize grip (same grip as the body
+ * textarea's, view/PartialEditView.ts attachResizeGrip) — pulled up onto
+ * the textarea's bottom-right corner. The editor panel is a block (not a
+ * flex column like the pane), so margin-left: auto pushes it right. */
+.unified-outliner-partial-edit-child-inline-textarea-grip {
+  margin-left: auto;
+  margin-right: 3px;
+  margin-top: -20px;
+  position: relative;
+  z-index: 1;
 }
 
 /* Phase 5B: DiscardChangesModal's Apply/Discard/Cancel row

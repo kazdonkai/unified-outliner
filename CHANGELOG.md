@@ -4,6 +4,23 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
+### Added
+
+- Partial Edit Pane, parent list items: when a list item that has child items is opened as a list (it is never a List + Paragraph extended block, because of its child list), and its own text is its list line followed by exactly one paragraph indented under it — the paragraph covering everything between the list line and the first child — the list line and the paragraph are now shown in two separate editors instead of one: the list row (marker-free, wrapping, no line breaks, at least three lines) and a paragraph editor sized to its text. The split uses the paragraph range the note's parser recognizes; it is never guessed from blank lines or line breaks. It applies to unordered list items; task and ordered items, and items whose own text has more than one paragraph, a blank line, or any other content, keep the single own-text editor as before (nothing is hidden or dropped).
+- The two editors are still one edit: Apply joins them back into the item's own text and writes it once through the existing parent list item path (together with any child edits in the same Apply); Cancel, the unsaved-changes guard and conflict protection work exactly as before. The paragraph's block ID stays as text at the end of the paragraph editor. As before, emptying the paragraph editor and applying removes the paragraph's lines, block ID included.
+- List + Paragraph extended blocks (list items without a child list) are unchanged, and the extended-block detection rules are unchanged.
+- Partial Edit Pane, parent list items: the inline editor of a child item (opened with the pencil in the child preview) now has the same bottom-right resize grip as the pane's other editors — drag it with a mouse or a finger (iPad included) to change its height and width. Resizing never changes the text or marks the pane as unsaved; the size is kept while the same child stays open and resets when another child is opened.
+
+### Changed
+
+- Partial Edit Pane, parent list items: in each child row of the child preview, the controls are now ordered move down / move up / edit (pencil) / delete (trash, rightmost) — edit and delete swapped places — and the keyboard focus order now follows the same left-to-right order. Indent / outdent controls stay at the left of the group. What each control does, including the delete confirmation, is unchanged.
+
+### Documentation
+
+- README / README.ja: current version 1.1.0; the parent list item section describes the split list / paragraph editors and the child editor's resize grip. ROADMAP / ROADMAP.ja: current release 1.1.0.
+
 ## [1.0.8] - 2026-10-17
 
 ### Fixed

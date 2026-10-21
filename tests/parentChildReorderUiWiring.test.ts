@@ -236,5 +236,41 @@ describe("view/PartialEditView.ts: Phase 5L-10 (Direct Child Leaf Reorder in Par
       expect(body).not.toContain('rowEl.createSpan({\n          cls: "unified-outliner-partial-edit-parent-child-delete-button"');
       expect(body).not.toContain('rowEl.createSpan({\n          cls: "unified-outliner-partial-edit-parent-child-reorder-buttons"');
     });
+
+    it("appends the row actions in their visual left-to-right order — indent/outdent → reorder (down, up) → edit (pencil) → delete (trash, rightmost) — with no flex-direction: row-reverse on the actions group, so DOM/tab order matches what is on screen and each icon keeps its own handler", () => {
+      const body = renderParentChildPreviewBody();
+      const indentIdx = body.indexOf('cls: "unified-outliner-partial-edit-parent-child-indent-button",');
+      const outdentIdx = body.indexOf('cls: "unified-outliner-partial-edit-parent-child-outdent-button",');
+      const reorderIdx = body.indexOf('cls: "unified-outliner-partial-edit-parent-child-reorder-buttons",');
+      const downIdx = body.indexOf('makeReorderButton("down", "arrow-down"');
+      const upIdx = body.indexOf('makeReorderButton("up", "arrow-up"');
+      const editIdx = body.indexOf('cls: "unified-outliner-partial-edit-parent-child-inline-edit-button",');
+      const deleteIdx = body.indexOf('cls: "unified-outliner-partial-edit-parent-child-delete-button",');
+      for (const idx of [indentIdx, outdentIdx, reorderIdx, downIdx, upIdx, editIdx, deleteIdx]) {
+        expect(idx).toBeGreaterThan(-1);
+      }
+      expect(outdentIdx).toBeGreaterThan(indentIdx);
+      expect(reorderIdx).toBeGreaterThan(outdentIdx);
+      expect(upIdx).toBeGreaterThan(downIdx);
+      expect(editIdx).toBeGreaterThan(upIdx);
+      expect(deleteIdx).toBeGreaterThan(editIdx);
+
+      // Each control keeps its own icon/handler pairing (never swapped icons only).
+      const editSection = body.slice(editIdx, body.indexOf("// Phase 5L-9: the delete affordance", editIdx));
+      expect(editSection).toContain('setIcon(editButtonEl, "pencil");');
+      expect(editSection).toContain("this.handleStartChildInlineEdit(eligibleChildId);");
+      expect(editSection).not.toContain("handleRequestDeleteChild");
+      const deleteSection = body.slice(deleteIdx);
+      expect(deleteSection).toContain('setIcon(deleteButtonEl, "trash-2");');
+      expect(deleteSection).toContain("this.handleRequestDeleteChild(eligibleChildId);");
+      expect(deleteSection).not.toContain("handleStartChildInlineEdit");
+
+      const stylesCss = readFileSync(path.resolve(__dirname, "../styles.css"), "utf-8");
+      const ruleStart = stylesCss.indexOf(".unified-outliner-partial-edit-parent-child-preview-row-actions {");
+      expect(ruleStart).toBeGreaterThan(-1);
+      const rule = stylesCss.slice(ruleStart, stylesCss.indexOf("}", ruleStart));
+      expect(rule).not.toContain("row-reverse");
+      expect(rule).not.toMatch(/\border\s*:/);
+    });
   });
 });

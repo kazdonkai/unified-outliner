@@ -6,7 +6,7 @@
 
 Unified Outliner is an [Obsidian](https://obsidian.md) plugin for structural editing inside a single Markdown note. It lets you move, re-level, copy, inspect, and focus on heading sections, list subtrees, and body blocks through the editor, a dedicated Outline Tree View, and a Partial Edit Pane for editing a focused block. Same-note embeds of a heading or block (`![[#Heading]]`, `![[#^block-id]]`) can also be created and managed from the tree as *mirrors*.
 
-**Current version:** 1.0.8 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
+**Current version:** 1.1.0 — see [Releases](https://github.com/kazdonkai/unified-outliner/releases) for the full changelog.
 
 **Minimum Obsidian version:** 1.8.7
 
@@ -273,7 +273,7 @@ This applies to a leaf list item (one with no nested child list) that is either 
 Opening a list item that has its own children shows that item's own text in the same structured, marker-free editor described above, with its direct children shown just below as a live, read-only preview. From there, without leaving the pane, you can:
 
 - Navigate into any previewed child (or grandchild) to open it as the pane's new target.
-- Inline-edit one eligible direct child at a time, right inside the preview.
+- Inline-edit one eligible direct child at a time, right inside the preview (its editor has the same bottom-right resize grip as the pane's other editors).
 - Add a new, empty child to the end of the direct-child list.
 - Delete an eligible direct child (behind a confirmation dialog).
 - Reorder direct children with up/down controls, as long as there's no blank line separating them.
@@ -281,6 +281,8 @@ Opening a list item that has its own children shows that item's own text in the 
 - Add a first child to a leaf item that doesn't have one yet, right from that leaf's own editor.
 
 All of these save together with the parent's own text in a single Apply, except indent/outdent, which cannot combine with an add, delete, reorder, or inline child edit in the same Apply (it can still combine with an edit to the parent's own text). Only a leaf direct child — one with no grandchildren of its own — can be inline-edited, deleted, or moved by indent/outdent; a child that itself has children must be opened as its own target to go any deeper. Deleting a parent's last remaining child returns that item to its own leaf editor; adding a first child to a leaf promotes it to a parent, with the same child preview and controls immediately available for it.
+
+When an unordered parent item's own text is its list line followed by exactly one paragraph indented under it (for example a one-line claim and a `[key:: value] … ^id` line), with nothing else before the first child, the pane shows the list line and the paragraph in two separate editors — a wrapping list row (at least three lines; no line breaks) and a paragraph editor sized to its text — the same way a List + Paragraph extended block is shown. The split follows the paragraph range recognized by the note's parser; task and ordered items, and items whose own text has more than one paragraph, a blank line, or other content, keep the single editor. The two editors are one edit: Apply writes the rejoined text back in a single change (together with any child edits), and Cancel, the unsaved-changes guard, and conflict protection work as before. The paragraph's block ID stays as text at the end of the paragraph editor; emptying the paragraph editor and applying removes the paragraph's lines, block ID included.
 
 #### What the Outline Tree and the Partial Edit Pane each do
 

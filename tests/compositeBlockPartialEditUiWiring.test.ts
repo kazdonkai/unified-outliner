@@ -246,7 +246,8 @@ describe("view/PartialEditView.ts: renderCompositeListSlot — structured compos
   it("is active only when nodeKind is \"composite\" AND compositeListOriginalText is non-null (never active for a raw-fallback composite session, or any other node kind)", () => {
     const body = bodyOf(viewTs, "private renderCompositeListSlot(): void {", "renderCompositeListSlot");
     expect(body).toContain(
-      'const active = this.nodeKind === "composite" && this.compositeListOriginalText !== null;'
+      // 1.0.8 follow-up: OR a split parent list item (activeParentOwnTextSplit is list-only)
+      'const active = (this.nodeKind === "composite" && this.compositeListOriginalText !== null) || split !== null;'
     );
   });
 
@@ -254,7 +255,7 @@ describe("view/PartialEditView.ts: renderCompositeListSlot — structured compos
     const body = bodyOf(viewTs, "private renderCompositeListSlot(): void {", "renderCompositeListSlot");
     expect(body).toContain("this.compositeListRowEl.toggleVisibility(active);");
     expect(body).toContain(
-      'this.compositeListInputEl.value = active ? this.compositeListOriginalText! : "";'
+      'this.compositeListInputEl.value = split ? split.listBody : active ? this.compositeListOriginalText! : "";'
     );
     expect(body).toContain("this.compositeListInputEl.disabled = !active;");
     // Real-device follow-up (2026-09-14): the redundant "List item" /

@@ -37,7 +37,8 @@ describe("fit-to-text sizing", () => {
     const b = body("  private renderCompositeEditorSizing(): void {");
     expect(b).toContain('this.textareaEl.toggleClass("unified-outliner-partial-edit-textarea-fit", bodyFit || keepUserHeight);');
     expect(b).toContain('this.textareaEl.style.removeProperty("height");');
-    expect(b).toContain("fitTextareaToContent(this.compositeListInputEl, 2, 1);");
+    // 1.0.8 follow-up: min lines via listRowMinLines() (2 for a composite, 3 for a split parent list item)
+    expect(b).toContain("fitTextareaToContent(this.compositeListInputEl, this.listRowMinLines(), 1);");
     expect(b).toContain("if (this.isBodyFitActive() && !this.textareaUserSized) this.fitBodyTextarea();");
     const kinds = body("  private isBodyFitActive(): boolean {");
     for (const k of ["composite", "callout", "blockquote", "fenced-code", "table", "paragraph"]) {
@@ -93,7 +94,8 @@ describe("resize grips", () => {
     );
     expect(paneTs).toContain("attachResizeGrip(\n        this.textareaGripEl,\n        this.textareaEl,\n        () => {\n          this.textareaUserSized = true;");
     // the observers that keep each grip on its box's corner are released with the view
-    expect(paneTs.match(/this\.register\(\n\s+attachResizeGrip\(/g)).toHaveLength(2);
+    // (the third is the child inline editor's grip — tests/childInlineTextareaResizeGrip.test.ts)
+    expect(paneTs.match(/this\.register\(\n\s+attachResizeGrip\(/g)).toHaveLength(3);
     expect(body("  private renderCompositeEditorSizing(): void {")).toContain("this.textareaGripEl.toggleVisibility(this.nodeKind !== null);");
   });
 

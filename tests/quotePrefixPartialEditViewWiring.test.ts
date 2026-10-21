@@ -399,7 +399,7 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
   it("isDirty (Phase 5D-1A): considers the title input dirty too — the pane is dirty if EITHER the textarea OR the title input differs from its own loaded value", () => {
     const body = bodyOf(viewTs, "private isDirty(): boolean {", "isDirty()");
     expect(body).toContain("this.quoteTitleInputEl.value !== titleSlot.title");
-    expect(body).toMatch(/this\.textareaEl\.value !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty/);
+    expect(body).toMatch(/this\.bodyEditorText\(\) !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty/);
   });
 
   it("isDirty (Phase 5D-1B): also considers the fold-marker select dirty — markerDirty is computed from quoteMarkerSelectEl vs. titleSlot.marker, gated the same way as titleDirty, and included in the same OR chain", () => {
@@ -408,7 +408,7 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
       "const markerDirty = titleSlot !== null && this.quoteMarkerSelectEl.value !== titleSlot.marker;"
     );
     expect(body).toMatch(
-      /this\.textareaEl\.value !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty\s*\|\|\s*markerDirty/
+      /this\.bodyEditorText\(\) !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty\s*\|\|\s*markerDirty/
     );
   });
 
@@ -418,7 +418,7 @@ describe("view/PartialEditView.ts quote-prefix-projection wiring (static source 
       "const typeDirty = titleSlot !== null && this.quoteTypeInputEl.value !== titleSlot.type;"
     );
     expect(body).toMatch(
-      /this\.textareaEl\.value !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty\s*\|\|\s*markerDirty\s*\|\|\s*typeDirty/
+      /this\.bodyEditorText\(\) !== this\.currentDisplayText\(\)\s*\|\|\s*titleDirty\s*\|\|\s*markerDirty\s*\|\|\s*typeDirty/
     );
   });
 

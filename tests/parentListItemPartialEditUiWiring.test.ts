@@ -248,7 +248,7 @@ describe("view/PartialEditView.ts: Phase 5L-6 (Parent List Item Structured Parti
     const region = standaloneApplyRegion();
     expect(region).toContain("} else if (this.standaloneParentListItemProjection) {");
     expect(region).toContain(
-      "const invertedParent = invertParentListItemProjection(\n        this.standaloneParentListItemProjection,\n        this.taskCheckboxInputEl.checked,\n        this.orderedNumberInputEl.value,\n        this.textareaEl.value\n      );"
+      "const invertedParent = invertParentListItemProjection(\n        this.standaloneParentListItemProjection,\n        this.taskCheckboxInputEl.checked,\n        this.orderedNumberInputEl.value,\n        this.bodyEditorText()\n      );"
     );
     expect(region).toContain("if (!invertedParent.ok) {");
     expect(region).toContain('invertedParent.reason === "invalid-number"');
