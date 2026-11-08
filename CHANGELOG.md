@@ -4,6 +4,11 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+### Fixed
+
+- **Open partial edit pane for current section or code block** (formerly "…for current section"): with the cursor inside a closed fenced code block (including a Mermaid block placed directly under a heading), the command now opens just that code block in the Partial Edit Pane instead of refusing with "cannot move inside a code block". An unterminated or boundary-ambiguous fence is refused with a dedicated notice and never falls back to the enclosing section. Heading and body lines still open the whole section.
+- The **Show fenced code blocks / tables in Outline Tree View** setting descriptions no longer claim the rows are read-only with no edit/move/delete; they now describe the right-click menu (Partial Edit, move, delete) these rows have had since 1.0.
+
 ## [1.1.0] - 2026-10-21
 
 ### Added

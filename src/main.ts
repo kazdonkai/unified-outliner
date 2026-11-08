@@ -2,6 +2,7 @@ import { Editor, getLanguage, Notice, Plugin, TFile, WorkspaceLeaf } from "obsid
 import { parseDocument } from "./parser/parseDocument";
 import { resolveCurrentBlock } from "./resolver/resolveCurrentBlock";
 import { resolveParagraphAtCursor } from "./resolver/resolveParagraphAtCursor";
+import { resolvePartialEditTargetAtCursor } from "./resolver/resolvePartialEditTargetAtCursor";
 import { ParsedDocument } from "./model/block";
 import { MoveDirection } from "./move/findMoveTarget";
 import { moveBlock } from "./move/moveBlock";
@@ -1134,8 +1135,9 @@ export default class UnifiedOutlinerPlugin extends Plugin {
    * "current section" via the same resolveCurrentBlock every other
    * body-editor command uses, then hands its id to
    * activatePartialEditView. A cursor inside a list item (not a heading)
-   * correctly no-ops, since the Partial Edit Pane only ever edits section
-   * subtrees (see edit/partialEdit.ts).
+   * correctly no-ops, since this command's list route is unchanged. A
+   * cursor inside a closed fenced code block opens THAT code block
+   * (fix/heading-adjacent-fenced-code) — never the enclosing section.
    */
   private openPartialEditForCursor(editor: Editor): void {
     if (editor.listSelections().length > 1) {
@@ -1144,13 +1146,20 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     }
 
     const doc = parseDocument(editor.getValue());
-    const resolved = resolveCurrentBlock(doc, editor.getCursor().line);
-    if (!resolved.node) {
-      this.notice(this.reasonText(resolved.reason ?? "no-block"));
-      return;
-    }
-    if (resolved.node.type !== "section") {
-      this.notice(this.t("reason.not-a-heading"));
+    // fix/heading-adjacent-fenced-code: a cursor inside a closed fenced
+    // code block now resolves to THAT block (the same scan-local id the
+    // Outline Tree's standalone fenced-code row uses) instead of being
+    // refused with the move-specific "code-block" reason. Heading/body
+    // lines still resolve to the owning section exactly as before — see
+    // resolver/resolvePartialEditTargetAtCursor.ts.
+    const resolved = resolvePartialEditTargetAtCursor(doc, editor.getCursor().line);
+    if (!resolved.target) {
+      const reason = resolved.reason ?? "no-block";
+      this.notice(
+        reason === "code-block-unresolved"
+          ? this.t("reason.partial-edit-code-block-unresolved")
+          : this.reasonText(reason)
+      );
       return;
     }
 
@@ -1159,7 +1168,7 @@ export default class UnifiedOutlinerPlugin extends Plugin {
     // call (editorCallback has nothing to await it from) can no longer
     // produce an unhandled rejection; `void` documents that at the call
     // site.
-    void this.activatePartialEditView(resolved.node.id);
+    void this.activatePartialEditView(resolved.target.nodeId);
   }
 
   /**

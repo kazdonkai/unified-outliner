@@ -254,7 +254,7 @@ Outline Tree のセクション行、リスト項目の行（部分木全体）�
 
 ### 選択したブロックに焦点を当てて編集する
 
-コマンドパレットの **Open partial edit pane for current section** を実行するか、Outline Tree View の右クリックメニューから対応する項目を選びます。段落の場合は、**Edit paragraph at cursor**（または Outline Tree のコンテキストメニューの **Edit paragraph…**）を使うと直接ここに開けます。
+コマンドパレットの **Open partial edit pane for current section or code block**（現在のセクションまたはコードブロックの部分編集ペインを開く）を実行するか、Outline Tree View の右クリックメニューから対応する項目を選びます。カーソルが見出し行や通常の本文行にあるときはセクション全体が、fenced code block（Mermaid を含む）の内側にあるときはそのコードブロックだけが開きます（コードブロックをツリーに表示する設定のオン／オフに関係なく動作します）。段落の場合は、**Edit paragraph at cursor**（または Outline Tree のコンテキストメニューの **Edit paragraph…**）を使うと直接ここに開けます。
 
 **Partial Edit Pane** は、選択した見出しセクション、リスト部分木、段落、単体の callout/blockquote、fenced code block、table、または拡張ブロックを専用エディタとして開きます。編集後に **Apply** を選ぶと、元のノートへ反映されます。ノートのMarkdownは常に唯一の正典（source of truth）であり、ペインの構造化コントロール（後述）はそれを映す表示にすぎず、ノートの実際の内容から乖離しうる別モデルではありません。ペインを開いた後に元の対象領域が変更された場合は、ノートを保護するため、競合する内容の反映を拒否します。この場合は対象を読み込み直し、上書きするのではなく変更内容を確認してください。このペインを未保存の変更なしに開いたまま、ノートが他の場所――別のペイン、Outline Tree、または本文エディタでの Undo/Redo――で変更された場合は、自動的に再同期します。この再同期には、その変更で最後の子が追加・削除された際に、leaf項目用エディタと親項目用エディタとの間で表示自体が切り替わる場合も含まれます。
 

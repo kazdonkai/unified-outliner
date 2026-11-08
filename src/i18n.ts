@@ -97,7 +97,7 @@ const en = {
     "Show ordinary body paragraphs as navigation nodes (marked with ¶) in the Outline Tree View. Top-level and section-direct paragraphs can also be edited, inserted, deleted, and moved from the Tree (via its context menu or double-click) — paragraphs nested inside a list item are shown for navigation only. Off by default.",
   "settings.showFencedCodeInOutline.name": "Show fenced code blocks in Outline Tree View",
   "settings.showFencedCodeInOutline.desc":
-    "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as read-only navigation nodes in the Outline Tree View. Click a row to jump to its opening fence; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
+    "Show fenced code blocks (including Mermaid, Dataview, and DataviewJS) as their own rows under their heading in the Outline Tree View. Click a row to jump to its opening fence; right-click (long-press on mobile) to open just that code block in the Partial Edit Pane, move it, or delete it. When off, a code block is still editable on its own: put the cursor inside it and run \"Open partial edit pane for current section or code block\". Off by default.",
   "settings.showMirrorEmbedsInOutline.name": "Show mirror embeds in Outline Tree",
   "settings.showMirrorEmbedsInOutline.desc":
     "Show a same-note embed line (![[#Heading]] or ![[#^block-id]]) as its own read-only “Mirror:” row. Clicking the row moves to the embed line itself; double-click it or choose “Go to mirror source” to move to the referenced heading or block. Clicking (on mobile, tapping) the selected row again switches between the referenced block and the embed line. Off by default; when off, embed lines are shown as ordinary paragraphs.",
@@ -106,7 +106,7 @@ const en = {
   "tree.mirrorCycleSuffix": " (circular)",
   "settings.showTablesInOutline.name": "Show tables in Outline Tree View",
   "settings.showTablesInOutline.desc":
-    "Show Markdown tables as read-only navigation nodes in the Outline Tree View. Click a row to jump to its header row; nothing can be renamed, edited, moved, or deleted from these rows. Off by default.",
+    "Show Markdown tables as their own rows under their heading in the Outline Tree View. Click a row to jump to its header row; right-click (long-press on mobile) to open just that table in the Partial Edit Pane, move it, or delete it. Off by default.",
   "settings.syncEditorOnPartialEditNavigation.name": "Follow Partial Edit Pane navigation in the editor",
   "settings.syncEditorOnPartialEditNavigation.desc":
     "When you move to another block from the Partial Edit Pane (parent, child, sibling, breadcrumb, or previous/next extended block), also scroll the editor to the same place. Turn off to keep that navigation inside the pane.",
@@ -239,7 +239,7 @@ const en = {
   "command.insertSiblingBlock": "Insert sibling after current block",
   "command.insertChildListItem": "Insert child list item",
   "command.openOutlineTreeView": "Open outline tree view",
-  "command.openPartialEditPane": "Open partial edit pane for current section",
+  "command.openPartialEditPane": "Open partial edit pane for current section or code block",
   // Phase 5P-2: cursor-triggered paragraph hoist — see main.ts's
   // openParagraphPartialEditForCursor and view/PartialEditView.ts's
   // requestLoadParagraphAtCursor.
@@ -1040,6 +1040,8 @@ const en = {
   "reason.min-heading-level": "Unified Outliner: heading is already at level 1.",
   "reason.not-a-heading":
     "Unified Outliner: this node-only command only applies to a heading line.",
+  "reason.partial-edit-code-block-unresolved":
+    "Unified Outliner: this code block cannot be opened in the Partial Edit Pane (its closing fence or boundary could not be confirmed).",
   "reason.target-not-a-heading":
     "Unified Outliner: can only drop onto a heading, not a list item.",
   "reason.drop-into-self": "Unified Outliner: can't drop a node onto itself.",
@@ -1513,7 +1515,7 @@ const ja: Record<TranslationKey, string> = {
     "本文の通常の段落を、¶ マーク付きのナビゲーションノードとしてアウトラインツリーに表示する。トップレベルおよびセクション直下の段落は、ツリー上のコンテキストメニューやダブルクリックから編集・追加（挿入）・削除・移動も行える（リスト項目内の段落は表示のみで、これらの操作の対象外）。既定ではオフ。",
   "settings.showFencedCodeInOutline.name": "アウトラインツリーにコードブロックを表示",
   "settings.showFencedCodeInOutline.desc":
-    "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックすると開始フェンス行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
+    "fenced code block（Mermaid・Dataview・DataviewJS を含む）を、アウトラインツリーの見出しの下に独立した行として表示する。行をクリックすると開始フェンス行へ移動し、右クリック（モバイルでは長押し）でそのコードブロックだけを部分編集ペインで開く・移動する・削除することができる。オフのときも、コードブロック内にカーソルを置いて「現在のセクションまたはコードブロックの部分編集ペインを開く」を実行すれば、コードブロック単体を編集できる。既定ではオフ。",
   "settings.showMirrorEmbedsInOutline.name": "アウトラインツリーにミラー（埋め込み）を表示",
   "settings.showMirrorEmbedsInOutline.desc":
     "同じノート内への埋め込み行（![[#見出し]] または ![[#^block-id]]）を、読み取り専用の「Mirror:」行として表示する。行をクリックすると埋め込み行そのものへ移動する。参照先の見出しまたはブロックへ移動するには、行をダブルクリックするか、「参照先へ移動」を選ぶ。選択済みの行をもう一度クリック（モバイルではタップ）するたびに、参照先と埋め込み行が切り替わる。既定はオフであり、オフのときは埋め込み行は通常の段落として扱われる。",
@@ -1522,7 +1524,7 @@ const ja: Record<TranslationKey, string> = {
   "tree.mirrorCycleSuffix": "（循環参照）",
   "settings.showTablesInOutline.name": "アウトラインツリーに表を表示",
   "settings.showTablesInOutline.desc":
-    "Markdown の表を、アウトラインツリーに読み取り専用のナビゲーションノードとして表示する。行をクリックするとヘッダー行へ移動する。これらの行からの名称変更・編集・移動・削除は一切できない。既定ではオフ。",
+    "Markdown の表を、アウトラインツリーの見出しの下に独立した行として表示する。行をクリックするとヘッダー行へ移動し、右クリック（モバイルでは長押し）でその表だけを部分編集ペインで開く・移動する・削除することができる。既定ではオフ。",
   "settings.syncEditorOnPartialEditNavigation.name": "部分編集ペインでの移動に本文エディタを追従させる",
   "settings.syncEditorOnPartialEditNavigation.desc":
     "部分編集ペインで親・子・兄弟・パンくず・拡張ブロックの前後へ移動したとき、本文エディタも同じ位置へ移動する。オフにすると移動は部分編集ペインの中だけで行われる。",
@@ -1645,7 +1647,7 @@ const ja: Record<TranslationKey, string> = {
   "command.insertSiblingBlock": "現在のブロックの後に兄弟を挿入",
   "command.insertChildListItem": "子リスト項目を挿入",
   "command.openOutlineTreeView": "アウトラインツリービューを開く",
-  "command.openPartialEditPane": "現在のセクションの部分編集ペインを開く",
+  "command.openPartialEditPane": "現在のセクションまたはコードブロックの部分編集ペインを開く",
   "command.editParagraphAtCursor": "カーソル位置の段落を編集",
   "command.copyBlock": "ブロックをコピー",
   "command.duplicateBlockBelow": "下に複製",
@@ -2120,6 +2122,8 @@ const ja: Record<TranslationKey, string> = {
   "reason.max-heading-level": "Unified Outliner: この見出しまたはサブセクションはすでにレベル6にある。",
   "reason.min-heading-level": "Unified Outliner: この見出しはすでにレベル1にある。",
   "reason.not-a-heading": "Unified Outliner: このノード限定コマンドは見出し行にのみ適用できる。",
+  "reason.partial-edit-code-block-unresolved":
+    "Unified Outliner: このコードブロックは部分編集ペインで開けない（閉じフェンスまたは境界を確定できない）。",
   "reason.target-not-a-heading": "Unified Outliner: 見出しへのドロップのみ可能で、リスト項目へは不可。",
   "reason.drop-into-self": "Unified Outliner: ノードを自分自身にドロップすることはできない。",
   "reason.drop-into-descendant":
