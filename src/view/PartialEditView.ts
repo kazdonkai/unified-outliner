@@ -163,6 +163,22 @@ import {
   SubtreeKind,
 } from "../edit/partialEdit";
 import {
+  changeMermaidDiagramType,
+  changeMermaidFlowchartDirection,
+  changeMermaidRawSuffix,
+  initMermaidSession,
+  isMermaidInfoString,
+  isMermaidSessionDirty,
+  mermaidBaselineEditorText,
+  mermaidDirectionSelectValue,
+  mermaidFullText,
+  MermaidSessionState,
+  switchMermaidToSource,
+  switchMermaidToStructured,
+} from "../edit/mermaidStructuredSession";
+import { MERMAID_DIAGRAM_TYPES, MermaidFlowchartDirection } from "../edit/mermaidDiagramTypes";
+import { getMermaidRawSuffixText, mermaidDiagramTypeOf, MermaidParseFailureReason } from "../edit/mermaidStructure";
+import {
   nodeDisplayLabel,
   standaloneComplexBlockLabel,
   STANDALONE_CALLOUT_PREFIX,
@@ -718,6 +734,28 @@ export class PartialEditView extends ItemView {
    * `fencedCodeMeta` is null.
    */
   private fencedCodeSelectedInfoString: string | null = null;
+  /**
+   * Phase 5E-3M ("Mermaid 構造化部分編集"): the Structured/Source session
+   * for a loaded fenced-code block whose SELECTED info string is mermaid —
+   * see edit/mermaidStructuredSession.ts for the state model. null for
+   * every other block/kind (the pane then behaves exactly as before).
+   * Screen-only state: Apply always writes mermaidFullText()'s plain string.
+   */
+  private mermaidSession: MermaidSessionState | null = null;
+  private mermaidRowEl!: HTMLElement;
+  private mermaidStructuredButtonEl!: HTMLButtonElement;
+  private mermaidSourceButtonEl!: HTMLButtonElement;
+  private mermaidControlsEl!: HTMLElement;
+  private mermaidTypeSelectEl!: HTMLSelectElement;
+  private mermaidDirectionWrapEl!: HTMLElement;
+  private mermaidDirectionSelectEl!: HTMLSelectElement;
+  private mermaidSuffixWrapEl!: HTMLElement;
+  private mermaidSuffixInputEl!: HTMLInputElement;
+  private mermaidPreambleEl!: HTMLDetailsElement;
+  private mermaidPreambleSummaryEl!: HTMLElement;
+  private mermaidPreamblePreEl!: HTMLElement;
+  private mermaidReasonEl!: HTMLElement;
+  private mermaidNoticeEl!: HTMLElement;
   /**
    * Phase 5E-3c ("軽量 Table Mode"): the CURRENT, in-session structured
    * table model for a standalone table block — non-null exactly when
@@ -1910,6 +1948,8 @@ export class PartialEditView extends ItemView {
         this.fencedCodeLanguageCustomInputEl.toggleVisibility(false);
         this.fencedCodeSelectedInfoString = value;
       }
+      // Phase 5E-3M: entering/leaving mermaid switches the structured editor on/off.
+      this.handleMermaidLanguageChanged();
       this.updateDirtyState();
     });
     this.fencedCodeLanguageCustomInputEl = this.fencedCodeLanguageRowEl.createEl("input", {
@@ -1922,8 +1962,95 @@ export class PartialEditView extends ItemView {
     // fencedCodeInfoStringDirty check).
     this.fencedCodeLanguageCustomInputEl.addEventListener("input", () => {
       this.fencedCodeSelectedInfoString = this.fencedCodeLanguageCustomInputEl.value;
+      this.handleMermaidLanguageChanged();
       this.updateDirtyState();
     });
+
+    // Phase 5E-3M ("Mermaid 構造化部分編集"): the Structured/Source row —
+    // created once here, toggled per-load by renderMermaidRow (shown only
+    // while mermaidSession is non-null). Sits between the language row
+    // above and the shared textareaEl below, which shows the BODY lines
+    // only in the Structured view and the whole block body in Source view.
+    this.mermaidRowEl = this.contentEl.createDiv({ cls: "unified-outliner-partial-edit-mermaid-row" });
+    const mermaidViewRowEl = this.mermaidRowEl.createDiv({ cls: "unified-outliner-partial-edit-mermaid-view-row" });
+    // A two-segment switch with its own styling (styles.css "Phase 5E-3M
+    // view switch"): the selected segment is filled with the accent color
+    // and marked aria-pressed, so which view is shown is always visible
+    // regardless of the theme's own button styling.
+    const mermaidViewSwitchEl = mermaidViewRowEl.createDiv({
+      cls: "unified-outliner-partial-edit-mermaid-view-switch",
+      attr: { role: "group" },
+    });
+    this.mermaidStructuredButtonEl = mermaidViewSwitchEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-mermaid-view-button",
+      text: this.plugin.t("partialEdit.mermaid.viewStructured"),
+      attr: { type: "button" },
+    });
+    this.mermaidStructuredButtonEl.addEventListener("click", () => this.handleMermaidSwitchToStructured());
+    this.mermaidSourceButtonEl = mermaidViewSwitchEl.createEl("button", {
+      cls: "unified-outliner-partial-edit-mermaid-view-button",
+      text: this.plugin.t("partialEdit.mermaid.viewSource"),
+      attr: { type: "button" },
+    });
+    this.mermaidSourceButtonEl.addEventListener("click", () => this.handleMermaidSwitchToSource());
+    this.mermaidReasonEl = mermaidViewRowEl.createSpan({ cls: "unified-outliner-partial-edit-mermaid-reason" });
+
+    this.mermaidControlsEl = this.mermaidRowEl.createDiv({ cls: "unified-outliner-partial-edit-mermaid-controls" });
+    this.mermaidControlsEl.createSpan({
+      cls: "unified-outliner-partial-edit-fenced-code-language-label",
+      text: this.plugin.t("partialEdit.mermaid.diagramTypeLabel"),
+    });
+    this.mermaidTypeSelectEl = this.mermaidControlsEl.createEl("select", {
+      cls: "dropdown unified-outliner-partial-edit-mermaid-type-select",
+    });
+    for (const type of MERMAID_DIAGRAM_TYPES) {
+      this.mermaidTypeSelectEl.createEl("option", {
+        value: type.id,
+        text: this.plugin.t("mermaid.typeOption", { label: this.plugin.t(type.labelKey), keyword: type.keywords[0] }),
+      });
+    }
+    this.mermaidTypeSelectEl.addEventListener("change", () => this.handleMermaidTypeChange());
+    this.mermaidDirectionWrapEl = this.mermaidControlsEl.createSpan({ cls: "unified-outliner-partial-edit-mermaid-direction" });
+    this.mermaidDirectionWrapEl.createSpan({
+      cls: "unified-outliner-partial-edit-fenced-code-language-label",
+      text: this.plugin.t("partialEdit.mermaid.directionLabel"),
+    });
+    this.mermaidDirectionSelectEl = this.mermaidDirectionWrapEl.createEl("select", {
+      cls: "dropdown unified-outliner-partial-edit-mermaid-direction-select",
+    });
+    for (const [value, key] of [
+      ["", "partialEdit.mermaid.direction.none"],
+      ["TD", "partialEdit.mermaid.direction.TD"],
+      ["BT", "partialEdit.mermaid.direction.BT"],
+      ["LR", "partialEdit.mermaid.direction.LR"],
+      ["RL", "partialEdit.mermaid.direction.RL"],
+    ] as const) {
+      this.mermaidDirectionSelectEl.createEl("option", { value, text: this.plugin.t(key) });
+    }
+    this.mermaidDirectionSelectEl.addEventListener("change", () => this.handleMermaidDirectionChange());
+    this.mermaidSuffixWrapEl = this.mermaidControlsEl.createSpan({ cls: "unified-outliner-partial-edit-mermaid-suffix" });
+    this.mermaidSuffixWrapEl.createSpan({
+      cls: "unified-outliner-partial-edit-fenced-code-language-label",
+      text: this.plugin.t("partialEdit.mermaid.suffixLabel"),
+    });
+    this.mermaidSuffixInputEl = this.mermaidSuffixWrapEl.createEl("input", {
+      type: "text",
+      cls: "unified-outliner-partial-edit-mermaid-suffix-input",
+    });
+    this.mermaidSuffixInputEl.addEventListener("input", () => this.handleMermaidSuffixInput());
+
+    this.mermaidPreambleEl = this.mermaidRowEl.createEl("details", {
+      cls: "unified-outliner-partial-edit-mermaid-preamble",
+    });
+    this.mermaidPreambleSummaryEl = this.mermaidPreambleEl.createEl("summary");
+    this.mermaidPreamblePreEl = this.mermaidPreambleEl.createEl("pre", {
+      cls: "unified-outliner-partial-edit-mermaid-preamble-text",
+    });
+    this.mermaidNoticeEl = this.mermaidRowEl.createDiv({
+      cls: "unified-outliner-partial-edit-mermaid-notice",
+      text: this.plugin.t("partialEdit.mermaid.typeChangedNotice"),
+    });
+    this.mermaidRowEl.toggleVisibility(false);
 
     // Phase 5E-3c ("軽量 Table Mode"): the Raw/Table tab row — created
     // once here (like every other row in this method), visibility/state
@@ -2443,6 +2570,7 @@ export class PartialEditView extends ItemView {
     // field's own doc comment.
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    this.mermaidSession = null;
     // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
     // fields' own doc comments (Table Mode is exclusively a "table" kind
     // concept, same "no-op addition for every other kind" pattern).
@@ -2810,6 +2938,8 @@ export class PartialEditView extends ItemView {
     // quoteProjection's own kind-gated population immediately above.
     this.fencedCodeMeta = extracted.kind === "fenced-code" ? extracted.fencedCode ?? null : null;
     this.fencedCodeSelectedInfoString = this.fencedCodeMeta ? this.fencedCodeMeta.infoString : null;
+    // Phase 5E-3M: Structured view when the loaded block is a parseable Mermaid diagram.
+    this.mermaidSession = this.loadedMermaidSession();
     // Phase 5E-3c: populate the Table Mode model exactly when this load
     // resolved to a table block — every other kind leaves all three
     // fields at their reset defaults, mirroring fencedCodeMeta's own
@@ -2935,6 +3065,7 @@ export class PartialEditView extends ItemView {
     // fenced-code kind/info-string selector either).
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    this.mermaidSession = null;
     // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
     // fields' own doc comments (a paragraph is never eligible for Table
     // Mode either).
@@ -3090,6 +3221,7 @@ export class PartialEditView extends ItemView {
     // has no CompositeBlock-member concept at all).
     this.fencedCodeMeta = null;
     this.fencedCodeSelectedInfoString = null;
+    this.mermaidSession = null;
     // Phase 5E-3c: reset alongside fencedCodeMeta above — see these
     // fields' own doc comments (fenced-code has no CompositeBlock-member
     // concept, and neither does a table — Table Mode is never eligible
@@ -4783,6 +4915,11 @@ export class PartialEditView extends ItemView {
    * exactly as this pane always has.
    */
   private currentDisplayText(): string {
+    // Phase 5E-3M: the loaded body only (Structured view) or the loaded
+    // whole block body (Source view) — see mermaidBaselineEditorText.
+    if (this.mermaidSession && this.fencedCodeMeta) {
+      return mermaidBaselineEditorText(this.mermaidSession, this.originalText);
+    }
     if (this.listParagraphProjection) return this.listParagraphProjection.body;
     if (this.quoteProjection) return projectedDisplayText(this.quoteProjection);
     // Phase 5L-1: standaloneListMarkerProjection is only ever set for a
@@ -5397,9 +5534,150 @@ export class PartialEditView extends ItemView {
    * (covers both "opened with a custom info string" and "user is
    * actively typing a custom one").
    */
+  /** Phase 5E-3M: the session for the LOADED state (load / Cancel): Structured if the loaded body parses. */
+  private loadedMermaidSession(): MermaidSessionState | null {
+    if (!this.fencedCodeMeta || !isMermaidInfoString(this.fencedCodeMeta.infoString)) return null;
+    return initMermaidSession(this.originalText).state;
+  }
+
+  /** Phase 5E-3M: the session after a successful Apply of `appliedText` (keeps the Source view if the user was in it). */
+  private mermaidSessionAfterApply(appliedText: string, appliedInfoString: string): MermaidSessionState | null {
+    if (!isMermaidInfoString(appliedInfoString)) return null;
+    const next = initMermaidSession(appliedText).state;
+    if (this.mermaidSession?.view === "source" && next.view === "structured") {
+      return { ...next, view: "source", working: null };
+    }
+    return next;
+  }
+
+  private mermaidReasonText(reason: MermaidParseFailureReason): string {
+    return this.plugin.t(("partialEdit.mermaid.reason." + reason) as TranslationKey);
+  }
+
+  /**
+   * Phase 5E-3M §1-6(5): the language selector moved to / away from
+   * mermaid. Leaving mermaid while Structured puts the re-joined whole
+   * text in the editor (then it is an ordinary fenced block); entering
+   * mermaid tries to structure the editor's CURRENT text.
+   */
+  private handleMermaidLanguageChanged(): void {
+    if (!this.fencedCodeMeta) return;
+    const wantMermaid = isMermaidInfoString(this.fencedCodeSelectedInfoString);
+    if (this.mermaidSession && !wantMermaid) {
+      this.textareaEl.value = mermaidFullText(this.mermaidSession, this.textareaEl.value);
+      this.mermaidSession = null;
+    } else if (!this.mermaidSession && wantMermaid) {
+      const loaded = initMermaidSession(this.originalText).state;
+      const fromSource: MermaidSessionState = { ...loaded, view: "source", working: null };
+      const result = switchMermaidToStructured(fromSource, this.textareaEl.value);
+      this.mermaidSession = result.state;
+      this.textareaEl.value = result.editorValue;
+    } else {
+      return;
+    }
+    this.renderMermaidRow();
+  }
+
+  private handleMermaidSwitchToSource(): void {
+    if (!this.mermaidSession) return;
+    const result = switchMermaidToSource(this.mermaidSession, this.textareaEl.value);
+    this.mermaidSession = result.state;
+    this.textareaEl.value = result.editorValue;
+    this.renderMermaidRow();
+    this.updateDirtyState();
+  }
+
+  private handleMermaidSwitchToStructured(): void {
+    if (!this.mermaidSession) return;
+    const result = switchMermaidToStructured(this.mermaidSession, this.textareaEl.value);
+    this.mermaidSession = result.state;
+    if (!result.ok && result.state.failure) {
+      new Notice(this.plugin.t("partialEdit.mermaid.structureFailedNotice", { reason: this.mermaidReasonText(result.state.failure) }));
+    }
+    this.textareaEl.value = result.editorValue;
+    this.renderMermaidRow();
+    this.updateDirtyState();
+  }
+
+  private handleMermaidTypeChange(): void {
+    if (!this.mermaidSession) return;
+    const result = changeMermaidDiagramType(this.mermaidSession, this.textareaEl.value, this.mermaidTypeSelectEl.value);
+    this.mermaidSession = result.state;
+    if (this.textareaEl.value !== result.editorValue) this.textareaEl.value = result.editorValue;
+    this.renderMermaidRow();
+    this.updateDirtyState();
+  }
+
+  private handleMermaidDirectionChange(): void {
+    if (!this.mermaidSession) return;
+    this.mermaidSession = changeMermaidFlowchartDirection(
+      this.mermaidSession,
+      this.mermaidDirectionSelectEl.value as MermaidFlowchartDirection | ""
+    );
+    this.updateDirtyState();
+  }
+
+  private handleMermaidSuffixInput(): void {
+    if (!this.mermaidSession) return;
+    this.mermaidSession = changeMermaidRawSuffix(this.mermaidSession, this.mermaidSuffixInputEl.value);
+    this.updateDirtyState();
+  }
+
+  /**
+   * Phase 5E-3M: shows/hides and populates the Mermaid row from
+   * `mermaidSession` (hidden whenever it is null — every non-Mermaid block
+   * and every other kind looks exactly as before).
+   */
+  private renderMermaidRow(): void {
+    const session = this.mermaidSession;
+    if (!session) {
+      this.mermaidRowEl.toggleVisibility(false);
+      return;
+    }
+    this.mermaidRowEl.toggleVisibility(true);
+    const structured = session.view === "structured" && session.working !== null;
+    this.mermaidStructuredButtonEl.toggleClass("unified-outliner-partial-edit-mermaid-view-button-active", structured);
+    this.mermaidSourceButtonEl.toggleClass("unified-outliner-partial-edit-mermaid-view-button-active", !structured);
+    this.mermaidStructuredButtonEl.setAttr("aria-pressed", structured ? "true" : "false");
+    this.mermaidSourceButtonEl.setAttr("aria-pressed", structured ? "false" : "true");
+    if (!structured && session.failure) {
+      this.mermaidReasonEl.setText(
+        this.plugin.t("partialEdit.mermaid.sourceReason", { reason: this.mermaidReasonText(session.failure) })
+      );
+      this.mermaidReasonEl.toggleVisibility(true);
+    } else {
+      this.mermaidReasonEl.setText("");
+      this.mermaidReasonEl.toggleVisibility(false);
+    }
+    this.mermaidControlsEl.toggleVisibility(structured);
+    this.mermaidNoticeEl.toggleVisibility(structured && session.typeChangedNotice);
+    if (!structured || !session.working) {
+      this.mermaidPreambleEl.toggleVisibility(false);
+      return;
+    }
+    const working = session.working;
+    const type = mermaidDiagramTypeOf(working);
+    if (type) this.mermaidTypeSelectEl.value = type.id;
+    const direction = mermaidDirectionSelectValue(session);
+    this.mermaidDirectionWrapEl.toggleVisibility(direction !== null);
+    if (direction !== null) this.mermaidDirectionSelectEl.value = direction;
+    const raw = type?.suffixPolicy === "raw";
+    this.mermaidSuffixWrapEl.toggleVisibility(raw);
+    if (raw && this.mermaidSuffixInputEl.value !== getMermaidRawSuffixText(working)) {
+      this.mermaidSuffixInputEl.value = getMermaidRawSuffixText(working);
+    }
+    const preambleContentLines = working.preambleLines.filter((l) => l.trim() !== "");
+    this.mermaidPreambleEl.toggleVisibility(preambleContentLines.length > 0);
+    this.mermaidPreambleSummaryEl.setText(
+      this.plugin.t("partialEdit.mermaid.preambleSummary", { count: preambleContentLines.length })
+    );
+    this.mermaidPreamblePreEl.setText(working.preambleLines.join("\n"));
+  }
+
   private renderFencedCodeLanguageRow(): void {
     const meta = this.fencedCodeMeta;
     if (!meta) {
+      this.renderMermaidRow();
       this.fencedCodeLanguageRowEl.toggleVisibility(false);
       this.fencedCodeLanguageSelectEl.disabled = true;
       this.fencedCodeLanguageCustomInputEl.disabled = true;
@@ -5421,6 +5699,7 @@ export class PartialEditView extends ItemView {
       this.fencedCodeLanguageCustomInputEl.toggleVisibility(true);
       this.fencedCodeLanguageCustomInputEl.value = current;
     }
+    this.renderMermaidRow();
   }
 
   /**
@@ -6067,6 +6346,12 @@ export class PartialEditView extends ItemView {
   /** Revert unsaved edits in the textarea (and, Phase 5D-1A, the title input) — does not close the pane or change which node is loaded. */
   private cancelEdit(): void {
     if (!this.nodeId && !this.paragraphAnchor && !this.compositeAnchor) return;
+    // Phase 5E-3M §1-6(4): Cancel restores the loaded info string and,
+    // for Mermaid, the loaded declaration/body and view.
+    if (this.fencedCodeMeta) {
+      this.fencedCodeSelectedInfoString = this.fencedCodeMeta.infoString;
+      this.mermaidSession = this.loadedMermaidSession();
+    }
     // Phase 5D-0.5: reverts to the projected displayText (not the raw
     // originalText) for a projecting callout/blockquote — see
     // currentDisplayText's own doc comment. Every other kind is
@@ -6074,6 +6359,7 @@ export class PartialEditView extends ItemView {
     // verbatim whenever quoteProjection is null.
     this.textareaEl.value = this.currentDisplayText();
     this.syncParentOwnTextSplitEditors();
+    if (this.fencedCodeMeta) this.renderFencedCodeLanguageRow();
     // Block ID field: back to the loaded id.
     this.renderBlockIdRow();
     // Phase 5D-1A: revert the title input to its loaded value too, when a
@@ -6769,6 +7055,11 @@ export class PartialEditView extends ItemView {
     if (this.nodeKind === "table" && this.tableModeActiveTab === "table" && this.tableModeTable) {
       newRawText = serializeMarkdownTable(this.tableModeTable).join("\n");
     }
+    // Phase 5E-3M: the Structured view's textarea holds only the body;
+    // Apply writes the re-joined preamble + declaration + body string.
+    if (this.fencedCodeMeta && this.mermaidSession) {
+      newRawText = mermaidFullText(this.mermaidSession, this.textareaEl.value);
+    }
     // Phase 5L-9b ("First Direct Child Addition for Leaf List Items —
     // Mode B"): a pending "promote this leaf to a parent" draft is
     // present — checked BEFORE every other branch in this whole
@@ -7388,6 +7679,9 @@ export class PartialEditView extends ItemView {
         const appliedInfoString = this.fencedCodeSelectedInfoString ?? this.fencedCodeMeta.infoString;
         this.fencedCodeMeta = { ...this.fencedCodeMeta, bodyText: newRawText, infoString: appliedInfoString };
         this.fencedCodeSelectedInfoString = appliedInfoString;
+        // Phase 5E-3M: re-derive the session from the just-applied text,
+        // keeping the Source view if that is where the user applied from.
+        this.mermaidSession = this.mermaidSessionAfterApply(newRawText, appliedInfoString);
         this.textareaEl.value = this.currentDisplayText();
         this.syncParentOwnTextSplitEditors();
         this.renderFencedCodeLanguageRow();
@@ -8336,6 +8630,14 @@ export class PartialEditView extends ItemView {
     // own "one flag per new control, body handled separately" pattern.
     const fencedCodeInfoStringDirty =
       this.fencedCodeMeta !== null && this.fencedCodeSelectedInfoString !== this.fencedCodeMeta.infoString;
+    // Phase 5E-3M: in the Structured view a declaration change (type,
+    // direction, suffix) is invisible to the textarea comparison above, so
+    // dirtiness is "the text that would be applied differs from the loaded
+    // text" — re-picking the original value is therefore not dirty.
+    const mermaidStructuredDirty =
+      this.mermaidSession !== null &&
+      this.mermaidSession.view === "structured" &&
+      isMermaidSessionDirty(this.mermaidSession, this.textareaEl.value, this.originalText);
     // Phase 5E-3c ("軽量 Table Mode"): dirty whenever the Table tab is the
     // active, available one AND its current model's own serialized form
     // differs from `this.originalText` — this is the ONLY dirty check
@@ -8361,6 +8663,7 @@ export class PartialEditView extends ItemView {
     // Block ID field: an edited id alone makes the pane dirty (only ever
     // true while a block is loaded and its Block ID row is shown).
     if (this.isBlockIdDirty()) return true;
+    if (mermaidStructuredDirty) return true;
     return (
       (this.nodeId !== null || this.paragraphAnchor !== null || this.compositeAnchor !== null) &&
       (this.bodyEditorText() !== this.currentDisplayText() ||
@@ -8849,6 +9152,13 @@ export class PartialEditView extends ItemView {
     // anchor is re-based below; undefined = no Block ID field / unresolved).
     const blockId = this.resolveCurrentTargetBlockId(doc);
     this.originalText = newText;
+    // Phase 5E-3M: an external change re-derives the Mermaid session from
+    // the new text (keeping the Source view if that is the current one), so
+    // currentDisplayText() never shows a stale structured body.
+    if (this.fencedCodeMeta && this.mermaidSession) {
+      this.mermaidSession = this.mermaidSessionAfterApply(newText, this.fencedCodeSelectedInfoString ?? this.fencedCodeMeta.infoString);
+      this.renderMermaidRow();
+    }
     if (blockId !== undefined) {
       this.loadedBlockId = blockId;
       if (this.nodeId) {

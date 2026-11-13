@@ -10,7 +10,8 @@
  */
 import { App, Modal } from "obsidian";
 import type UnifiedOutlinerPlugin from "../main";
-import { CODE_BLOCK_PRESETS, findCodeBlockPreset, validateCustomInfoString } from "../edit/codeBlockPresets";
+import { CODE_BLOCK_PRESETS, findCodeBlockPreset, resolveCodeBlockPresetBody, validateCustomInfoString } from "../edit/codeBlockPresets";
+import { MERMAID_DIAGRAM_TYPES } from "../edit/mermaidDiagramTypes";
 
 export interface CodeBlockPresetChoice {
   infoString: string;
@@ -49,11 +50,34 @@ export class CodeBlockPresetModal extends Modal {
       attr: { placeholder: t("modal.insertCodeBlockCustomPlaceholder") },
     });
     customInputEl.toggleVisibility(false);
+
+    // Phase 5E-3M §1-4: the extra "diagram type" step, shown only while the
+    // Mermaid preset is selected. "Do not choose" keeps the preset's own
+    // bodyTemplate (the pre-5E-3M behavior).
+    const diagramRow = this.contentEl.createDiv({
+      cls: "unified-outliner-insert-block-modal-row unified-outliner-insert-block-modal-mermaid-type-row",
+    });
+    diagramRow.createEl("label", { text: t("modal.insertCodeBlockDiagramTypeLabel") });
+    const diagramSelectEl = diagramRow.createEl("select", { cls: "dropdown" });
+    diagramSelectEl.createEl("option", { value: "", text: t("modal.insertCodeBlockDiagramTypeNone") });
+    for (const type of MERMAID_DIAGRAM_TYPES) {
+      diagramSelectEl.createEl("option", {
+        value: type.id,
+        text: t("mermaid.typeOption", { label: t(type.labelKey), keyword: type.keywords[0] }),
+      });
+    }
+    const syncDiagramRow = () => {
+      const isMermaid = selectEl.value === "mermaid";
+      diagramRow.toggleVisibility(isMermaid);
+      diagramRow.toggleClass("unified-outliner-insert-block-modal-row-hidden", !isMermaid);
+    };
+    syncDiagramRow();
     const errorEl = this.contentEl.createDiv({ cls: "unified-outliner-insert-block-modal-error" });
 
     selectEl.addEventListener("change", () => {
       const isCustom = selectEl.value === CUSTOM_VALUE;
       customInputEl.toggleVisibility(isCustom);
+      syncDiagramRow();
       errorEl.setText("");
       if (isCustom) customInputEl.focus();
     });
@@ -70,7 +94,9 @@ export class CodeBlockPresetModal extends Modal {
       }
       const preset = findCodeBlockPreset(selectEl.value);
       if (!preset) return;
-      this.choose({ infoString: preset.infoString, bodyTemplate: preset.bodyTemplate });
+      const diagramTypeId = preset.id === "mermaid" ? diagramSelectEl.value || null : null;
+      const bodyTemplate = resolveCodeBlockPresetBody(preset.id, diagramTypeId) ?? preset.bodyTemplate;
+      this.choose({ infoString: preset.infoString, bodyTemplate });
     };
     customInputEl.addEventListener("keydown", (evt) => {
       if (evt.key === "Enter" && !evt.isComposing) {

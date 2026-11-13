@@ -295,14 +295,17 @@ describe("applySubtreeEdit: fenced code with a standalone id", () => {
   it("updates the id", () => {
     const { doc, info, x } = load();
     const o = applySubtreeEdit(doc, info.id, x.text, "a()", undefined, "code-2", true, "code-id");
-    // (the fence's info string is rebuilt as "``` js" — existing Phase 5E-3 normalization)
-    expect(o.lines).toEqual(["``` js", "a()", "```", "", "^code-2", "", "after"]);
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(o.lines).toEqual(["```js", "a()", "```", "", "^code-2", "", "after"]);
   });
 
   it("deletes the id", () => {
     const { doc, info, x } = load();
     const o = applySubtreeEdit(doc, info.id, x.text, "a()", undefined, null, true, "code-id");
-    expect(o.lines).toEqual(["``` js", "a()", "```", "", "after"]);
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(o.lines).toEqual(["```js", "a()", "```", "", "after"]);
   });
 
   it("body + language change keep the id", () => {

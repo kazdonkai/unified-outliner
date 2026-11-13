@@ -192,7 +192,12 @@ describe("Phase 5E-3 category B: Apply reconstruction (open/close fence line reb
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, "  changed");
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "  ``` js", "  changed", "  ```"]);
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(outcome.lines).toEqual(["# H", "  ```js", "  changed", "  ```"]);
+    // A CHANGED info string still rebuilds the opening line (with the indent).
+    const changedInfo = applySubtreeEdit(doc, info.id, original.text, "  changed", "python");
+    expect(changedInfo.lines).toEqual(["# H", "  ``` python", "  changed", "  ```"]);
   });
 });
 
@@ -207,7 +212,9 @@ describe("Phase 5E-3 category C: Apply validation", () => {
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, ["line one", "line two", "line three"].join("\n"));
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "``` js", "line one", "line two", "line three", "```"]);
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(outcome.lines).toEqual(["# H", "```js", "line one", "line two", "line three", "```"]);
   });
 
   it("fully clearing the content (newText === \"\") still passes validation — a zero-content code block is valid", () => {
@@ -220,7 +227,9 @@ describe("Phase 5E-3 category C: Apply validation", () => {
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, "");
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# H", "``` js", "```"]);
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(outcome.lines).toEqual(["# H", "```js", "```"]);
   });
 
   it("an invalid fencedCodeInfoString (embedded newline) corrupts the synthesized open line and causes Apply validation to fail", () => {

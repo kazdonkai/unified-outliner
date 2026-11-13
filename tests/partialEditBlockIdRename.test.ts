@@ -197,7 +197,9 @@ describe("applyEdit flow: id rename + same-note embed rewrite in ONE edit", () =
       const x = extractSubtreeText(doc, info.id);
       return applySubtreeEdit(doc, info.id, x.text, "b()", undefined, "cid-2", true, "cid");
     });
-    expect(editor.getValue()).toBe(J("``` js", "b()", "```", "", "^cid-2", "", "![[#^cid-2]]"));
+    // Phase 5E-3M §1-1: the info string is unchanged, so the ORIGINAL
+    // opening fence line is now kept verbatim (no "``` js" normalization).
+    expect(editor.getValue()).toBe(J("```js", "b()", "```", "", "^cid-2", "", "![[#^cid-2]]"));
   });
 });
 

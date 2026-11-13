@@ -704,6 +704,13 @@ settings:
 .unified-outliner-partial-edit-ordered-number-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-child-inline-editor[style*="visibility: hidden"],
 .unified-outliner-partial-edit-fenced-code-language-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-row[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-reason[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-controls[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-direction[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-suffix[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-preamble[style*="visibility: hidden"],
+.unified-outliner-partial-edit-mermaid-notice[style*="visibility: hidden"],
 .unified-outliner-partial-edit-table-mode-tab-row[style*="visibility: hidden"],
 .unified-outliner-partial-edit-table-mode-grid[style*="visibility: hidden"],
 .unified-outliner-partial-edit-textarea-grip[style*="visibility: hidden"],
@@ -2925,4 +2932,113 @@ body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-blo
 body .unified-outliner-partial-edit-view input.unified-outliner-partial-edit-block-id-input:focus {
   border-color: var(--uo-current-color);
   outline: none;
+}
+
+/* Phase 5E-3M ("Mermaid 構造化部分編集"): the Structured/Source row shown
+ * between the language row and the shared textarea for a Mermaid block.
+ * The two view buttons reuse the Table Mode tab look. */
+.unified-outliner-partial-edit-mermaid-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  margin-bottom: 6px;
+}
+
+.unified-outliner-partial-edit-mermaid-view-row,
+.unified-outliner-partial-edit-mermaid-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.unified-outliner-partial-edit-mermaid-direction,
+.unified-outliner-partial-edit-mermaid-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unified-outliner-partial-edit-mermaid-suffix-input {
+  width: 12em;
+  max-width: 100%;
+}
+
+.unified-outliner-partial-edit-mermaid-reason {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--text-muted);
+}
+
+.unified-outliner-partial-edit-mermaid-preamble summary {
+  cursor: pointer;
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--text-muted);
+}
+
+.unified-outliner-partial-edit-mermaid-preamble-text {
+  margin: 4px 0 0;
+  padding: 4px 6px;
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  background-color: rgba(128, 128, 128, 0.08);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.unified-outliner-partial-edit-mermaid-notice {
+  font-size: calc(var(--uo-font-size, 14px) - 2px);
+  color: var(--text-warning);
+}
+
+/* Phase 5E-3M: the insert modal's Mermaid diagram-type step, collapsed while another language is chosen. */
+.unified-outliner-insert-block-modal-row.unified-outliner-insert-block-modal-row-hidden {
+  display: none;
+}
+
+/* Phase 5E-3M view switch: "Structured" / "Source" as one segmented
+ * control with the plugin's own styling. Selectors are scoped under the
+ * Mermaid row (specificity 0,3,0+) so a theme's generic
+ * `button:not(.clickable-icon)` rules cannot erase the difference between
+ * the selected and the unselected segment (no !important needed). */
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch .unified-outliner-partial-edit-mermaid-view-button {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  height: auto;
+  padding: 3px 12px;
+  background-color: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: calc(var(--uo-font-size, 14px) - 1px);
+  font-weight: var(--font-normal, 400);
+  cursor: pointer;
+}
+
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch .unified-outliner-partial-edit-mermaid-view-button + .unified-outliner-partial-edit-mermaid-view-button {
+  border-left: 1px solid var(--interactive-accent);
+}
+
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch .unified-outliner-partial-edit-mermaid-view-button:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch .unified-outliner-partial-edit-mermaid-view-button.unified-outliner-partial-edit-mermaid-view-button-active,
+.unified-outliner-partial-edit-mermaid-row .unified-outliner-partial-edit-mermaid-view-switch .unified-outliner-partial-edit-mermaid-view-button.unified-outliner-partial-edit-mermaid-view-button-active:hover {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-semibold, 600);
+  cursor: default;
 }

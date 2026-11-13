@@ -241,13 +241,11 @@ describe("D. 書き戻し (Apply)", () => {
     const original = extractSubtreeText(doc, id);
     const outcome = applySubtreeEdit(doc, id, original.text, "graph LR\n  A --> B");
     expect(outcome.changed).toBe(true);
-    // Phase 5E-3 design memo §「副作用：フェンス・info string 間の空白の正規化」:
-    // the rebuilt open line always uses one space before the info string.
-    // This is the approved existing contract, pinned here so a change to it
-    // is a deliberate decision (see the report's approval item).
+    // Phase 5E-3M §1-1: the original "```mermaid" opening line is kept
+    // verbatim (the earlier "``` mermaid" normalization was approved away).
     expect(outcome.lines).toEqual([
       REPRO[0],
-      BT + " mermaid",
+      BT + "mermaid",
       "graph LR",
       "  A --> B",
       BT,
@@ -255,14 +253,12 @@ describe("D. 書き戻し (Apply)", () => {
     ]);
   });
 
-  it("未変更テキストでの Apply は本文・範囲外を変えない (開始行の空白正規化のみ、既存 5E-3 契約)", () => {
+  it("未変更テキストでの Apply は原文を一字も変えない (Phase 5E-3M §1-1 で開始行も保持)", () => {
     const doc = parseDocument(text);
     const id = fencedId(doc);
     const original = extractSubtreeText(doc, id);
     const outcome = applySubtreeEdit(doc, id, original.text, original.text);
-    const expected = [...REPRO];
-    expected[1] = BT + " mermaid";
-    expect(outcome.lines).toEqual(expected);
+    expect(outcome.lines).toEqual(REPRO);
   });
 
   it("スペースありの開始行なら未変更 Apply は完全に原文どおり", () => {

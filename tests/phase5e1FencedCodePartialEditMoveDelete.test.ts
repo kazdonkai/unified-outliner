@@ -237,12 +237,10 @@ describe("Phase 5E-1 category C: raw Partial Edit", () => {
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, ["code", "not a closing fence"].join("\n"));
     expect(outcome.changed).toBe(true);
-    // Phase 5E-3: reconstruction always inserts exactly one space between
-    // the fence and the info string (design memo §2 step 1), so
-    // "```js" normalizes to "``` js" on round-trip — the identical
-    // CommonMark info string "js" either way (see the Mermaid test above
-    // for the same normalization spelled out in full).
-    expect(outcome.lines).toEqual(["# H", "``` js", "code", "not a closing fence", "```"]);
+    // Phase 5E-3M §1-1: the Phase 5E-3 "``` js" normalization no longer
+    // applies when the info string is unchanged — the original opening
+    // line "```js" is kept verbatim.
+    expect(outcome.lines).toEqual(["# H", "```js", "code", "not a closing fence", "```"]);
   });
 
   it("conflict detection works equivalently to the existing callout/blockquote mechanism — refuses Apply when the note changed since the pane loaded it", () => {
@@ -274,14 +272,11 @@ describe("Phase 5E-1 category C: raw Partial Edit", () => {
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, ["graph TD", "A-->B-->C"].join("\n"));
     expect(outcome.changed).toBe(true);
-    // Phase 5E-3: applySubtreeEdit's fenced-code reconstruction always
-    // rebuilds the opening line as `fence + " " + infoString` (one space,
-    // unconditionally — per this ticket's design memo §2 step 1), so a
-    // space-less original open line ("```mermaid") normalizes to a
-    // spaced one ("``` mermaid") on round-trip. Both are the identical
-    // CommonMark info string "mermaid" either way — this is an
-    // intentional formatting normalization, not a fidelity bug.
-    expect(outcome.lines).toEqual(["# H", "``` mermaid", "graph TD", "A-->B-->C", "```"]);
+    // Phase 5E-3 used to rebuild the opening line as "``` mermaid" (one
+    // space, unconditionally). Phase 5E-3M §1-1: with the info string
+    // unchanged, the original "```mermaid" line is now kept verbatim, so a
+    // structured Mermaid edit that changes nothing changes nothing.
+    expect(outcome.lines).toEqual(["# H", "```mermaid", "graph TD", "A-->B-->C", "```"]);
   });
 });
 

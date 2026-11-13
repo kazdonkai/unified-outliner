@@ -671,6 +671,7 @@ export type NoApplySubtreeEditReason =
   | "conflict"
   | "fenced-code-invalid-open"
   | "fenced-code-invalid-close"
+  | "fenced-code-premature-close"
   | "table-too-few-lines"
   | "table-missing-pipe"
   | "table-invalid-delimiter"
@@ -741,6 +742,14 @@ function isValidFencedCodeOpenLine(line: string): { valid: boolean; fenceChar: s
  * parser/complexBlocks.ts itself detects a block's boundary.
  */
 const FENCE_CLOSE_ONLY_LINE_RE = /^[ \t]*(`+|~+)[ \t]*$/;
+
+/**
+ * Phase 5E-3M: byte-identical in shape to parser/parseDocument.ts's own
+ * FENCE_RE — the rule the plugin's parser uses to decide that a line inside
+ * an open fence closes it (same leading fence character, 3+ run, anything
+ * after). Used only to refuse a body line that would close the block early.
+ */
+const PARSER_FENCE_RE = /^[ \t]*(```+|~~~+)/;
 
 function isValidFencedCodeCloseLine(line: string, fenceChar: string, minLength: number): boolean {
   const m = line.match(FENCE_CLOSE_ONLY_LINE_RE);
@@ -915,8 +924,31 @@ export function applySubtreeEdit(
     const fenceLength = meta?.fenceLength ?? 3;
     const infoString = fencedCodeInfoString !== undefined ? fencedCodeInfoString : (meta?.infoString ?? "");
 
-    const openLine = openLineIndent + fenceChar.repeat(fenceLength) + (infoString !== "" ? " " + infoString : "");
-    const closeLine = openLineIndent + fenceChar.repeat(fenceLength);
+    // Phase 5E-3M §1-1 (fence-line preservation): when the info string is
+    // unchanged from extraction time, the ORIGINAL opening and closing
+    // fence lines are reused verbatim, so an Apply that changes nothing
+    // changes nothing ("```mermaid" no longer becomes "``` mermaid"). Only
+    // a changed info string rebuilds the opening line in the Phase 5E-3
+    // "fence + single space + info" form. The original closing line is
+    // kept in both cases (it never carries an info string). Each original
+    // line is still re-validated below; one that would not pass falls
+    // back to the synthesized form (defense-in-depth — the scanner only
+    // produces "supported" fences whose lines do pass).
+    const infoUnchanged = meta !== undefined && infoString === meta.infoString;
+    const synthesizedOpen = openLineIndent + fenceChar.repeat(fenceLength) + (infoString !== "" ? " " + infoString : "");
+    const synthesizedClose = openLineIndent + fenceChar.repeat(fenceLength);
+    const originalOpen = doc.lines[current.startLine];
+    const originalClose = doc.lines[current.endLine];
+    const openLine =
+      infoUnchanged && originalOpen !== undefined && isValidFencedCodeOpenLine(originalOpen).valid
+        ? originalOpen
+        : synthesizedOpen;
+    const closeLine =
+      originalClose !== undefined &&
+      current.endLine > current.startLine &&
+      isValidFencedCodeCloseLine(originalClose, fenceChar, fenceLength)
+        ? originalClose
+        : synthesizedClose;
     // A fully-cleared textarea (newText === "") must become ZERO content
     // lines, not a single empty line — mirrors extractComplexBlockText's
     // own "zero content lines" case exactly (rawLines.slice(1, len-1)
@@ -924,6 +956,21 @@ export function applySubtreeEdit(
     // would otherwise yield [""], one phantom blank line).
     const contentLines = newText === "" ? [] : newLines;
     const reconstructed = [openLine, ...contentLines, closeLine];
+
+    // Phase 5E-3M §1-7(3): a content line that the plugin's own parser
+    // (parser/parseDocument.ts's FENCE_RE — any run of 3+ of the SAME fence
+    // character at the start of the line, regardless of length or trailing
+    // text) would treat as this block's closing fence would end the block
+    // early and spill the rest of the body into the note. Refuse it rather
+    // than write a block whose boundary no longer matches what was edited.
+    // Deliberately follows the parser's rule (stricter than CommonMark),
+    // because that rule is what every later scan of the note will use.
+    if (contentLines.some((line) => {
+      const m = line.match(PARSER_FENCE_RE);
+      return m !== null && m[1][0] === fenceChar;
+    })) {
+      return { changed: false, lines: doc.lines, newStartLine: -1, reason: "fenced-code-premature-close" };
+    }
 
     const open = isValidFencedCodeOpenLine(reconstructed[0]);
     if (!open.valid) {

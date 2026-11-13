@@ -332,14 +332,10 @@ describe("Phase 5E-2A category F: 既存機能回帰", () => {
 
     const outcome = applySubtreeEdit(doc, info.id, original.text, "changed code");
     expect(outcome.changed).toBe(true);
-    // Phase 5E-3: fence+infoString reconstruction always inserts exactly
-    // one space (per the design memo §2 step 1), so the space-less
-    // original open line ("```js") normalizes to a spaced one
-    // ("``` js") — an intentional formatting normalization, not a
-    // fidelity bug (both are the same CommonMark info string "js"). See
-    // phase5e1FencedCodePartialEditMoveDelete.test.ts's own Mermaid test
-    // for the same normalization spelled out in more detail.
-    expect(outcome.lines).toEqual(["# H", "``` js", "changed code", "```"]);
+    // Phase 5E-3M §1-1: Phase 5E-3's "``` js" normalization no longer
+    // applies when the info string is unchanged — the original "```js"
+    // opening line is kept verbatim.
+    expect(outcome.lines).toEqual(["# H", "```js", "changed code", "```"]);
 
     // Phase 5E-3: newText itself can no longer carry an invalid fence line
     // (it's body-only now) — the invalid-open trigger moves to the new

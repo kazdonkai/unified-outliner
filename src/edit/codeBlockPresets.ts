@@ -22,6 +22,7 @@
  * info string is read or written.
  */
 import type { TranslationKey } from "../i18n";
+import { buildMermaidTemplateText } from "./mermaidStructure";
 
 export interface CodeBlockPreset {
   /** Stable id (also the canonical info string, "" for plain). */
@@ -60,6 +61,23 @@ export const CODE_BLOCK_PRESETS: readonly CodeBlockPreset[] = [
 
 export function findCodeBlockPreset(id: string): CodeBlockPreset | undefined {
   return CODE_BLOCK_PRESETS.find((p) => p.id === id);
+}
+
+/**
+ * Phase 5E-3M §1-4: the body a NEW block of preset `presetId` starts with,
+ * given the optional diagram type chosen in CodeBlockPresetModal's second
+ * step. Only the Mermaid preset uses the diagram type (its declaration +
+ * template); with no type chosen (null / "") — or an unknown id — the
+ * preset's own bodyTemplate is used unchanged, as before.
+ */
+export function resolveCodeBlockPresetBody(presetId: string, mermaidDiagramTypeId: string | null): string | null {
+  const preset = findCodeBlockPreset(presetId);
+  if (!preset) return null;
+  if (preset.id === "mermaid" && mermaidDiagramTypeId) {
+    const text = buildMermaidTemplateText(mermaidDiagramTypeId);
+    if (text !== null) return text;
+  }
+  return preset.bodyTemplate;
 }
 
 export type CustomInfoStringValidation =
