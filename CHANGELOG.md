@@ -4,10 +4,27 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-13
+
+### Added
+
+- **Structured Mermaid editing** in the Partial Edit Pane. A `mermaid` block is split into its settings (frontmatter, `%%{init}%%` directives, `%%` comments — kept and shown read-only), its diagram type line (chosen from a **Diagram type** dropdown of 11 types, with a flowchart direction dropdown and a pie / Git graph options field) and its body (the only text in the editor). **Structured / Source** switching keeps unsaved edits; blocks the view cannot split open in Source with a reason. Changing the type rewrites only the type line and shows a notice that the body is not converted; templates are used only for an empty body or a new block. Inserting a code block now offers a diagram type step when Mermaid is chosen.
+
+### Changed
+
+- Partial Edit Pane, fenced code blocks: Apply without changing the language now keeps the original opening and closing fence lines exactly (```` ```mermaid ```` no longer becomes ```` ``` mermaid ````). Changing the language still rebuilds the opening line as before. Cancel now also restores the language selection.
+- Apply refuses a body line that would close the code block early (one that starts with the same fence characters), leaving the note unchanged.
+
+- Partial Edit Pane, Mermaid: the **Structured** / **Source** switch is a single segmented control with the plugin's own styling — the selected view is filled with the accent color (and marked `aria-pressed`), independent of the theme's button styles.
+
 ### Fixed
 
 - **Open partial edit pane for current section or code block** (formerly "…for current section"): with the cursor inside a closed fenced code block (including a Mermaid block placed directly under a heading), the command now opens just that code block in the Partial Edit Pane instead of refusing with "cannot move inside a code block". An unterminated or boundary-ambiguous fence is refused with a dedicated notice and never falls back to the enclosing section. Heading and body lines still open the whole section.
 - The **Show fenced code blocks / tables in Outline Tree View** setting descriptions no longer claim the rows are read-only with no edit/move/delete; they now describe the right-click menu (Partial Edit, move, delete) these rows have had since 1.0.
+
+### Documentation
+
+- README / README.ja: current version 1.2.0; Mermaid Structured editing and the cursor command's code block target. ROADMAP / ROADMAP.ja: current release 1.2.0. Design memos and real-device acceptance records for Phase 5E-3M and the heading-adjacent fenced code fix.
 
 ## [1.1.0] - 2026-10-21
 

@@ -2,9 +2,9 @@
 
 Unified Outliner focuses on safe structural editing inside a single Markdown note. The roadmap prioritizes operations that help people rearrange, inspect, and refine meaningful blocks rather than duplicating Obsidian core features.
 
-## Current Release (1.1.0)
+## Current Release (1.2.0)
 
-**1.0.0 released: 2026-09-25 · current version 1.1.0 released: 2026-10-21**
+**1.0.0 released: 2026-09-25 · current version 1.2.0 released: 2026-11-13**
 
 Unified Outliner 1.0 completes the plugin's core scope: safe structural editing inside a single Markdown note.
 
@@ -16,7 +16,7 @@ Unified Outliner 1.0 completes the plugin's core scope: safe structural editing 
 - **Same-note mirrors**: Obsidian embeds of a heading or block in the same note (`![[#Heading]]`, `![[#^block-id]]`) are shown as read-only mirror rows (flagged when not found or circular) — a click goes to the embed line, while a double click or **Go to mirror source** goes to the referenced block, and on mobile re-tapping the selected row switches between the two; created from the tree or the Command Palette with an automatically assigned `^uo-` block id and circular references refused; moved within their section; deleted without ever changing the referenced block; and counted in the Partial Edit Pane ("Mirrors referencing this block: N") with click-to-jump. The embed syntax itself is the only record — no database is kept.
 - **Settings**: a **General** tab grouped into Outline Tree contents, Outline Tree appearance, Move operations, and Editing & interaction, and an **Extended blocks** tab; English and Japanese UI.
 
-### Since 1.0.0 (1.0.1–1.1.0)
+### Since 1.0.0 (1.0.1–1.2.0)
 
 - **1.0.1–1.0.3**: a separate Outline Tree font-size setting; reliable Outline Tree jumps (late-sizing widgets, tall Properties); desktop click toggling on mirror rows; for **List + Callout** blocks in the Partial Edit Pane, an ancestor breadcrumb and Previous / Next, with the body editor following pane navigation.
 - **1.0.4**: a third extended block, **List + Paragraph** — a single-line list item and its indented paragraph — shown read-only in the Outline Tree and edited in the Partial Edit Pane, with the paragraph's block ID always kept at the end of the paragraph.
@@ -25,6 +25,7 @@ Unified Outliner 1.0 completes the plugin's core scope: safe structural editing 
 - **1.0.7**: the Partial Edit Pane resize grip resizes both width and height, with a diagonal resize cursor, and stays on the editor's bottom-right corner.
 - **1.0.8**: the first click on the Outline Tree while another pane has focus — on a row or on a collapse arrow — now takes effect immediately (it used to need a second click; issue #4).
 - **1.1.0**: in the Partial Edit Pane, a parent list item whose own text is a list line plus one indented paragraph shows them in two editors (saved together in one Apply); a child's inline editor gets the bottom-right resize grip; child-row controls are ordered move down / move up / edit / delete.
+- **1.2.0**: Mermaid blocks open in a **Structured** view in the Partial Edit Pane — the diagram type (11 types) and flowchart direction are chosen from dropdowns, settings before the type line are kept read-only, and only the body is edited, with a **Source** view one click away; new Mermaid blocks can start from a per-type template. Applying an unchanged code block now keeps its fence lines exactly, and the cursor command opens a code block on its own when the cursor is inside it.
 
 ## Next Focus
 
