@@ -8,7 +8,7 @@ import {
   OutlineTreeSectionNode,
 } from "../src/tree/buildOutlineTree";
 import { resolveHighlightedSectionId } from "../src/tree/resolveHighlightedSectionId";
-import { canDropOn, relocateSection } from "../src/move/relocateSection";
+import { canDropOn, relocateSection, resolveSectionDropMode } from "../src/move/relocateSection";
 
 function idOf(doc: ReturnType<typeof parseDocument>, headingText: string): string {
   for (const n of doc.nodes.values()) {
@@ -57,13 +57,41 @@ describe("relocateSection", () => {
     ]);
   });
 
-  it("inside: appends the subtree as the target's last child and re-levels just the moved root", () => {
+  it("inside: inserts the subtree as the target's FIRST child (directly under the target) and re-levels just the moved root", () => {
     const text = ["# A", "## A-1", "text", "# B"].join("\n");
     const doc = parseDocument(text);
 
     const outcome = relocateSection(doc, idOf(doc, "B"), idOf(doc, "A"), "inside");
     expect(outcome.changed).toBe(true);
-    expect(outcome.lines).toEqual(["# A", "## A-1", "text", "## B"]);
+    expect(outcome.lines).toEqual(["# A", "## B", "## A-1", "text"]);
+  });
+
+  it("inside: a section ABOVE the target heading lands directly under it, not below the target's existing children (reported bug)", () => {
+    // Mirrors Minji/200/20000045_0027: a level-2 "調査ステータス" section
+    // sits before the level-1 title, whose only child is "記録".
+    const text = ["## status", "- a", "", "# Title", "", "## Record", "- r1", "- r2"].join("\n");
+    const doc = parseDocument(text);
+
+    const outcome = relocateSection(doc, idOf(doc, "status"), idOf(doc, "Title"), "inside");
+    expect(outcome.changed).toBe(true);
+    expect(outcome.lines).toEqual([
+      "# Title",
+      "",
+      "## status",
+      "- a",
+      "",
+      "## Record",
+      "- r1",
+      "- r2",
+    ]);
+    const tree = buildOutlineTree(parseDocument(outcome.lines.join("\n")));
+    expect(tree[0].children.map((n) => asSection(n).headingText)).toEqual(["status", "Record"]);
+  });
+
+  it("inside: a target without child sections still receives the subtree at the end of its range", () => {
+    const doc = parseDocument(["# A", "body", "# B"].join("\n"));
+    const outcome = relocateSection(doc, idOf(doc, "B"), idOf(doc, "A"), "inside");
+    expect(outcome.lines).toEqual(["# A", "body", "## B"]);
   });
 
   it("inside: cascades the level shift through the whole moved subtree, preserving relative levels", () => {
@@ -181,7 +209,7 @@ describe("relocateSection", () => {
     const newTree = buildOutlineTree(newDoc);
     expect(newTree).toHaveLength(1);
     expect(asSection(newTree[0]).headingText).toBe("A");
-    expect(newTree[0].children.map((n) => asSection(n).headingText)).toEqual(["A-1", "B"]);
+    expect(newTree[0].children.map((n) => asSection(n).headingText)).toEqual(["B", "A-1"]);
 
     const highlighted = resolveHighlightedSectionId(newDoc, outcome.newStartLine);
     const flat = flattenOutlineTree(newTree);
@@ -217,5 +245,20 @@ describe("canDropOn", () => {
     const listItemId = [...doc.nodes.values()].find((n) => n.type === "list")!.id;
     expect(canDropOn(doc, listItemId, idOf(doc, "A"))).toBe(false);
     expect(canDropOn(doc, idOf(doc, "A"), "sec-not-real")).toBe(false);
+  });
+});
+
+describe("resolveSectionDropMode", () => {
+  it("turns 'after' on an expanded heading with visible children into 'inside' (first child)", () => {
+    expect(resolveSectionDropMode("after", true)).toBe("inside");
+  });
+  it("keeps 'after' for a collapsed heading or one without children", () => {
+    expect(resolveSectionDropMode("after", false)).toBe("after");
+  });
+  it("never changes 'before' or 'inside'", () => {
+    for (const has of [true, false]) {
+      expect(resolveSectionDropMode("before", has)).toBe("before");
+      expect(resolveSectionDropMode("inside", has)).toBe("inside");
+    }
   });
 });

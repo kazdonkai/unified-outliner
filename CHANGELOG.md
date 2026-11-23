@@ -4,6 +4,13 @@ This project follows [Semantic Versioning](https://semver.org/). The entries bel
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-23
+
+### Fixed
+
+- Outline Tree drag & drop: dropping a section onto the middle of a heading that already has child sections ("inside") now places it directly under that heading, as its first child. Previously it was appended after the existing children, so e.g. dropping a section onto a note's title heading landed it below the title's first child section instead of under the title.
+- Outline Tree drag & drop: dropping a section on the lower third of an expanded heading that has children is now treated the same as dropping on its middle (first child), because the "after" indicator is drawn directly under the heading while the old "after" meant "below the whole subtree". Collapsed headings and headings without children keep "after" as before.
+
 ## [1.2.0] - 2026-11-13
 
 ### Added

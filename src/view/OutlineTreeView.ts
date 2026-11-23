@@ -295,7 +295,7 @@ import {
 } from "../tree/treeBlockCommand";
 import { runTreeContextualCommand } from "../tree/treeContextualCommand";
 import { TreeStructureOperation } from "../tree/treeOperation";
-import { canDropOn, DropMode, relocateSection } from "../move/relocateSection";
+import { canDropOn, DropMode, relocateSection, resolveSectionDropMode } from "../move/relocateSection";
 import { canDropListOn, relocateListSubtree } from "../move/relocateListSubtree";
 import { extractListItemBodyText } from "../edit/listBodyRange";
 import { deleteBlock } from "../edit/deleteBlock";
@@ -6865,7 +6865,7 @@ export class OutlineTreeView extends ItemView {
     }
     evt.preventDefault();
     if (evt.dataTransfer) evt.dataTransfer.dropEffect = "move";
-    this.setDropIndicator(selfEl, this.computeDropMode(evt, selfEl));
+    this.setDropIndicator(selfEl, this.sectionAwareDropMode(evt, selfEl, targetId));
   }
 
   private handleDragLeave(selfEl: HTMLElement): void {
@@ -6902,7 +6902,7 @@ export class OutlineTreeView extends ItemView {
     this.endDrag();
 
     if (!sourceId || !doc || !this.canDropAny(doc, sourceId, targetId)) return;
-    const mode = this.computeDropMode(evt, selfEl);
+    const mode = this.sectionAwareDropMode(evt, selfEl, targetId, sourceId);
     this.runRelocateCommand(sourceId, targetId, mode);
   }
 
@@ -7405,6 +7405,27 @@ export class OutlineTreeView extends ItemView {
     );
     el.addClass(`unified-outliner-drop-${mode}`);
     this.dropIndicatorEl = el;
+  }
+
+  /**
+   * computeDropMode plus resolveSectionDropMode's correction: a SECTION
+   * dropped on the lower third of an expanded section row that has children
+   * is treated as "inside" (first child), matching the indicator's
+   * position directly under that heading. Lists and other sources keep the
+   * raw zone mode.
+   */
+  private sectionAwareDropMode(
+    evt: DragEvent,
+    el: HTMLElement,
+    targetId: string,
+    sourceId: string | null = this.dragSourceId
+  ): DropMode {
+    const mode = this.computeDropMode(evt, el);
+    const sourceNode = sourceId ? this.currentDoc?.nodes.get(sourceId) : undefined;
+    const target = this.nodeById.get(targetId);
+    if (sourceNode?.type !== "section" || !target || !isOutlineSectionNode(target)) return mode;
+    const hasVisibleChildren = target.children.length > 0 && !this.collapsedIds.has(targetId);
+    return resolveSectionDropMode(mode, hasVisibleChildren);
   }
 
   /** Top third -> before, middle third -> inside, bottom third -> after. */

@@ -3,7 +3,7 @@
  *
  * Pure, Obsidian-free function that relocates a whole section subtree to
  * an arbitrary position relative to another section — before it, after
- * it, or inside it (as its last child) — for the Outline Tree View's drag
+ * it, or inside it (as its first child) — for the Outline Tree View's drag
  * & drop (view/OutlineTreeView.ts). This is a generalization of
  * move/moveBlock.ts's up/down swap (which only ever exchanges a section
  * with its immediate same-level sibling): relocateSection accepts any
@@ -66,6 +66,20 @@ function parentSectionOf(
   return parent && isSectionNode(parent) ? parent : undefined;
 }
 
+/** Start line of `target`'s first direct child SECTION, or null when it has none. */
+function firstChildSectionStartLine(
+  doc: ParsedDocument,
+  target: SectionBlockNode
+): number | null {
+  let first: number | null = null;
+  for (const childId of target.childIds) {
+    const child = doc.nodes.get(childId);
+    if (!child || !isSectionNode(child)) continue;
+    if (first === null || child.range.startLine < first) first = child.range.startLine;
+  }
+  return first;
+}
+
 /** True when `candidate` is `root` itself or nested anywhere under it. */
 function isSelfOrDescendant(
   doc: ParsedDocument,
@@ -78,6 +92,28 @@ function isSelfOrDescendant(
     cur = parentSectionOf(doc, cur);
   }
   return false;
+}
+
+/**
+ * Maps the raw pointer-zone drop mode to the mode that actually matches what
+ * the drop indicator shows for a SECTION being dropped onto a section row.
+ *
+ * On an expanded heading that has visible children, the "after" indicator is
+ * drawn at the bottom edge of the heading's OWN row — i.e. directly under the
+ * heading, above its first child — but "after" really means "after the whole
+ * subtree" (below the last descendant). Users dropping on the lower part of
+ * such a row expect "directly under this heading" (e.g. dragging
+ * "## 調査ステータス" onto the lower half of "# 題名" landed it below
+ * "## 記録"), so that case is treated as "inside" (first child). A collapsed
+ * heading, or one without children, keeps "after" unchanged — there the
+ * row's bottom edge IS the end of the subtree. "before"/"inside" are never
+ * changed.
+ */
+export function resolveSectionDropMode(
+  mode: DropMode,
+  targetHasVisibleChildren: boolean
+): DropMode {
+  return mode === "after" && targetHasVisibleChildren ? "inside" : mode;
 }
 
 /**
@@ -106,7 +142,7 @@ export function canDropOn(
 
 /**
  * Relocate the section subtree identified by `sourceId` to before, after,
- * or inside (as last child of) the section identified by `targetId`.
+ * or inside (as FIRST child of) the section identified by `targetId`.
  * Both ids must resolve against this same `doc` (same id-stability caveat
  * as every other tree/* dispatch: section ids are only meaningful within
  * the parseDocument() pass they came from).
@@ -163,10 +199,16 @@ export function relocateSection(
   } else if (mode === "after") {
     insertBeforeLine = target.range.endLine + 1;
   } else {
-    // inside: append as target's last child — target.range already spans
-    // its whole existing subtree, so inserting right after it is
-    // sufficient (docs brief: "まずは「末尾の子として追加」でよい").
-    insertBeforeLine = target.range.endLine + 1;
+    // inside: insert as target's FIRST child section, i.e. directly under
+    // the target's own heading + body (before its first existing child
+    // section). Originally this appended as the LAST child (right after
+    // target.range, which spans the whole subtree), but dropping a section
+    // onto a heading that already had children then landed it BELOW those
+    // children (e.g. "## 調査ステータス" dropped on "# 題名" ended up under
+    // "## 記録"), which is not what "drop onto this heading" means to the
+    // user. A target with no child section keeps the old behavior (the
+    // end of its range is also "directly under" it).
+    insertBeforeLine = firstChildSectionStartLine(doc, target) ?? target.range.endLine + 1;
     newRootLevel = target.headingLevel + 1;
     if (newRootLevel > MAX_HEADING_LEVEL) {
       return {

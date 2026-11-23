@@ -76,7 +76,7 @@ before/afterは**box-shadowのみ**（背景色を変えない）、insideは**b
 | カーソルのY位置（対象行の高さに対する比率） | `computeDropMode`の返り値 | 表示されるCSSクラス | 実際のdrop結果（`relocateSection`） |
 |---|---|---|---|
 | 0 〜 1/3（上端） | `before` | `.unified-outliner-drop-before`（box-shadowのみ） | targetの直前に挿入（`insertBeforeLine = target.range.startLine`） |
-| 1/3 〜 2/3（中央） | `inside` | `.unified-outliner-drop-inside`（box-shadow + background-color） | targetの最後の子として挿入し、見出しレベルを`target.headingLevel + 1`に付け替え |
+| 1/3 〜 2/3（中央） | `inside` | `.unified-outliner-drop-inside`（box-shadow + background-color） | targetの最初の子（target自身の見出し・本文の直後、既存の子セクションの前）として挿入し（既存の子セクションが無い場合は従来どおりtarget範囲の末尾）、、見出しレベルを`target.headingLevel + 1`に付け替え |
 | 2/3 〜 1（下端） | `after` | `.unified-outliner-drop-after`（box-shadowのみ） | targetの直後に挿入（`insertBeforeLine = target.range.endLine + 1`） |
 
 表示位置とdrop実行位置の対応は**一致している**（`computeDropMode`が返したmodeがそのまま`runRelocateCommand`に渡され、`relocateSection`側もその同じmodeで同じ境界を使う）。paragraph D&D（5T-2S-Bで修正済み）のような「判定ゾーンと着地edgeのズレ」は、section/listには存在しない — 後者は隣接swap専用の特殊構造だが、section/list D&Dは任意位置への再配置であり、ホバー行自体が着地位置の基準行そのものであるため、ズレが原理的に発生しない（§6で詳述）。
